@@ -1,0 +1,16 @@
+{
+  "name": "emulation-agent",
+  "version": "1.0.0",
+  "description": "Desktop agent that uses computer vision + LLM reasoning to emulate human interaction",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron ."
+  },
+  "dependencies": {
+    "electron": "^40.6.1"
+  }
+}
