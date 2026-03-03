@@ -1,20 +1,38 @@
 // App - Main entry point
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput } = require('./components');
+const { Message, ChatInput, StepCard, DoneCard, ErrorCard } = require('./components');
 const { captureScreenshot, fullCapture, navigateMouse, leftClick, rightClick, leftClickOpen, scroll } = require('./actions');
+const { dispatchAction } = require('./actions/actionProxy');
 
 // Config
-// const API_URL = 'http://localhost:8000'; // Reserved for future direct backend calls
+const BACKEND_URL = 'http://localhost:8000';
+const WS_URL      = 'ws://localhost:8000';
 
 // State
 let chats = [];
 let currentChatId = null;
 let isGenerating = false;
 let isSidePanel = false;
+let sessionId = null;
+let ws = null;
+let currentAssistantEl = null;
+let currentChat = null;
 
 // DOM refs
 let app, chatWrapper, chatContainer, chatInput, expandBtn;
+
+// Helper to manage generating state and button tooltip
+function setGenerating(generating) {
+    isGenerating = generating;
+    if (generating) {
+        chatInput.sendBtn.disabled = true;
+        chatInput.setTooltip('Messages can only be sent once agent completes processing');
+    } else {
+        chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
+        chatInput.setTooltip('');
+    }
+}
 
 function init() {
     app = document.getElementById('app');
@@ -70,6 +88,7 @@ function init() {
 
     newChat();
     chatInput.textarea.focus();
+    initSession();
 }
 
 async function toggleWindow() {
@@ -194,32 +213,47 @@ async function sendMessage() {
     chatInput.textarea.style.height = 'auto';
     chatInput.sendBtn.disabled = true;
 
-    // Move window to side panel
-    await moveToSidePanel();
-
-    // Skip default screenshot when the user wants a full capture (it takes its own)
-    if (!/\bfull[-\s]?capture\b/i.test(text)) {
-        showStatus('Capturing screen...');
-        const result = await captureScreenshot();
-
-        if (result.success) {
-            updateStatus('Screen captured');
-            await sleep(500);
-        } else {
-            updateStatus('Screenshot failed: ' + (result.error || 'Unknown error'));
-            await sleep(1000);
-        }
-
+    // Wait for the session to be initialised before hitting the backend
+    if (!sessionId) {
+        showStatus('Connecting to backend...');
+        await new Promise(resolve => {
+            const check = setInterval(() => {
+                if (sessionId) { clearInterval(check); resolve(); }
+            }, 100);
+        });
         removeStatus();
     }
 
-    // Generate response
-    await respond(chat);
+    // Move window to side panel
+    await moveToSidePanel();
+
+    // Full capture is a debug command — handled inline, not sent to agent
+    if (/\bfull[-\s]?capture\b/i.test(text)) {
+        showStatus('Full capture (panel excluded)...');
+        const result = await fullCapture();
+        removeStatus();
+        const msg = result.success
+            ? `Full capture saved: ${result.filename} (${result.width}\u00d7${result.height})`
+            : `Full capture failed: ${result.error}`;
+        chat.messages.push({ role: 'assistant', content: msg });
+        addMessage('assistant', msg, chat.messages.length - 1);
+        return;
+    }
+
+    // Capture screenshot and forward to agent
+    showStatus('Capturing screen...');
+    const screenshot = await captureScreenshot();
+    if (!screenshot.success) {
+        updateStatus('Screenshot failed: ' + (screenshot.error || 'unknown error'));
+        await sleep(1000);
+    }
+    removeStatus();
+
+    await respond(chat, screenshot.success ? screenshot.base64 : null);
 }
 
-async function respond(chat) {
-    isGenerating = true;
-    chatInput.sendBtn.disabled = true;
+async function respond(chat, base64Screenshot = null) {
+    setGenerating(true);
 
     const lastUserMsg = [...chat.messages].reverse().find(m => m.role === 'user')?.content || '';
 
@@ -227,95 +261,27 @@ async function respond(chat) {
     const contentEl = addMessage('assistant', '', chat.messages.length - 1);
     contentEl.innerHTML = '<span class="typing"></span>';
 
-    let response;
+    // Track which element and chat the WS messages should update
+    currentAssistantEl = contentEl;
+    currentChat = chat;
 
-    if (/\bfull[-\s]?capture\b/i.test(lastUserMsg)) {
-        showStatus('Full capture (panel excluded)...');
-        const result = await fullCapture();
-        removeStatus();
-
-        response = result.success
-            ? `Full capture saved: ${result.filename} (${result.width}×${result.height})`
-            : `Full capture failed: ${result.error}`;
-
-    } else if (/\bscroll\b/i.test(lastUserMsg)) {
-        const x = Math.floor(Math.random() * 1200) + 100;
-        const y = Math.floor(Math.random() * 600) + 100;
-        const direction = /\bup\b/i.test(lastUserMsg) ? 'up' : 'down';
-        const amountMatch = lastUserMsg.match(/(\d+)/);
-        const amount = amountMatch ? parseInt(amountMatch[1]) : 3;
-
-        showStatus(`Scrolling ${direction} x${amount} at (${x}, ${y})...`);
-        const result = await scroll(x, y, direction, amount);
-        removeStatus();
-
-        response = result.success
-            ? `Scrolled ${result.direction} ${result.amount} notch${result.amount !== 1 ? 'es' : ''} at (${result.x}, ${result.y}).`
-            : `Failed to scroll: ${result.error}`;
-
-    } else if (/\bmove\b/i.test(lastUserMsg)) {
-        const x = Math.floor(Math.random() * 1200) + 100;
-        const y = Math.floor(Math.random() * 600) + 100;
-
-        showStatus(`Moving mouse to (${x}, ${y})...`);
-        const result = await navigateMouse(x, y);
-        removeStatus();
-
-        response = result.success
-            ? `Moved mouse to coordinates (${result.x}, ${result.y}).`
-            : `Failed to move mouse: ${result.error}`;
-
-    } else if (/\bleft-click-open\b/i.test(lastUserMsg)) {
-        const x = Math.floor(Math.random() * 1200) + 100;
-        const y = Math.floor(Math.random() * 600) + 100;
-
-        showStatus(`Opening at (${x}, ${y})...`);
-        const result = await leftClickOpen(x, y);
-        removeStatus();
-
-        response = result.success
-            ? `Double clicked (open) at coordinates (${result.x}, ${result.y}).`
-            : `Failed to open: ${result.error}`;
-
-    } else if (/\bleft-click\b/i.test(lastUserMsg)) {
-        const x = Math.floor(Math.random() * 1200) + 100;
-        const y = Math.floor(Math.random() * 600) + 100;
-
-        showStatus(`Left clicking at (${x}, ${y})...`);
-        const result = await leftClick(x, y);
-        removeStatus();
-
-        response = result.success
-            ? `Left clicked at coordinates (${result.x}, ${result.y}).`
-            : `Failed to left click: ${result.error}`;
-
-    } else if (/\bright-click\b/i.test(lastUserMsg)) {
-        const x = Math.floor(Math.random() * 1200) + 100;
-        const y = Math.floor(Math.random() * 600) + 100;
-
-        showStatus(`Right clicking at (${x}, ${y})...`);
-        const result = await rightClick(x, y);
-        removeStatus();
-
-        response = result.success
-            ? `Right clicked at coordinates (${result.x}, ${result.y}).`
-            : `Failed to right click: ${result.error}`;
-
-    } else {
-        response = "I can see your screen. Let me analyze it and help with your task.";
+    try {
+        await fetch(`${BACKEND_URL}/agent/step`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id:        sessionId,
+                user_message:      lastUserMsg,
+                base64_screenshot: base64Screenshot || '',
+                previous_messages: chat.messages
+                    .slice(0, -1)   // exclude the empty assistant placeholder
+                    .map(m => ({ role: m.role, content: m.content }))
+            })
+        });
+    } catch (err) {
+        contentEl.textContent = `Backend unreachable: ${err.message}`;
+        setGenerating(false);
     }
-
-    let text = '';
-    for (const char of response) {
-        text += char;
-        contentEl.textContent = text;
-        chat.messages[chat.messages.length - 1].content = text;
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-        await sleep(20);
-    }
-
-    isGenerating = false;
-    chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
 }
 
 function editMessage(index) {
@@ -346,16 +312,150 @@ async function regenerate(index) {
     for (let i = index; i < msgs.length; i++) msgs[i].remove();
 
     showStatus('Capturing screen...');
-    const result = await captureScreenshot();
-    updateStatus(result.success ? 'Screen captured' : 'Screenshot failed');
+    const screenshot = await captureScreenshot();
+    updateStatus(screenshot.success ? 'Screen captured' : 'Screenshot failed');
     await sleep(500);
     removeStatus();
 
-    await respond(chat);
+    await respond(chat, screenshot.success ? screenshot.base64 : null);
 }
 
 function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
+}
+
+// ── Backend + WebSocket ──────────────────────────────────────────────────────────────
+
+async function initSession() {
+    try {
+        const res = await fetch(`${BACKEND_URL}/agent/session`, { method: 'POST' });
+        const data = await res.json();
+        sessionId = data.session_id;
+        initWebSocket(sessionId);
+        console.log('[session] created', sessionId);
+    } catch (err) {
+        console.warn('[session] backend unreachable:', err.message);
+        console.log('[session] retrying in 2s...');
+        setTimeout(initSession, 2000);
+    }
+}
+
+function initWebSocket(sid) {
+    ws = new WebSocket(`${WS_URL}/ws/${sid}`);
+    ws.onopen  = () => console.log('[ws] connected');
+    ws.onclose = () => {
+        console.log('[ws] closed — reconnecting in 2s');
+        setTimeout(() => initWebSocket(sid), 2000);
+    };
+    ws.onerror = (e) => console.warn('[ws] error', e);
+    ws.onmessage = (event) => {
+        try { handleWsMessage(JSON.parse(event.data)); }
+        catch (e) { console.warn('[ws] bad message:', event.data); }
+    };
+}
+
+async function handleWsMessage(data) {
+    switch (data.type) {
+        case 'status':
+            showStatus(data.message);
+            break;
+
+        case 'step': {
+            // Full step payload: { screenshot, reasoning, action, done, confidence, final_message }
+            removeStatus();
+
+            const stepCard = StepCard(data);
+            if (currentAssistantEl) {
+                currentAssistantEl.innerHTML = '';
+                currentAssistantEl.appendChild(stepCard.element);
+            }
+
+            // Store in chat history
+            if (currentChat) {
+                currentChat.messages[currentChat.messages.length - 1].content = data.reasoning || data.final_message || '';
+                currentChat.messages[currentChat.messages.length - 1].stepData = data;
+            }
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // If not done, execute the action
+            if (!data.done && data.action) {
+                await executeAction(data.action, stepCard.element);
+            }
+
+            // Allow follow-up messages after step is received
+            setGenerating(false);
+            break;
+        }
+
+        case 'done': {
+            removeStatus();
+            const msg = data.message || 'Task complete.';
+            if (currentAssistantEl) {
+                const doneCard = DoneCard(msg);
+                currentAssistantEl.innerHTML = '';
+                currentAssistantEl.appendChild(doneCard.element);
+            }
+            if (currentChat) {
+                currentChat.messages[currentChat.messages.length - 1].content = msg;
+            }
+            setGenerating(false);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            break;
+        }
+
+        case 'error':
+            removeStatus();
+            if (currentAssistantEl) {
+                const errCard = ErrorCard(data.message);
+                currentAssistantEl.innerHTML = '';
+                currentAssistantEl.appendChild(errCard.element);
+            }
+            setGenerating(false);
+            break;
+    }
+}
+
+// ── Action execution ────────────────────────────────────────────────────────────────
+
+async function executeAction(action, stepEl) {
+    const result = await dispatchAction(action);
+
+    // Update the status badge inside the step card
+    const badge = stepEl.querySelector('#step-action-status');
+    if (badge) {
+        if (result.success) {
+            badge.className = 'step-action-status success';
+            badge.textContent = '✓ Done';
+        } else {
+            badge.className = 'step-action-status failed';
+            badge.textContent = `✗ Failed: ${result.error || 'unknown'}`;
+        }
+    }
+
+    // Notify backend
+    try {
+        await fetch(`${BACKEND_URL}/action/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                ipc_channel: result.ipc || action.type,
+                success: result.success,
+                error: result.error || null
+            })
+        });
+    } catch (e) { /* non-critical */ }
+}
+
+async function typeText(el, text) {
+    let out = '';
+    for (const ch of text) {
+        out += ch;
+        el.textContent = out;
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        await sleep(15);
+    }
 }
 
 init();

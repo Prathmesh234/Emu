@@ -4,6 +4,8 @@ const { Button, icons } = require('./Button');
 const { Message } = require('./Message');
 const { ChatInput } = require('./ChatInput');
 const { Sidebar, HistoryItem } = require('./Sidebar');
+const { StepCard, DoneCard, ErrorCard } = require('./StepCard');
+const { Tooltip } = require('./Tooltip');
 
 module.exports = {
     Button,
@@ -11,5 +13,9 @@ module.exports = {
     Message,
     ChatInput,
     Sidebar,
-    HistoryItem
+    HistoryItem,
+    StepCard,
+    DoneCard,
+    ErrorCard,
+    Tooltip
 };

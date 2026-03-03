@@ -32,7 +32,7 @@ function register(ipcMain, { desktopCapturer, screen, BACKEND_URL }) {
             fs.writeFileSync(filepath, Buffer.from(base64, 'base64'));
             console.log(`[screenshot] saved ${filepath}`);
 
-            return { success: true, filename, path: filepath, width, height };
+            return { success: true, filename, path: filepath, width, height, base64 };
         } catch (err) {
             return { success: false, error: err.message };
         }

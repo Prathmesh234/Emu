@@ -1,6 +1,7 @@
 // ChatInput component
 
 const { Button, icons } = require('./Button');
+const { Tooltip } = require('./Tooltip');
 
 function ChatInput(onSend) {
     const container = document.createElement('div');
@@ -19,6 +20,9 @@ function ChatInput(onSend) {
     sendBtn.innerHTML = icons.send;
     sendBtn.disabled = true;
 
+    // Wrap send button with tooltip
+    const sendBtnTooltip = Tooltip(sendBtn, '');
+
     // Auto-resize
     textarea.oninput = () => {
         textarea.style.height = 'auto';
@@ -30,7 +34,7 @@ function ChatInput(onSend) {
     textarea.onkeydown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            if (textarea.value.trim() && onSend) onSend();
+            if (textarea.value.trim() && !sendBtn.disabled && onSend) onSend();
         }
     };
 
@@ -39,10 +43,15 @@ function ChatInput(onSend) {
     };
 
     wrapper.appendChild(textarea);
-    wrapper.appendChild(sendBtn);
+    wrapper.appendChild(sendBtnTooltip.element);
     container.appendChild(wrapper);
 
-    return { element: container, textarea, sendBtn };
+    return {
+        element: container,
+        textarea,
+        sendBtn,
+        setTooltip: sendBtnTooltip.setText
+    };
 }
 
 module.exports = { ChatInput };

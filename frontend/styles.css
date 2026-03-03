@@ -60,3 +60,163 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; background
 
 .typing::after { content: '...'; animation: t 1.4s infinite; }
 @keyframes t { 0%,60%,100%{opacity:.2} 30%{opacity:1} }
+
+/* ── Step cards ────────────────────────────────────────────────────────── */
+
+.step-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    max-width: 100%;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* Screenshot thumbnail */
+.step-screenshot {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+}
+.step-screenshot img {
+    width: 100%;
+    max-height: 140px;
+    object-fit: cover;
+    display: block;
+    transition: max-height 0.3s ease;
+}
+.step-screenshot img.step-screenshot-expanded {
+    max-height: none;
+    object-fit: contain;
+}
+.step-screenshot-error {
+    padding: 1rem;
+    color: #9ca3af;
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+/* Section labels */
+.step-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    margin-bottom: 0.15rem;
+}
+
+/* Reasoning */
+.step-reasoning {
+    padding: 0.5rem 0.65rem;
+    background: #f0f4ff;
+    border-radius: 0.5rem;
+    border-left: 3px solid #6366f1;
+}
+.step-reasoning-text {
+    color: #1e293b;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Action */
+.step-action {
+    padding: 0.5rem 0.65rem;
+    background: #fffbeb;
+    border-radius: 0.5rem;
+    border-left: 3px solid #f59e0b;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.step-action-desc {
+    color: #1e293b;
+    font-family: 'SF Mono', 'Cascadia Code', monospace;
+    font-size: 0.8rem;
+}
+
+/* Confidence pill */
+.step-confidence {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    width: fit-content;
+}
+.step-confidence.high { background: #dcfce7; color: #166534; }
+.step-confidence.mid  { background: #fef9c3; color: #854d0e; }
+.step-confidence.low  { background: #fee2e2; color: #991b1b; }
+
+/* Action execution status */
+.step-action-status {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.2rem 0;
+}
+.step-action-status.pending { color: #9ca3af; }
+.step-action-status.success { color: #16a34a; }
+.step-action-status.failed  { color: #dc2626; }
+
+/* Done block */
+.step-done {
+    padding: 0.5rem 0.65rem;
+    background: #f0fdf4;
+    border-radius: 0.5rem;
+    border-left: 3px solid #22c55e;
+    color: #166534;
+    font-weight: 500;
+}
+
+/* Error card */
+.step-card.step-error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+    padding: 0.65rem 0.85rem;
+}
+
+/* Tooltip */
+.tooltip-wrapper {
+    position: relative;
+    display: inline-block;
+}
+.tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.4rem 0.6rem;
+    background: #1f2937;
+    color: #fff;
+    font-size: 0.7rem;
+    border-radius: 0.3rem;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s, visibility 0.15s;
+    margin-bottom: 0.4rem;
+    pointer-events: none;
+    z-index: 100;
+}
+.tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #1f2937;
+}
+.tooltip-wrapper.tooltip-enabled:hover .tooltip {
+    opacity: 1;
+    visibility: visible;
+}
