@@ -34,6 +34,12 @@ class AgentResponse(BaseModel):
         description="Human-readable completion summary (populated when done=True)"
     )
 
+    # Reasoning / Chain-of-thought
+    reasoning_content: Optional[str] = Field(
+        default=None,
+        description="Model's internal reasoning / chain-of-thought text (from reasoning_content field)"
+    )
+
     # Quality signals
     confidence: float = Field(
         default=1.0, ge=0.0, le=1.0,

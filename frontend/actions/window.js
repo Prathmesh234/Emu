@@ -22,7 +22,10 @@ function register(ipcMain, getMainWindow) {
         if (!win) return { success: false };
         const { width, height } = screen.getPrimaryDisplay().workAreaSize;
         originalBounds = win.getBounds();
-        win.setBounds({ x: width - 400, y: 0, width: 400, height }, false);
+        const panelWidth = 450;
+        const panelHeight = Math.round(height * 0.75);
+        const panelY = Math.round((height - panelHeight) / 2);
+        win.setBounds({ x: width - panelWidth - 16, y: panelY, width: panelWidth, height: panelHeight }, false);
         win.setAlwaysOnTop(true, 'screen-saver');
         return { success: true };
     });

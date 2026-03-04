@@ -27,6 +27,8 @@ function createWindow() {
     y: Math.round((height - 600) / 2),
     minWidth: 380,
     minHeight: 400,
+    frame: false,
+    transparent: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false

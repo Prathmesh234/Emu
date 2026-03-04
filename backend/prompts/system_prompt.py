@@ -90,7 +90,23 @@ AVAILABLE ACTIONS
 9. WAIT — Pause (for loading, animations)
    { "type": "wait", "ms": <int> }
 
-10. DONE — Task is complete
+10. SHELL_EXEC — Run a PowerShell command and get the output
+    { "type": "shell_exec", "command": "<powershell command>" }
+
+    Use for: reading files, writing files, listing directories, checking
+    running processes, creating/deleting files, inspecting system state,
+    or any task better done via shell than mouse/keyboard.
+
+    Examples:
+      Get-Content "C:\\Users\\me\\notes.md"
+      Set-Content "C:\\Users\\me\\hello.md" -Value "Hello World"
+      Get-ChildItem "C:\\Users\\me\\Desktop"
+      Get-Process | Select-Object -First 10 Name, Id, CPU
+
+    The command output (stdout) is returned to you in the next turn.
+    Keep commands to a single line. Use semicolons to chain if needed.
+
+11. DONE — Task is complete
     { "type": "done" }
 
 ═══════════════════════════════════════════════════════════════════════════════

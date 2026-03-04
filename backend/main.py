@@ -190,12 +190,13 @@ async def agent_step(req: AgentRequest):
     action_payload = response.action.model_dump(exclude_none=True)
 
     await manager.send(session_id, {
-        "type":          "step",
-        "reasoning":     response_json,
-        "action":        action_payload,
-        "done":          response.done,
-        "confidence":    response.confidence,
-        "final_message": response.final_message,
+        "type":               "step",
+        "reasoning":          response_json,
+        "reasoning_content":  response.reasoning_content or "",
+        "action":             action_payload,
+        "done":               response.done,
+        "confidence":         response.confidence,
+        "final_message":      response.final_message,
     })
 
     if response.done:

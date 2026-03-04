@@ -10,6 +10,7 @@ const { navigateMouse }  = require('./navigate');
 const { scroll }         = require('./scroll');
 const { captureScreenshot } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
+const { shellExec }      = require('./exec');
 
 /**
  * ActionType enum values coming from the backend (models/actions.py)
@@ -84,6 +85,13 @@ const ACTION_MAP = {
         ipc:   null,
         dispatch: (a) => new Promise(r => setTimeout(r, a.ms || 1000)),
         describe: (a) => `Wait ${a.ms || 1000}ms`,
+    },
+    shell_exec: {
+        label: 'Shell Exec',
+        icon:  '💻',
+        ipc:   'shell:exec',
+        dispatch: (a) => shellExec(a.command),
+        describe: (a) => `Run: ${(a.command || '').slice(0, 60)}`,
     },
     done: {
         label: 'Done',

@@ -13,6 +13,7 @@ class ActionType(str, Enum):
     SCROLL       = "scroll"
     TYPE_TEXT    = "type_text"
     KEY_PRESS    = "key_press"
+    SHELL_EXEC   = "shell_exec"
     WAIT         = "wait"
     DONE         = "done"
 
@@ -78,4 +79,10 @@ class Action(BaseModel):
         default=None,
         ge=0,
         description="Milliseconds to pause (used with WAIT)"
+    )
+
+    # Shell exec
+    command: Optional[str] = Field(
+        default=None,
+        description="PowerShell command to execute (used with SHELL_EXEC)"
     )

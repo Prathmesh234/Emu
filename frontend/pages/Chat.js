@@ -229,11 +229,16 @@ async function respond(chat, base64Screenshot = null) {
 
     const lastUserMsg = store.getLastUserMessage(chat);
 
-    store.pushMessage(chat.id, { role: 'assistant', content: '' });
+    store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
     const contentEl = addMessage('assistant', '', chat.messages.length - 1);
     contentEl.innerHTML = '<span class="typing"></span>';
 
+    // Create a step container for sequential step cards
+    const stepContainer = document.createElement('div');
+    stepContainer.className = 'step-container';
     store.setAssistantEl(contentEl);
+    store.state.stepContainer = stepContainer;
+    store.state.stepCount = 0;
 
     try {
         await api.postStep({
@@ -301,16 +306,34 @@ async function handleWsMessage(data) {
         case 'step': {
             removeStatus();
 
-            const stepCard = StepCard(data);
+            // Increment step counter
+            store.state.stepCount = (store.state.stepCount || 0) + 1;
+            const stepNum = store.state.stepCount;
+
+            const stepCard = StepCard(data, stepNum);
+
             if (state.currentAssistantEl) {
-                state.currentAssistantEl.innerHTML = '';
-                state.currentAssistantEl.appendChild(stepCard.element);
+                // Remove typing indicator on first step
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
+                // Ensure step container exists
+                let container = state.stepContainer;
+                if (container && !container.parentNode) {
+                    state.currentAssistantEl.appendChild(container);
+                }
+                if (container) {
+                    container.appendChild(stepCard.element);
+                } else {
+                    state.currentAssistantEl.appendChild(stepCard.element);
+                }
             }
 
             if (state.currentChat) {
                 const last = state.currentChat.messages[state.currentChat.messages.length - 1];
                 last.content = data.reasoning || data.final_message || '';
                 last.stepData = data;
+                last.stepCount = stepNum;
             }
 
             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -351,9 +374,16 @@ async function handleWsMessage(data) {
             removeStatus();
             const msg = data.message || 'Task complete.';
             if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
                 const doneCard = DoneCard(msg);
-                state.currentAssistantEl.innerHTML = '';
-                state.currentAssistantEl.appendChild(doneCard.element);
+                let container = state.stepContainer;
+                if (container && container.parentNode) {
+                    container.appendChild(doneCard.element);
+                } else {
+                    state.currentAssistantEl.appendChild(doneCard.element);
+                }
             }
             if (state.currentChat) {
                 state.currentChat.messages[state.currentChat.messages.length - 1].content = msg;
@@ -366,9 +396,16 @@ async function handleWsMessage(data) {
         case 'error':
             removeStatus();
             if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
                 const errCard = ErrorCard(data.message);
-                state.currentAssistantEl.innerHTML = '';
-                state.currentAssistantEl.appendChild(errCard.element);
+                let container = state.stepContainer;
+                if (container && container.parentNode) {
+                    container.appendChild(errCard.element);
+                } else {
+                    state.currentAssistantEl.appendChild(errCard.element);
+                }
             }
             syncGeneratingUI(false);
             break;
@@ -382,7 +419,7 @@ async function executeAction(action, stepEl) {
     const result = await dispatchAction(action);
     console.log(`[executeAction] result:`, result);
 
-    const badge = stepEl.querySelector('#step-action-status');
+    const badge = stepEl.querySelector('.step-action-status');
     if (badge) {
         if (result.success) {
             badge.className = 'step-action-status success';
@@ -444,6 +481,12 @@ function mount(appEl) {
     expandBtn.style.display = 'none';
     expandBtn.onclick = toggleWindow;
     headerActions.appendChild(expandBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.onclick = () => window.close();
+    headerActions.appendChild(closeBtn);
 
     header.appendChild(h1);
     header.appendChild(headerActions);

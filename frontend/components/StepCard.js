@@ -1,10 +1,35 @@
-// StepCard component - displays agent step with screenshot, reasoning, and action
+// StepCard component - displays agent step with step number, reasoning, and action
 
 const { describeAction, actionIcon } = require('../actions/actionProxy');
 
-function StepCard(data) {
+function StepCard(data, stepNum) {
     const card = document.createElement('div');
     card.className = 'step-card';
+
+    // Step header with number
+    const header = document.createElement('div');
+    header.className = 'step-header';
+
+    const numBadge = document.createElement('span');
+    numBadge.className = 'step-number';
+    numBadge.textContent = stepNum || '?';
+    header.appendChild(numBadge);
+
+    const headerLabel = document.createElement('span');
+    headerLabel.textContent = data.done ? 'Complete' : `Step ${stepNum || '?'}`;
+    header.appendChild(headerLabel);
+
+    // Confidence pill (inline in header)
+    if (data.confidence != null && !data.done) {
+        const pill = document.createElement('span');
+        pill.className = 'step-confidence';
+        const pct = Math.round(data.confidence * 100);
+        pill.textContent = `${pct}%`;
+        pill.classList.add(pct >= 80 ? 'high' : pct >= 50 ? 'mid' : 'low');
+        header.appendChild(pill);
+    }
+
+    card.appendChild(header);
 
     // Screenshot thumbnail
     if (data.screenshot) {
@@ -23,20 +48,33 @@ function StepCard(data) {
         card.appendChild(imgWrap);
     }
 
-    // Reasoning block
-    if (data.reasoning) {
+    // Reasoning block — prefer reasoning_content (model's thinking), fall back to reasoning (JSON)
+    const reasoningText = data.reasoning_content || '';
+    if (reasoningText) {
         const reasonBlock = document.createElement('div');
         reasonBlock.className = 'step-reasoning';
 
         const reasonLabel = document.createElement('div');
         reasonLabel.className = 'step-label';
-        reasonLabel.textContent = 'Reasoning';
+        reasonLabel.textContent = 'Thinking';
         reasonBlock.appendChild(reasonLabel);
 
-        const reasonText = document.createElement('div');
-        reasonText.className = 'step-reasoning-text';
-        reasonText.textContent = data.reasoning;
-        reasonBlock.appendChild(reasonText);
+        const reasonEl = document.createElement('div');
+        reasonEl.className = 'step-reasoning-text';
+        // Truncate long reasoning with expand toggle
+        const MAX_CHARS = 300;
+        if (reasoningText.length > MAX_CHARS) {
+            reasonEl.textContent = reasoningText.slice(0, MAX_CHARS) + '…';
+            reasonEl.style.cursor = 'pointer';
+            let expanded = false;
+            reasonEl.onclick = () => {
+                expanded = !expanded;
+                reasonEl.textContent = expanded ? reasoningText : reasoningText.slice(0, MAX_CHARS) + '…';
+            };
+        } else {
+            reasonEl.textContent = reasoningText;
+        }
+        reasonBlock.appendChild(reasonEl);
 
         card.appendChild(reasonBlock);
     }
@@ -59,21 +97,10 @@ function StepCard(data) {
         actionDesc.textContent = desc;
         actionBlock.appendChild(actionDesc);
 
-        // Confidence pill
-        if (data.confidence != null) {
-            const pill = document.createElement('span');
-            pill.className = 'step-confidence';
-            const pct = Math.round(data.confidence * 100);
-            pill.textContent = `${pct}% confident`;
-            pill.classList.add(pct >= 80 ? 'high' : pct >= 50 ? 'mid' : 'low');
-            actionBlock.appendChild(pill);
-        }
-
         // Status badge (will be updated after execution)
         const badge = document.createElement('div');
         badge.className = 'step-action-status pending';
-        badge.textContent = 'Executing...';
-        badge.id = 'step-action-status';
+        badge.textContent = 'Executing…';
         actionBlock.appendChild(badge);
 
         card.appendChild(actionBlock);

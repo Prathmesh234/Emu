@@ -163,6 +163,7 @@ def _parse_response(data: dict, elapsed_ms: int) -> AgentResponse:
         done=done,
         final_message=final_message,
         confidence=confidence,
+        reasoning_content=reasoning if reasoning else None,
         inference_time_ms=elapsed_ms,
         model_name=MODEL_NAME,
     )

@@ -10,6 +10,7 @@ const rightClick    = require('./rightClick');
 const leftClickOpen = require('./leftClickOpen');
 const scroll        = require('./scroll');
 const keyboard      = require('./keyboard');
+const exec          = require('./exec');
 const window_       = require('./window');
 
 module.exports = {
@@ -23,6 +24,7 @@ module.exports = {
     scroll:             scroll.scroll,
     keyPress:           keyboard.keyPress,
     typeText:           keyboard.typeText,
+    shellExec:          exec.shellExec,
 
     // IPC registration functions (called from main.js)
     registerAll(ipcMain, deps) {
@@ -34,6 +36,7 @@ module.exports = {
         rightClick.register(ipcMain, deps.BACKEND_URL);
         scroll.register(ipcMain, deps.BACKEND_URL);
         keyboard.register(ipcMain);
+        exec.register(ipcMain);
         window_.register(ipcMain, deps.getMainWindow);
     }
 };

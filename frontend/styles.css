@@ -1,14 +1,30 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; background: #ffffff; }
+html, body { height: 100%; background: transparent; }
+body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
 
-#app { display: flex; flex-direction: column; width: 100%; height: 100vh; }
+#app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100vh;
+    background: #ffffff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
+}
 
-.main { flex: 1; display: flex; flex-direction: column; height: 100vh; background: #ffffff; }
-.header { padding: 0.75rem 1rem; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; }
+.main { flex: 1; display: flex; flex-direction: column; height: 100%; background: #ffffff; }
+.header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    -webkit-app-region: drag;
+}
 .header h1 { font-size: 1rem; font-weight: 600; }
-.header-actions { display: flex; gap: 0.5rem; }
-.expand-btn { padding: 0.3rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.4rem; background: #fff; cursor: pointer; font-size: 0.75rem; }
+.header-actions { display: flex; gap: 0.5rem; -webkit-app-region: no-drag; }
+.expand-btn { padding: 0.3rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.4rem; background: #fff; cursor: pointer; font-size: 0.75rem; -webkit-app-region: no-drag; }
 .expand-btn:hover { background: #f3f4f6; }
 
 .chat-container { flex: 1; overflow-y: auto; }
@@ -52,6 +68,48 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; background
 .input-container { padding: 0.75rem; border-top: 1px solid #e5e7eb; }
 .input-wrapper { display: flex; gap: 0.5rem; align-items: flex-end; }
 
+/* Close button (frameless window) */
+.close-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 0.4rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+}
+.close-btn:hover { background: #fee2e2; color: #dc2626; }
+
+/* Step number badge */
+.step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    color: #374151;
+    font-size: 0.7rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* Step card header row */
+.step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6b7280;
+}
+
 .chat-input { flex: 1; padding: 0.6rem 0.8rem; border: 1px solid #d1d5db; border-radius: 0.6rem; font-size: 0.9rem; font-family: inherit; line-height: 1.4; resize: none; outline: none; min-height: 44px; max-height: 150px; }
 .chat-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
 .send-btn { width: 44px; height: 44px; border: 1px solid #111827; border-radius: 0.6rem; background: #111827; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -62,6 +120,13 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; background
 @keyframes t { 0%,60%,100%{opacity:.2} 30%{opacity:1} }
 
 /* ── Step cards ────────────────────────────────────────────────────────── */
+
+/* Container for sequential step cards inside one assistant message */
+.step-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
 
 .step-card {
     display: flex;
