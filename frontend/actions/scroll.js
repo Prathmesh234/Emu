@@ -25,7 +25,6 @@ function register(ipcMain, BACKEND_URL) {
                 `[W.U32]::mouse_event(0x0800, 0, 0, ${delta}, 0)`
             ].join('; '));
 
-            fetch(`${BACKEND_URL}/scroll/x=${x},y=${y},direction=${direction},amount=${amount}`, { method: 'POST' }).catch(() => {});
             return { success: true, x, y, direction, amount };
         } catch (err) {
             return { success: false, error: err.message };

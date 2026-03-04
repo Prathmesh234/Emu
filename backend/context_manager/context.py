@@ -8,17 +8,22 @@ of the codebase — no custom dataclasses.
 Chain structure (built inside AgentRequest.previous_messages)
 ─────────────────────────────────────────────────────────────
   [system]    system prompt
-  [user]      user message                      ← appended on every call
-  [assistant] full AgentResponse JSON            ← appended after each model response
-  [user]      next user message
-  [assistant] next AgentResponse JSON
-  ...repeated for every turn...
+  [user]      "Open Notepad and type hello world"   ← text task
+  [assistant] reasoning + action: screenshot         ← model asks to see screen
+  [user]      data:image/png;base64,iVBOR...         ← screenshot from frontend
+  [assistant] reasoning + action: left_click(x,y)    ← model acts
+  [user]      data:image/png;base64,iVBOR...         ← screenshot after action
+  ...repeated...
 
-The current screenshot is always passed as AgentRequest.base64_screenshot.
+Screenshots are stored as data URIs in user messages.
+modal_client detects these and renders them as multimodal image content.
 """
 
 from models import AgentRequest, PreviousMessage, MessageRole
 from prompts import SYSTEM_PROMPT
+
+# Prefix used to identify screenshot messages in history
+SCREENSHOT_PREFIX = "data:image/"
 
 
 class ContextManager:
@@ -27,9 +32,12 @@ class ContextManager:
 
     Typical call order
     ──────────────────
-    1. build_request(session_id, user_message, screenshot)   → send to Modal
-    2. add_assistant_turn(session_id, response_json)          → append model reply
-    3. Repeat from 1 with the next screenshot
+    1. add_user_message(session_id, text)               → user types a task
+    2. build_request(session_id)                         → send to Modal
+    3. add_assistant_turn(session_id, response_json)     → model response
+    4. add_screenshot_turn(session_id, base64)           → screenshot from frontend
+    5. build_request(session_id)                         → send to Modal again
+    6. Repeat 3–5 for each step
     """
 
     def __init__(self):
@@ -44,6 +52,23 @@ class ContextManager:
             ]
         return self._history[session_id]
 
+    def add_user_message(self, session_id: str, text: str) -> None:
+        """Append a text-only user message (the task instruction)."""
+        self._get(session_id).append(
+            PreviousMessage(role=MessageRole.user, content=text)
+        )
+
+    def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
+        """
+        Append a screenshot as a user message.
+        Stored as a data URI so modal_client can detect and render it as an image.
+        """
+        if not base64_screenshot.startswith("data:"):
+            base64_screenshot = f"data:image/png;base64,{base64_screenshot}"
+        self._get(session_id).append(
+            PreviousMessage(role=MessageRole.user, content=base64_screenshot)
+        )
+
     def add_assistant_turn(self, session_id: str, response_json: str) -> None:
         """
         Append the model's full JSON response to the chain.
@@ -56,36 +81,29 @@ class ContextManager:
             )
         )
 
-    def build_request(
-        self,
-        session_id: str,
-        user_message: str,
-        base64_screenshot: str,
-    ) -> AgentRequest:
+    def build_request(self, session_id: str) -> AgentRequest:
         """
-        Build an AgentRequest ready to send to Modal.
-
-        On the FIRST call for a session (history contains only the system prompt),
-        the user message is appended to history so subsequent steps can see it.
-
-        Chain after step 0 completes:
-          [system] → [user: original message] → [assistant: reasoning + action] → ...
-
-        previous_messages  = everything accumulated so far.
-        base64_screenshot  = the latest screenshot (only visual input, not stored in history).
+        Build an AgentRequest from the current history.
+        All context (text, screenshots, assistant responses) is already
+        stored in the history — just snapshot it.
         """
         history = self._get(session_id)
 
-        # Every call adds the user message to the chain
-        history.append(PreviousMessage(role=MessageRole.user, content=user_message))
+        # Count steps: each assistant turn = 1 step
+        step_index = sum(1 for m in history if m.role == MessageRole.assistant)
 
-        step_index = max(0, len(history) - 2)  # subtract system prompt + first user msg
+        # Get the original user message (first user turn)
+        user_message = ""
+        for m in history:
+            if m.role == MessageRole.user and not m.content.startswith(SCREENSHOT_PREFIX):
+                user_message = m.content
+                break
 
         return AgentRequest(
             session_id=session_id,
             user_message=user_message,
-            base64_screenshot=base64_screenshot,
-            previous_messages=list(history),  # snapshot for this request
+            base64_screenshot="",  # no longer passed separately
+            previous_messages=list(history),
             step_index=step_index,
         )
 

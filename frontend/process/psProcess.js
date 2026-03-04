@@ -25,6 +25,8 @@ const SENTINEL = '##PS_DONE##';
 function _flush() {
     if (pending || cmdQueue.length === 0 || !ps) return;
     pending = cmdQueue.shift();
+    const preview = pending.cmd.slice(0, 80).replace(/\n/g, '\\n');
+    console.log(`[psProcess] >> ${preview}${pending.cmd.length > 80 ? '...' : ''}`);
     // Append a sentinel write so we know exactly when the command finished
     ps.stdin.write(`${pending.cmd}\nWrite-Output "${SENTINEL}"\n`);
 }
@@ -43,7 +45,9 @@ function start() {
         const idx = buffer.indexOf(SENTINEL);
         if (idx !== -1 && pending) {
             const output = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + SENTINEL.length);
+            buffer = buffer.slice(idx + SENTINEL.length).replace(/^\r?\n/, '');
+            const preview = pending.cmd.slice(0, 60).replace(/\n/g, '\\n');
+            console.log(`[psProcess] << done (${preview}) output=${output ? JSON.stringify(output) : '(empty)'}`);
             const { resolve } = pending;
             pending = null;
             resolve(output);
@@ -66,12 +70,20 @@ function start() {
     });
 
     // Pre-load assemblies used by all actions.
-    // Queued as the very first command so every subsequent run() call can use
-    // them without re-declaring Add-Type.
-    run([
-        `Add-Type -AssemblyName System.Windows.Forms`,
-        `Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);' -Name U32 -Namespace W`
-    ].join('\n')).catch(err => console.error('[psProcess] init error:', err));
+    // Each run() call is a single-line command — no multi-line here-strings.
+    // The queue serialises them automatically.
+    const MEMBER_DEF = [
+        '[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);',
+        '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);',
+    ].join(' ');
+
+    run('Add-Type -AssemblyName System.Windows.Forms')
+        .then(() => console.log('[psProcess] Forms assembly loaded'))
+        .catch(err => console.error('[psProcess] Forms load error:', err));
+
+    run(`Add-Type -MemberDefinition '${MEMBER_DEF}' -Name U32 -Namespace W`)
+        .then(() => console.log('[psProcess] U32 type loaded — ready'))
+        .catch(err => console.error('[psProcess] U32 load error:', err));
 
     console.log('[psProcess] started');
 }

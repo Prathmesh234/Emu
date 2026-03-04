@@ -9,6 +9,7 @@ const { leftClickOpen }  = require('./leftClickOpen');
 const { navigateMouse }  = require('./navigate');
 const { scroll }         = require('./scroll');
 const { captureScreenshot } = require('./screenshot');
+const { keyPress, typeText } = require('./keyboard');
 
 /**
  * ActionType enum values coming from the backend (models/actions.py)
@@ -29,22 +30,22 @@ const ACTION_MAP = {
         label: 'Left Click',
         icon:  '🖱️',
         ipc:   'mouse:left-click',
-        dispatch: (a) => leftClick(a.coordinates.x, a.coordinates.y),
-        describe: (a) => `Click at (${a.coordinates.x}, ${a.coordinates.y})`,
+        dispatch: () => leftClick(),
+        describe: () => 'Left click',
     },
     right_click: {
         label: 'Right Click',
         icon:  '🖱️',
         ipc:   'mouse:right-click',
-        dispatch: (a) => rightClick(a.coordinates.x, a.coordinates.y),
-        describe: (a) => `Right-click at (${a.coordinates.x}, ${a.coordinates.y})`,
+        dispatch: () => rightClick(),
+        describe: () => 'Right click',
     },
     double_click: {
         label: 'Double Click',
         icon:  '🖱️',
         ipc:   'mouse:double-click',
-        dispatch: (a) => leftClickOpen(a.coordinates.x, a.coordinates.y),
-        describe: (a) => `Double-click at (${a.coordinates.x}, ${a.coordinates.y})`,
+        dispatch: () => leftClickOpen(),
+        describe: () => 'Double click',
     },
     mouse_move: {
         label: 'Mouse Move',
@@ -57,21 +58,21 @@ const ACTION_MAP = {
         label: 'Scroll',
         icon:  '📜',
         ipc:   'mouse:scroll',
-        dispatch: (a) => scroll(a.coordinates.x, a.coordinates.y, a.direction, a.amount || 3),
-        describe: (a) => `Scroll ${a.direction} ${a.amount || 3} notches at (${a.coordinates.x}, ${a.coordinates.y})`,
+        dispatch: (a) => scroll(0, 0, a.direction, a.amount || 3),
+        describe: (a) => `Scroll ${a.direction} ${a.amount || 3} notches`,
     },
     type_text: {
         label: 'Type Text',
         icon:  '⌨️',
         ipc:   'keyboard:type',
-        dispatch: null,  // handled specially in app.js (needs psProcess)
+        dispatch: (a) => typeText(a.text),
         describe: (a) => `Type "${a.text}"`,
     },
     key_press: {
         label: 'Key Press',
         icon:  '⌨️',
         ipc:   'keyboard:key-press',
-        dispatch: null,  // handled specially in app.js
+        dispatch: (a) => keyPress(a.key, a.modifiers || []),
         describe: (a) => {
             const mods = (a.modifiers || []).join('+');
             return mods ? `Press ${mods}+${a.key}` : `Press ${a.key}`;
@@ -94,6 +95,20 @@ const ACTION_MAP = {
 };
 
 /**
+ * Race a promise against a timeout.  Rejects with a descriptive error
+ * if the promise doesn't settle within `ms` milliseconds.
+ */
+function withTimeout(promise, ms, label) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+const ACTION_TIMEOUT_MS = 10_000;   // 10 s — generous for IPC + psProcess
+
+/**
  * Execute a backend action object.
  * @param {object} action - The action from AgentResponse (has .type + params)
  * @returns {{ success: boolean, ipc: string|null, description: string }}
@@ -108,14 +123,20 @@ async function dispatchAction(action) {
     const description = entry.describe(action);
 
     if (!entry.dispatch) {
-        // type_text, key_press, done — caller handles these
         return { success: true, ipc: entry.ipc, description, needsSpecialHandling: true };
     }
 
     try {
-        const result = await entry.dispatch(action);
+        console.log(`[actionProxy] dispatching ${action.type}...`);
+        const result = await withTimeout(
+            entry.dispatch(action),
+            ACTION_TIMEOUT_MS,
+            action.type
+        );
+        console.log(`[actionProxy] ${action.type} done`, result);
         return { success: result?.success !== false, ipc: entry.ipc, description };
     } catch (err) {
+        console.error(`[actionProxy] ${action.type} failed:`, err);
         return { success: false, ipc: entry.ipc, description, error: err.message };
     }
 }

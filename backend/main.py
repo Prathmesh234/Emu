@@ -15,6 +15,8 @@ from models import (
     ScreenshotRequest,
 )
 from context_manager import ContextManager
+from modal_client import call_modal
+from modal_health import ensure_ready, is_ready
 
 app = FastAPI(title="Emulation Agent API")
 
@@ -96,30 +98,49 @@ async def get_session(session_id: str):
 async def agent_step(req: AgentRequest):
     """
     Main agent loop entry point.
-    Accepts user message + screenshot, orchestrates model call, and streams
-    actions + reasoning back to the frontend via WebSocket.
+
+    Two modes of invocation:
+      1. New task:   user_message is set, base64_screenshot is empty.
+                     Adds the user text to context, calls Modal.
+                     Model will likely respond with a screenshot action.
+
+      2. Screenshot: base64_screenshot is set (after frontend captures).
+                     Adds the screenshot to context, calls Modal.
+                     Model sees the screen and decides the next action.
     """
     session_id = req.session_id or str(uuid.uuid4())
+    has_screenshot = bool(req.base64_screenshot)
+    has_text = bool(req.user_message.strip())
 
-    # Build the full context chain for this step
-    agent_req = context_manager.build_request(session_id, req.user_message, req.base64_screenshot)
+    # ── Add to context ──────────────────────────────────────────────────────
+    if has_screenshot:
+        context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
+    if has_text:
+        context_manager.add_user_message(session_id, req.user_message)
 
-    screenshot_kb = round(len(req.base64_screenshot) * 3 / 4 / 1024, 1) if req.base64_screenshot else 0
+    # Build the request from accumulated history
+    agent_req = context_manager.build_request(session_id)
+
+    # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
+    screenshot_kb = round(len(req.base64_screenshot) * 3 / 4 / 1024, 1) if has_screenshot else 0
 
     print("\n" + "=" * 60)
     print("[agent/step] NEW REQUEST")
-    print(f"  session_id        : {session_id}")
-    print(f"  timestamp         : {req.timestamp}")
-    print(f"  user_message      : {req.user_message}")
-    print(f"  step_index        : {agent_req.step_index}")
-    print(f"  base64_screenshot : {len(req.base64_screenshot)} chars (~{screenshot_kb} KB)")
-    if req.base64_screenshot:
-        print(f"  screenshot prefix : {req.base64_screenshot[:40]}...")
-    print(f"\n  ── context chain ({len(history)} message(s) in history) ──")
+    print(f"  session_id  : {session_id}")
+    print(f"  mode        : {'screenshot' if has_screenshot else 'text'}")
+    print(f"  step_index  : {agent_req.step_index}")
+    if has_text:
+        print(f"  user_message: {req.user_message}")
+    if has_screenshot:
+        print(f"  screenshot  : {screenshot_kb} KB")
+    print(f"\n  ── context chain ({len(history)} messages) ──")
     for i, msg in enumerate(history):
-        preview = msg.content[:80].replace("\n", " ")
-        print(f"    [{i}] {msg.role.value:<10}  {preview}{'...' if len(msg.content) > 80 else ''}")
+        if msg.content.startswith("data:image/"):
+            print(f"    [{i}] {msg.role.value:<10}  [SCREENSHOT]")
+        else:
+            preview = msg.content[:80].replace("\n", " ")
+            print(f"    [{i}] {msg.role.value:<10}  {preview}{'...' if len(msg.content) > 80 else ''}")
     print("=" * 60 + "\n")
 
     # Tell frontend we're thinking
@@ -128,30 +149,69 @@ async def agent_step(req: AgentRequest):
         "message": "Processing your request..."
     })
 
+    # ── Ensure Modal container is warm ──────────────────────────────────────
+    if not is_ready():
+        await manager.send(session_id, {
+            "type": "status",
+            "message": "Warming up inference server... (first request may take a moment)"
+        })
+
+    try:
+        ensure_ready(timeout=300, poll_interval=5)
+    except TimeoutError as e:
+        print(f"[agent/step] Container not ready: {e}")
+        await manager.send(session_id, {
+            "type": "error",
+            "message": "Inference server is not responding. Please try again in a minute.",
+        })
+        return {"session_id": session_id, "status": "error", "error": str(e)}
+
     # ── Call Modal container ────────────────────────────────────────────────
-    # TODO: replace with real Modal HTTP call
-    #   response: AgentResponse = await call_modal(agent_req)
-    #
-    # After Modal responds, send a single 'step' message to the frontend:
-    #   response_json = response.model_dump_json(exclude_none=True)
-    #   context_manager.add_assistant_turn(session_id, response_json)
-    #
-    #   await manager.send(session_id, {
-    #       "type":          "step",
-    #       "screenshot":    req.base64_screenshot,
-    #       "reasoning":     "<reasoning from chat template>",
-    #       "action":        response.action.model_dump(exclude_none=True),
-    #       "done":          response.done,
-    #       "confidence":    response.confidence,
-    #       "final_message": response.final_message,
-    #   })
+    try:
+        response: AgentResponse = call_modal(agent_req)
+    except Exception as e:
+        print(f"[agent/step] Modal call failed: {e}")
+        await manager.send(session_id, {
+            "type": "error",
+            "message": f"Modal inference failed: {e}",
+        })
+        return {"session_id": session_id, "status": "error", "error": str(e)}
+
+    # Persist the model's response in conversation history
+    response_json = response.model_dump_json(exclude_none=True)
+    context_manager.add_assistant_turn(session_id, response_json)
+
+    print(f"[agent/step] Modal responded in {response.inference_time_ms}ms")
+    print(f"  action     : {response.action.type.value}")
+    print(f"  done       : {response.done}")
+    print(f"  confidence : {response.confidence}")
+
+    # Route action to frontend via WebSocket
+    action_payload = response.action.model_dump(exclude_none=True)
 
     await manager.send(session_id, {
-        "type": "done",
-        "message": "Modal container not yet connected. Context chain built successfully."
+        "type":          "step",
+        "reasoning":     response_json,
+        "action":        action_payload,
+        "done":          response.done,
+        "confidence":    response.confidence,
+        "final_message": response.final_message,
     })
 
-    return {"session_id": session_id, "status": "awaiting_modal"}
+    if response.done:
+        await manager.send(session_id, {
+            "type": "done",
+            "message": response.final_message or "Task complete.",
+        })
+
+    return {
+        "session_id": session_id,
+        "status": "done" if response.done else "action_dispatched",
+        "action": action_payload,
+        "done": response.done,
+        "confidence": response.confidence,
+        "final_message": response.final_message,
+    }
 
 
 @app.post("/action/complete")

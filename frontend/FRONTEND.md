@@ -6,9 +6,17 @@ The core philosophy of this frontend is **reusability**. Every UI element should
 
 ```
 frontend/
-├── app.js                 # Main entry point and state management
+├── app.js                 # Minimal entry point — mounts the active page
 ├── index.html             # HTML shell
 ├── styles.css             # Global styles
+├── state/
+│   └── store.js           # Centralized state management
+├── services/
+│   ├── api.js             # HTTP API calls to backend
+│   └── websocket.js       # WebSocket connection management
+├── pages/
+│   ├── index.js           # Page exports
+│   └── Chat.js            # Chat page (messages, input, WS handler, actions)
 ├── components/            # Reusable UI components
 │   ├── index.js           # Component exports
 │   ├── Button.js          # Button with icon support
@@ -105,21 +113,39 @@ The `actions/` directory contains IPC handlers that bridge the renderer process 
 
 ## State Management
 
-Currently handled in `app.js` with module-level variables:
+Centralized in `state/store.js`. All state lives in a single `state` object; components read from it and call mutation functions to update.
 
 | State | Purpose |
 |-------|---------|
 | `chats` | Array of chat conversations |
 | `currentChatId` | Active chat ID |
 | `isGenerating` | Whether agent is processing |
+| `isSidePanel` | Whether window is in side-panel mode |
 | `sessionId` | Backend session ID |
 | `ws` | WebSocket connection |
 | `currentAssistantEl` | Current assistant message element |
 | `currentChat` | Current chat object reference |
 
+**Key functions:** `createChat()`, `setCurrentChat()`, `pushMessage()`, `truncateMessages()`, `getLastUserMessage()`.
+
+## Services
+
+| Service | File | Purpose |
+|---------|------|---------|
+| API | `services/api.js` | HTTP calls — `createSession()`, `postStep()`, `notifyActionComplete()` |
+| WebSocket | `services/websocket.js` | WS connection, reconnect, message routing |
+
+## Pages
+
+| Page | File | Description |
+|------|------|-------------|
+| Chat | `pages/Chat.js` | Full chat UI — messages, input, status, WS handling, action execution |
+
+Pages expose a `mount(appEl)` function. `app.js` calls `Chat.mount(app)` to render.
+
 ### Helper Functions
 
-**`setGenerating(boolean)`** - Manages the generating state and send button:
+**`syncGeneratingUI(boolean)`** - Manages the generating state and send button:
 - When `true`: Disables send button, shows processing tooltip
 - When `false`: Enables send button, clears tooltip
 
@@ -141,33 +167,9 @@ initWebSocket(sessionId)  // Connect to ws://localhost:8000/ws/{sessionId}
 
 ## FUTURE
 
-### 1. Modular App Architecture
+### 1. Modular App Architecture  ✅ DONE
 
-**Current State:** `app.js` is a monolithic 450+ line file handling routing, state, UI rendering, and WebSocket communication.
-
-**Goal:** Break into smaller, focused modules:
-
-```
-frontend/
-├── app.js              # Minimal entry point
-├── state/
-│   ├── store.js        # Centralized state management
-│   └── actions.js      # State mutation functions
-├── pages/
-│   ├── Chat.js         # Chat page component
-│   ├── Settings.js     # Settings page
-│   └── History.js      # Chat history page
-├── services/
-│   ├── websocket.js    # WebSocket connection management
-│   └── api.js          # HTTP API calls
-└── components/         # (existing)
-```
-
-**Benefits:**
-- Each file has a single responsibility
-- Easier to test individual modules
-- New pages can be added without touching existing code
-- State changes are predictable and traceable
+Implemented — `app.js` is now a minimal entry point. State lives in `state/store.js`, HTTP calls in `services/api.js`, WebSocket management in `services/websocket.js`, and the chat UI in `pages/Chat.js`.
 
 ### 2. Simplified UI
 

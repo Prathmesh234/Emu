@@ -12,7 +12,6 @@ function register(ipcMain, BACKEND_URL) {
             await psProcess.run(
                 `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
             );
-            fetch(`${BACKEND_URL}/click/left/x=${x},y=${y}`, { method: 'POST' }).catch(() => {});
             return { success: true, x, y };
         } catch (err) {
             return { success: false, error: err.message };

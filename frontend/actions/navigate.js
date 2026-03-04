@@ -8,13 +8,14 @@ async function navigateMouse(x, y) {
 
 function register(ipcMain, BACKEND_URL) {
     ipcMain.handle('mouse:move', async (_event, { x, y }) => {
+        console.log(`[navigate] mouse:move invoked x=${x} y=${y}`);
         try {
-            await psProcess.run(
-                `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x}, ${y})`
-            );
-            fetch(`${BACKEND_URL}/move/x=${x},y=${y}`, { method: 'POST' }).catch(() => {});
+            const cmd = `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x}, ${y})`;
+            const result = await psProcess.run(cmd);
+            console.log(`[navigate] mouse:move OK x=${x} y=${y} result=${JSON.stringify(result)}`);
             return { success: true, x, y };
         } catch (err) {
+            console.error(`[navigate] mouse:move FAILED x=${x} y=${y}:`, err.message);
             return { success: false, error: err.message };
         }
     });
