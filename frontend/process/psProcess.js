@@ -102,8 +102,10 @@ function run(cmd) {
 // ── Public: shut down the process (called on app quit) ────────────────────
 function stop() {
     if (ps) {
-        try { ps.stdin.end(); } catch (_) {}
+        try { ps.kill('SIGTERM'); } catch (_) {}
         ps = null;
+        pending = null;
+        cmdQueue.length = 0;
         console.log('[psProcess] stopped');
     }
 }

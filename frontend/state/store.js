@@ -7,6 +7,7 @@ const state = {
     chats: [],
     currentChatId: null,
     isGenerating: false,
+    isStopped: false,
     isSidePanel: false,
     sessionId: null,
     ws: null,
@@ -50,6 +51,10 @@ function setGenerating(value) {
     state.isGenerating = value;
 }
 
+function setStopped(value) {
+    state.isStopped = value;
+}
+
 function setSidePanel(value) {
     state.isSidePanel = value;
 }
@@ -91,6 +96,7 @@ module.exports = {
     createChat,
     setCurrentChat,
     setGenerating,
+    setStopped,
     setSidePanel,
     setSession,
     setWebSocket,

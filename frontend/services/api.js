@@ -33,4 +33,12 @@ async function notifyActionComplete({ sessionId, ipcChannel, success, error }) {
     });
 }
 
-module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete };
+async function stopAgent(sessionId) {
+    return fetch(`${BACKEND_URL}/agent/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+    });
+}
+
+module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent };

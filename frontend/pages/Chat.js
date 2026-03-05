@@ -19,13 +19,22 @@ let chatContainer, chatWrapper, chatInput, expandBtn;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/** Scroll chat to bottom after the browser has laid out new content. */
+function scrollToBottom() {
+    requestAnimationFrame(() => {
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    });
+}
+
 function syncGeneratingUI(generating) {
     store.setGenerating(generating);
     if (generating) {
-        chatInput.sendBtn.disabled = true;
-        chatInput.setTooltip('Messages can only be sent once agent completes processing');
+        chatInput.setMode('stop');
+        chatInput.setTooltip('Click to stop the agent');
     } else {
-        chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
+        chatInput.setMode('send');
         chatInput.setTooltip('');
     }
 }
@@ -80,7 +89,7 @@ function addMessage(role, content, index) {
     });
 
     chatWrapper.appendChild(msg.element);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    scrollToBottom();
     return msg.content;
 }
 
@@ -99,7 +108,7 @@ function showStatus(text) {
     indicator.appendChild(span);
 
     chatWrapper.appendChild(indicator);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    scrollToBottom();
 }
 
 function updateStatus(text) {
@@ -175,11 +184,65 @@ async function regenerate(index) {
     await respond(chat, screenshot.success ? screenshot.base64 : null);
 }
 
-// ── Send / respond ───────────────────────────────────────────────────────
+// ── Send / respond / stop ────────────────────────────────────────────────
+
+async function stopAgent() {
+    if (!store.state.isGenerating) return;
+
+    console.log('[stopAgent] user requested stop');
+    store.setStopped(true);
+
+    // Notify backend — adds STOP to the context chain
+    try {
+        await api.stopAgent(store.state.sessionId);
+    } catch (err) {
+        console.warn('[stopAgent] backend call failed:', err.message);
+    }
+
+    // Show a stopped step card in the UI
+    const { state } = store;
+    store.state.stepCount = (store.state.stepCount || 0) + 1;
+    const stepNum = store.state.stepCount;
+
+    const stoppedCard = StepCard({
+        action: { type: 'done' },
+        done: true,
+        final_message: 'Stopped by user',
+        confidence: 1.0,
+    }, stepNum);
+
+    if (state.currentAssistantEl) {
+        let container = state.stepContainer;
+        if (container && !container.parentNode) {
+            state.currentAssistantEl.appendChild(container);
+        }
+        if (container) {
+            container.appendChild(stoppedCard.element);
+        } else {
+            state.currentAssistantEl.appendChild(stoppedCard.element);
+        }
+    }
+    scrollToBottom();
+
+    syncGeneratingUI(false);
+
+    // Add visible STOP message in chat
+    const chat = store.getCurrentChat();
+    if (chat) {
+        store.pushMessage(chat.id, { role: 'user', content: 'STOP' });
+        addMessage('user', 'STOP', chat.messages.length - 1);
+    }
+}
 
 async function sendMessage() {
     const text = chatInput.textarea.value.trim();
-    if (!text || store.state.isGenerating) return;
+    if (!text) return;
+
+    // If currently generating, stop instead
+    if (store.state.isGenerating) {
+        await stopAgent();
+        return;
+    }
 
     const chat = store.getCurrentChat();
     if (!chat) return;
@@ -225,6 +288,7 @@ async function sendMessage() {
 }
 
 async function respond(chat, base64Screenshot = null) {
+    store.setStopped(false);
     syncGeneratingUI(true);
 
     const lastUserMsg = store.getLastUserMessage(chat);
@@ -257,6 +321,10 @@ async function respond(chat, base64Screenshot = null) {
  * Called after the model requests a screenshot or after executing an action.
  */
 async function continueLoop() {
+    if (store.state.isStopped) {
+        console.log('[continueLoop] stopped by user — bailing out');
+        return;
+    }
     const chat = store.getCurrentChat();
     if (!chat) { console.warn('[continueLoop] no current chat'); return; }
 
@@ -274,7 +342,34 @@ async function continueLoop() {
         return;
     }
 
-    console.log(`[continueLoop] screenshot OK (${Math.round(screenshot.base64.length / 1024)} KB) — posting to backend`);
+    const sizeKB = Math.round(screenshot.base64.length / 1024);
+    console.log(`[continueLoop] screenshot OK (${sizeKB} KB) — posting to backend`);
+
+    // Show screenshot as a visible step card in the UI
+    store.state.stepCount = (store.state.stepCount || 0) + 1;
+    const stepNum = store.state.stepCount;
+
+    const screenshotStepData = {
+        action: { type: 'screenshot' },
+        screenshot: screenshot.base64,
+        confidence: 1.0,
+        done: false,
+    };
+    const screenshotCard = StepCard(screenshotStepData, stepNum);
+
+    const { state } = store;
+    if (state.currentAssistantEl) {
+        let container = state.stepContainer;
+        if (container && !container.parentNode) {
+            state.currentAssistantEl.appendChild(container);
+        }
+        if (container) {
+            container.appendChild(screenshotCard.element);
+        } else {
+            state.currentAssistantEl.appendChild(screenshotCard.element);
+        }
+    }
+    scrollToBottom();
 
     // Send screenshot to backend (no new assistant message bubble — reuse current)
     try {
@@ -336,9 +431,16 @@ async function handleWsMessage(data) {
                 last.stepCount = stepNum;
             }
 
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            scrollToBottom();
 
             if (data.done) {
+                syncGeneratingUI(false);
+                break;
+            }
+
+            // Bail out if user stopped
+            if (store.state.isStopped) {
+                console.log('[step] user stopped — not executing action');
                 syncGeneratingUI(false);
                 break;
             }
@@ -389,9 +491,15 @@ async function handleWsMessage(data) {
                 state.currentChat.messages[state.currentChat.messages.length - 1].content = msg;
             }
             syncGeneratingUI(false);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            scrollToBottom();
             break;
         }
+
+        case 'stopped':
+            removeStatus();
+            console.log('[ws] received stopped from backend');
+            syncGeneratingUI(false);
+            break;
 
         case 'error':
             removeStatus();
@@ -500,8 +608,12 @@ function mount(appEl) {
     chatContainer.appendChild(chatWrapper);
     main.appendChild(chatContainer);
 
+    // Auto-scroll whenever new content is added or elements resize
+    const observer = new MutationObserver(() => scrollToBottom());
+    observer.observe(chatWrapper, { childList: true, subtree: true, attributes: true });
+
     // Input
-    chatInput = ChatInput(sendMessage);
+    chatInput = ChatInput(sendMessage, stopAgent);
     main.appendChild(chatInput.element);
 
     appEl.appendChild(main);

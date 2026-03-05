@@ -10,6 +10,7 @@ const store = require('../state/store');
 const WS_URL = 'ws://localhost:8000';
 
 let onMessageHandler = null;
+let _closing = false;
 
 // ── Serial message queue ──────────────────────────────────────────────
 const _queue = [];
@@ -38,6 +39,7 @@ function initWebSocket(sessionId) {
     ws.onopen = () => console.log('[ws] connected');
 
     ws.onclose = () => {
+        if (_closing) return;
         console.log('[ws] closed — reconnecting in 2s');
         setTimeout(() => initWebSocket(sessionId), 2000);
     };
@@ -61,4 +63,12 @@ function setMessageHandler(handler) {
     onMessageHandler = handler;
 }
 
-module.exports = { initWebSocket, setMessageHandler };
+function closeWebSocket() {
+    _closing = true;
+    const ws = store.state.ws;
+    if (ws) {
+        try { ws.close(); } catch (_) {}
+    }
+}
+
+module.exports = { initWebSocket, setMessageHandler, closeWebSocket };

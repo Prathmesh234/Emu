@@ -112,9 +112,11 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
 
 .chat-input { flex: 1; padding: 0.6rem 0.8rem; border: 1px solid #d1d5db; border-radius: 0.6rem; font-size: 0.9rem; font-family: inherit; line-height: 1.4; resize: none; outline: none; min-height: 44px; max-height: 150px; }
 .chat-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
-.send-btn { width: 44px; height: 44px; border: 1px solid #111827; border-radius: 0.6rem; background: #111827; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.send-btn { width: 44px; height: 44px; border: 1px solid #111827; border-radius: 0.6rem; background: #111827; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s, border-color 0.15s; }
 .send-btn:hover:not(:disabled) { background: #2563eb; border-color: #2563eb; }
 .send-btn:disabled { cursor: not-allowed; border-color: #d1d5db; background: #e5e7eb; color: #9ca3af; }
+.send-btn.stop-mode { background: #dc2626; border-color: #dc2626; }
+.send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
 
 .typing::after { content: '...'; animation: t 1.4s infinite; }
 @keyframes t { 0%,60%,100%{opacity:.2} 30%{opacity:1} }
