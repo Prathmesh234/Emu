@@ -5,6 +5,7 @@ from .request import (
     MessageRole,
     PreviousMessage,
     ScreenshotRequest,
+    StopRequest,
 )
 from .response import AgentResponse
 
@@ -19,6 +20,7 @@ __all__ = [
     "AgentRequest",
     "ScreenshotRequest",
     "ActionCompleteRequest",
+    "StopRequest",
     # response
     "AgentResponse",
 ]

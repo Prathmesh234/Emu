@@ -9,6 +9,7 @@ class ActionType(str, Enum):
     LEFT_CLICK   = "left_click"
     RIGHT_CLICK  = "right_click"
     DOUBLE_CLICK = "double_click"
+    TRIPLE_CLICK = "triple_click"
     MOUSE_MOVE   = "mouse_move"
     SCROLL       = "scroll"
     TYPE_TEXT    = "type_text"

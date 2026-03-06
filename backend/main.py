@@ -13,10 +13,18 @@ from models import (
     AgentResponse,
     ActionCompleteRequest,
     ScreenshotRequest,
+    StopRequest,
 )
 from context_manager import ContextManager
-from modal_client import call_modal
-from modal_health import ensure_ready, is_ready
+from workspace import ensure_session_dir
+
+# ── Inference backend ────────────────────────────────────────────────────────
+# Swap between backends by changing this single import.
+#
+#   Modal (GPU):   from providers.modal import call_model, is_ready, ensure_ready
+#   Claude (API):  from providers.claude import call_model, is_ready, ensure_ready
+#
+from providers.claude import call_model, ensure_ready, is_ready
 
 app = FastAPI(title="Emulation Agent API")
 
@@ -81,9 +89,10 @@ async def receive_screenshot(req: ScreenshotRequest):
 
 @app.post("/agent/session")
 async def create_session():
-    """Create a new agent session and return its ID."""
+    """Create a new agent session, scaffold its .emu/sessions/<id>/ directory."""
     session_id = str(uuid.uuid4())
-    print(f"[session] created {session_id}")
+    session_dir = ensure_session_dir(session_id)
+    print(f"[session] created {session_id}  dir={session_dir}")
     return {"session_id": session_id}
 
 
@@ -101,11 +110,11 @@ async def agent_step(req: AgentRequest):
 
     Two modes of invocation:
       1. New task:   user_message is set, base64_screenshot is empty.
-                     Adds the user text to context, calls Modal.
+                     Adds the user text to context, calls the model.
                      Model will likely respond with a screenshot action.
 
       2. Screenshot: base64_screenshot is set (after frontend captures).
-                     Adds the screenshot to context, calls Modal.
+                     Adds the screenshot to context, calls the model.
                      Model sees the screen and decides the next action.
     """
     session_id = req.session_id or str(uuid.uuid4())
@@ -149,7 +158,7 @@ async def agent_step(req: AgentRequest):
         "message": "Processing your request..."
     })
 
-    # ── Ensure Modal container is warm ──────────────────────────────────────
+    # ── Ensure inference backend is ready ───────────────────────────────────
     if not is_ready():
         await manager.send(session_id, {
             "type": "status",
@@ -166,14 +175,15 @@ async def agent_step(req: AgentRequest):
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-    # ── Call Modal container ────────────────────────────────────────────────
+
+    # ── Call inference backend ──────────────────────────────────────────────
     try:
-        response: AgentResponse = call_modal(agent_req)
+        response: AgentResponse = call_model(agent_req)
     except Exception as e:
-        print(f"[agent/step] Modal call failed: {e}")
+        print(f"[agent/step] Inference call failed: {e}")
         await manager.send(session_id, {
             "type": "error",
-            "message": f"Modal inference failed: {e}",
+            "message": f"Inference failed: {e}",
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
@@ -181,7 +191,7 @@ async def agent_step(req: AgentRequest):
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
 
-    print(f"[agent/step] Modal responded in {response.inference_time_ms}ms")
+    print(f"[agent/step] Model responded in {response.inference_time_ms}ms")
     print(f"  action     : {response.action.type.value}")
     print(f"  done       : {response.done}")
     print(f"  confidence : {response.confidence}")
@@ -219,7 +229,40 @@ async def agent_step(req: AgentRequest):
 async def action_complete(req: ActionCompleteRequest):
     """Electron notifies backend that a dispatched action has finished."""
     print(f"[action/complete] session={req.session_id} channel={req.ipc_channel} ok={req.success}")
+
+    # Inject shell_exec output (or error) into the context chain so the model
+    # can see what a command returned.  This goes in as a user message right
+    # before the next screenshot.
+    if req.output or req.error:
+        text_parts = []
+        if req.output:
+            text_parts.append(f"[shell_exec output]\n{req.output}")
+        if req.error and not req.success:
+            text_parts.append(f"[shell_exec error]\n{req.error}")
+        context_manager.add_user_message(req.session_id, "\n".join(text_parts))
+        print(f"[action/complete] injected shell output ({len(req.output or '')} chars) into context")
+
     return {"acknowledged": True}
+
+
+@app.post("/agent/stop")
+async def agent_stop(req: StopRequest):
+    """
+    User interrupted the agent flow.
+    Append a STOP user message to the context chain so the model is
+    aware the user halted execution. The chain is preserved — the user
+    can continue the conversation afterwards.
+    """
+    session_id = req.session_id
+    context_manager.add_user_message(session_id, "STOP")
+    print(f"[agent/stop] session={session_id} — user interrupted, STOP added to chain")
+
+    await manager.send(session_id, {
+        "type": "stopped",
+        "message": "Agent stopped by user.",
+    })
+
+    return {"session_id": session_id, "status": "stopped"}
 
 
 @app.websocket("/ws/{session_id}")

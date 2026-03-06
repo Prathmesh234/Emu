@@ -26,6 +26,9 @@ build/
 # ── Screenshots (runtime output) ──────────────────────────────────
 backend/emulation_screen_shots/
 
+# ── .emu workspace (user-specific, runtime) ───────────────────────
+.emu/
+
 # ── Environment & secrets ─────────────────────────────────────────
 .env
 .env.local

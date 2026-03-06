@@ -6,6 +6,7 @@
 const { leftClick }      = require('./leftClick');
 const { rightClick }     = require('./rightClick');
 const { leftClickOpen }  = require('./leftClickOpen');
+const { tripleClick }    = require('./tripleClick');
 const { navigateMouse }  = require('./navigate');
 const { scroll }         = require('./scroll');
 const { captureScreenshot } = require('./screenshot');
@@ -47,6 +48,13 @@ const ACTION_MAP = {
         ipc:   'mouse:double-click',
         dispatch: () => leftClickOpen(),
         describe: () => 'Double click',
+    },
+    triple_click: {
+        label: 'Triple Click',
+        icon:  '🖱️',
+        ipc:   'mouse:triple-click',
+        dispatch: () => tripleClick(),
+        describe: () => 'Triple click (select line)',
     },
     mouse_move: {
         label: 'Mouse Move',
@@ -142,7 +150,12 @@ async function dispatchAction(action) {
             action.type
         );
         console.log(`[actionProxy] ${action.type} done`, result);
-        return { success: result?.success !== false, ipc: entry.ipc, description };
+        return {
+            success: result?.success !== false,
+            ipc: entry.ipc,
+            description,
+            output: result?.output ?? null,
+        };
     } catch (err) {
         console.error(`[actionProxy] ${action.type} failed:`, err);
         return { success: false, ipc: entry.ipc, description, error: err.message };

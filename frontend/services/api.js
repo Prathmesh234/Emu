@@ -20,7 +20,7 @@ async function postStep({ sessionId, userMessage, base64Screenshot }) {
     });
 }
 
-async function notifyActionComplete({ sessionId, ipcChannel, success, error }) {
+async function notifyActionComplete({ sessionId, ipcChannel, success, error, output }) {
     return fetch(`${BACKEND_URL}/action/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -29,6 +29,7 @@ async function notifyActionComplete({ sessionId, ipcChannel, success, error }) {
             ipc_channel: ipcChannel,
             success,
             error: error || null,
+            output: output || null,
         }),
     });
 }

@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, screen, desktopCapturer } = require('electron');
 const path = require('path');
 const psProcess = require('./frontend/process/psProcess');
+const { initEmu } = require('./frontend/emu');
+const pkg = require('./package.json');
 
 const BACKEND_URL = 'http://localhost:8000';
 
@@ -43,6 +45,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Bootstrap .emu/ folder (idempotent — safe on every launch)
+  initEmu(pkg.version);
+
   psProcess.start();
   createWindow();
 
@@ -60,5 +65,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  // Close WebSocket first to prevent reconnect loop, then kill PowerShell
+  try { require('./frontend/services/websocket').closeWebSocket(); } catch (_) {}
   psProcess.stop();
 });

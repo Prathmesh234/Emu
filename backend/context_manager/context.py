@@ -19,11 +19,21 @@ Screenshots are stored as data URIs in user messages.
 modal_client detects these and renders them as multimodal image content.
 """
 
+import json
+
 from models import AgentRequest, PreviousMessage, MessageRole
-from prompts import SYSTEM_PROMPT
+from prompts import build_system_prompt
+from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
 
 # Prefix used to identify screenshot messages in history
 SCREENSHOT_PREFIX = "data:image/"
+
+# Maximum messages in the context chain before trimming the middle.
+# System prompt + first user message + last N turns are always kept.
+MAX_CHAIN_LENGTH = 60
+
+# How many consecutive identical action types before injecting a warning.
+LOOP_THRESHOLD = 3
 
 
 class ContextManager:
@@ -47,8 +57,22 @@ class ContextManager:
     def _get(self, session_id: str) -> list[PreviousMessage]:
         """Return existing history or bootstrap a new session with the system prompt."""
         if session_id not in self._history:
+            # Build the system prompt dynamically with today's date,
+            # session ID, and workspace files from .emu/
+            workspace_ctx = build_workspace_context()
+
+            # Check if this is the first launch (bootstrap interview needed)
+            bootstrap_mode = is_bootstrap_needed()
+            bootstrap_content = read_bootstrap() if bootstrap_mode else ""
+
+            system_prompt = build_system_prompt(
+                workspace_ctx,
+                session_id=session_id,
+                bootstrap_mode=bootstrap_mode,
+                bootstrap_content=bootstrap_content,
+            )
             self._history[session_id] = [
-                PreviousMessage(role=MessageRole.system, content=SYSTEM_PROMPT.strip())
+                PreviousMessage(role=MessageRole.system, content=system_prompt.strip())
             ]
         return self._history[session_id]
 
@@ -81,11 +105,16 @@ class ContextManager:
             )
         )
 
+    # Placeholder that replaces old screenshots in the request
+    SCREENSHOT_PLACEHOLDER = "[A screenshot was taken here and reviewed by you]"
+
     def build_request(self, session_id: str) -> AgentRequest:
         """
         Build an AgentRequest from the current history.
-        All context (text, screenshots, assistant responses) is already
-        stored in the history — just snapshot it.
+
+        Only the LATEST screenshot is kept as image data. All earlier
+        screenshots are replaced with a short text placeholder to save
+        tokens — the model already saw and acted on them.
         """
         history = self._get(session_id)
 
@@ -99,11 +128,28 @@ class ContextManager:
                 user_message = m.content
                 break
 
+        # Build a lightweight copy: replace all but the last screenshot
+        trimmed: list[PreviousMessage] = []
+        last_screenshot_idx = -1
+        for i, m in enumerate(history):
+            if m.role == MessageRole.user and m.content.startswith(SCREENSHOT_PREFIX):
+                last_screenshot_idx = i
+
+        for i, m in enumerate(history):
+            if (m.role == MessageRole.user
+                    and m.content.startswith(SCREENSHOT_PREFIX)
+                    and i != last_screenshot_idx):
+                trimmed.append(
+                    PreviousMessage(role=m.role, content=self.SCREENSHOT_PLACEHOLDER, timestamp=m.timestamp)
+                )
+            else:
+                trimmed.append(m)
+
         return AgentRequest(
             session_id=session_id,
             user_message=user_message,
             base64_screenshot="",  # no longer passed separately
-            previous_messages=list(history),
+            previous_messages=trimmed,
             step_index=step_index,
         )
 

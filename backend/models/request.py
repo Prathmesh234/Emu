@@ -117,3 +117,9 @@ class ActionCompleteRequest(BaseModel):
     ipc_channel: str
     success:     bool
     error:       Optional[str] = None
+    output:      Optional[str] = None
+
+
+class StopRequest(BaseModel):
+    """User requests the agent to stop the current trajectory."""
+    session_id: str

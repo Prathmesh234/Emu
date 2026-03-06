@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, DoneCard, ErrorCard } = require('../components');
+const { Message, ChatInput, StepCard, ErrorCard, Header, EmptyState, StatusIndicator } = require('../components');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
 const store = require('../state/store');
@@ -13,7 +13,7 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 
 // ── DOM refs (populated in mount) ────────────────────────────────────────
 
-let chatContainer, chatWrapper, chatInput, expandBtn;
+let chatContainer, chatWrapper, chatInput, header;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -46,11 +46,11 @@ async function toggleWindow() {
     if (state.isSidePanel) {
         await ipcRenderer.invoke('window:centered');
         store.setSidePanel(false);
-        expandBtn.style.display = 'none';
+        header.setExpandVisible(false);
     } else {
         await ipcRenderer.invoke('window:side-panel');
         store.setSidePanel(true);
-        expandBtn.style.display = 'block';
+        header.setExpandVisible(true);
     }
 }
 
@@ -58,24 +58,15 @@ async function moveToSidePanel() {
     if (!store.state.isSidePanel) {
         await ipcRenderer.invoke('window:side-panel');
         store.setSidePanel(true);
-        expandBtn.style.display = 'block';
+        header.setExpandVisible(true);
     }
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
 function showEmpty() {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-
-    const h2 = document.createElement('h2');
-    h2.textContent = 'Welcome';
-    const p = document.createElement('p');
-    p.textContent = 'Describe a task to automate';
-
-    empty.appendChild(h2);
-    empty.appendChild(p);
-    chatWrapper.appendChild(empty);
+    const emptyState = EmptyState();
+    chatWrapper.appendChild(emptyState.element);
 }
 
 function addMessage(role, content, index) {
@@ -95,19 +86,8 @@ function addMessage(role, content, index) {
 
 function showStatus(text) {
     removeStatus();
-    const indicator = document.createElement('div');
-    indicator.className = 'status-indicator';
-    indicator.id = 'status-indicator';
-
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    indicator.appendChild(dot);
-
-    const span = document.createElement('span');
-    span.textContent = text;
-    indicator.appendChild(span);
-
-    chatWrapper.appendChild(indicator);
+    const indicator = StatusIndicator(text);
+    chatWrapper.appendChild(indicator.element);
     scrollToBottom();
 }
 
@@ -268,7 +248,8 @@ async function sendMessage() {
         removeStatus();
     }
 
-    await moveToSidePanel();
+    // Don't move to side panel here — only move when a vision/action step arrives
+    // (see handleWsMessage 'step' case)
 
     // Debug: full-capture
     if (/\bfull[-\s]?capture\b/i.test(text)) {
@@ -401,6 +382,11 @@ async function handleWsMessage(data) {
         case 'step': {
             removeStatus();
 
+            // Move to side panel only for vision/action steps (not pure chat/done)
+            if (!data.done && data.action) {
+                await moveToSidePanel();
+            }
+
             // Increment step counter
             store.state.stepCount = (store.state.stepCount || 0) + 1;
             const stepNum = store.state.stepCount;
@@ -475,16 +461,19 @@ async function handleWsMessage(data) {
         case 'done': {
             removeStatus();
             const msg = data.message || 'Task complete.';
+
+            // If steps already rendered (stepCount > 0), the last StepCard
+            // with done:true already shows the final_message — skip duplicate.
+            const alreadyHandledByStep = (store.state.stepCount || 0) > 0;
+
             if (state.currentAssistantEl) {
                 const typing = state.currentAssistantEl.querySelector('.typing');
                 if (typing) typing.remove();
 
-                const doneCard = DoneCard(msg);
-                let container = state.stepContainer;
-                if (container && container.parentNode) {
-                    container.appendChild(doneCard.element);
-                } else {
-                    state.currentAssistantEl.appendChild(doneCard.element);
+                if (!alreadyHandledByStep) {
+                    // No steps ran — this is a conversational reply (bootstrap, chat).
+                    // Render as plain text in the assistant bubble instead of a card.
+                    state.currentAssistantEl.textContent = msg;
                 }
             }
             if (state.currentChat) {
@@ -544,6 +533,7 @@ async function executeAction(action, stepEl) {
             ipcChannel: result.ipc || action.type,
             success: result.success,
             error: result.error,
+            output: result.output || null,
         });
     } catch (_) { /* non-critical */ }
 }
@@ -573,32 +563,12 @@ function mount(appEl) {
     const main = document.createElement('div');
     main.className = 'main';
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'header';
-
-    const h1 = document.createElement('h1');
-    h1.textContent = 'Emulation Agent';
-
-    const headerActions = document.createElement('div');
-    headerActions.className = 'header-actions';
-
-    expandBtn = document.createElement('button');
-    expandBtn.className = 'expand-btn';
-    expandBtn.textContent = 'Expand';
-    expandBtn.style.display = 'none';
-    expandBtn.onclick = toggleWindow;
-    headerActions.appendChild(expandBtn);
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'close-btn';
-    closeBtn.textContent = '✕';
-    closeBtn.onclick = () => window.close();
-    headerActions.appendChild(closeBtn);
-
-    header.appendChild(h1);
-    header.appendChild(headerActions);
-    main.appendChild(header);
+    // Header (component)
+    header = Header({
+        onExpand: toggleWindow,
+        onClose: () => window.close(),
+    });
+    main.appendChild(header.element);
 
     // Chat area
     chatContainer = document.createElement('div');

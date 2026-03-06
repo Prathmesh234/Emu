@@ -5,7 +5,7 @@
 # Uses Gated Delta Networks + full attention hybrid architecture.
 #
 # Usage:
-#   modal deploy sglang_qwen35_vlm.py       # deploy
+#   modal deploy providers/modal/deploy.py
 
 import subprocess
 import time
@@ -162,4 +162,3 @@ def warmup():
         print("Warmup completed successfully")
     except Exception as e:
         print(f"Warmup failed (non-fatal): {e}")
-        return full_text

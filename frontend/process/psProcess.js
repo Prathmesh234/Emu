@@ -5,6 +5,9 @@
  * process startup. Running a single long-lived process with stdin piping
  * drops that to <5 ms per command.
  *
+ * Commands are Base64-encoded before piping to prevent unclosed quotes,
+ * here-strings, or multi-line content from consuming the sentinel marker.
+ *
  * Usage (from any action register() function):
  *   const { run } = require('../process/psProcess');
  *   await run(`[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(100, 200)`);
@@ -20,6 +23,7 @@ let buffer = '';
 let pending = null;         // currently executing { cmd, resolve, reject }
 const cmdQueue = [];        // waiting commands
 const SENTINEL = '##PS_DONE##';
+const ERR_MARKER = '##PS_ERR##';
 
 // ── Internal: dequeue and send the next command ────────────────────────────
 function _flush() {
@@ -27,8 +31,20 @@ function _flush() {
     pending = cmdQueue.shift();
     const preview = pending.cmd.slice(0, 80).replace(/\n/g, '\\n');
     console.log(`[psProcess] >> ${preview}${pending.cmd.length > 80 ? '...' : ''}`);
-    // Append a sentinel write so we know exactly when the command finished
-    ps.stdin.write(`${pending.cmd}\nWrite-Output "${SENTINEL}"\n`);
+
+    // Base64-encode the command so that any quotes, here-strings, or
+    // multi-line content can never interfere with the sentinel line.
+    // On the PowerShell side we decode → create a ScriptBlock → dot-source it
+    // in the current scope (so Add-Type, variable assignments, etc. persist).
+    const encoded = Buffer.from(pending.cmd, 'utf-8').toString('base64');
+    const wrapped = [
+        `$_enc_ = '${encoded}'`,
+        `$_code_ = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_enc_))`,
+        `try { $_sb_ = [ScriptBlock]::Create($_code_); . $_sb_ } catch { Write-Output "${ERR_MARKER}$($_.Exception.Message)" }`,
+        `Write-Output "${SENTINEL}"`,
+    ].join('; ');
+
+    ps.stdin.write(wrapped + '\n');
 }
 
 // ── Public: start the persistent process ──────────────────────────────────
@@ -44,18 +60,35 @@ function start() {
         buffer += chunk.toString();
         const idx = buffer.indexOf(SENTINEL);
         if (idx !== -1 && pending) {
-            const output = buffer.slice(0, idx).trim();
+            let output = buffer.slice(0, idx).trim();
             buffer = buffer.slice(idx + SENTINEL.length).replace(/^\r?\n/, '');
-            const preview = pending.cmd.slice(0, 60).replace(/\n/g, '\\n');
-            console.log(`[psProcess] << done (${preview}) output=${output ? JSON.stringify(output) : '(empty)'}`);
-            const { resolve } = pending;
+
+            const cmdPreview = pending.cmd.slice(0, 60).replace(/\n/g, '\\n');
+
+            // Check for error marker emitted by the catch block
+            let error = null;
+            const errIdx = output.lastIndexOf(ERR_MARKER);
+            if (errIdx !== -1) {
+                error = output.slice(errIdx + ERR_MARKER.length).trim();
+                output = output.slice(0, errIdx).trim();
+            }
+
+            const { resolve, reject } = pending;
             pending = null;
-            resolve(output);
+
+            if (error) {
+                console.log(`[psProcess] << error (${cmdPreview}): ${error}`);
+                reject(new Error(error));
+            } else {
+                const outputPreview = output ? JSON.stringify(output).slice(0, 200) : '(empty)';
+                console.log(`[psProcess] << done (${cmdPreview}) output=${outputPreview}`);
+                resolve(output);
+            }
             _flush();
         }
     });
 
-    ps.stderr.on('data', d => console.error('[psProcess]', d.toString().trim()));
+    ps.stderr.on('data', d => console.error('[psProcess] stderr:', d.toString().trim()));
 
     ps.on('exit', code => {
         console.warn('[psProcess] exited with code', code);
@@ -70,8 +103,6 @@ function start() {
     });
 
     // Pre-load assemblies used by all actions.
-    // Each run() call is a single-line command — no multi-line here-strings.
-    // The queue serialises them automatically.
     const MEMBER_DEF = [
         '[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);',
         '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);',

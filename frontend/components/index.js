@@ -6,6 +6,9 @@ const { ChatInput } = require('./ChatInput');
 const { Sidebar, HistoryItem } = require('./Sidebar');
 const { StepCard, DoneCard, ErrorCard } = require('./StepCard');
 const { Tooltip } = require('./Tooltip');
+const { Header } = require('./Header');
+const { EmptyState } = require('./EmptyState');
+const { StatusIndicator } = require('./StatusIndicator');
 
 module.exports = {
     Button,
@@ -17,5 +20,8 @@ module.exports = {
     StepCard,
     DoneCard,
     ErrorCard,
-    Tooltip
+    Tooltip,
+    Header,
+    EmptyState,
+    StatusIndicator,
 };

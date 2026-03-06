@@ -1,3 +1,3 @@
-from .system_prompt import SYSTEM_PROMPT
+from .system_prompt import SYSTEM_PROMPT, build_system_prompt
 
-__all__ = ["SYSTEM_PROMPT"]
+__all__ = ["SYSTEM_PROMPT", "build_system_prompt"]

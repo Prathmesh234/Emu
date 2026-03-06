@@ -1,5 +1,5 @@
 """
-modal_client.py
+client.py — Modal GPU inference client
 
 HTTP client for calling the deployed Qwen3.5 VLM on Modal.
 Converts AgentRequest → OpenAI chat payload → Modal → AgentResponse.
@@ -233,8 +233,6 @@ def _repair_json(text: str) -> str:
     s = text
 
     # Fix unquoted or half-quoted keys:  ,  key": val  or  { key": val
-    # Matches: start-of-obj/comma, optional whitespace, word chars, then ":
-    # and ensures "key" gets proper opening quote
     s = re.sub(
         r'([{,]\s*)([a-zA-Z_]\w*)"(\s*:)',
         r'\1"\2"\3',

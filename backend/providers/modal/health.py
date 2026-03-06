@@ -1,14 +1,12 @@
 """
-modal_health.py
+health.py — Modal container health check
 
-Health check helper for the Modal VLM container.
-Ensures the SGLang server inside the container is fully ready
+Ensures the SGLang server inside the Modal container is fully ready
 before we send the first inference request.
 
 Usage:
-    from modal_health import ensure_ready
+    from providers.modal import is_ready, ensure_ready
 
-    # Call once at startup or before the first agent step
     ensure_ready()   # blocks until the container responds, or raises
 """
 
@@ -98,5 +96,5 @@ def ensure_ready(
 
     raise TimeoutError(
         f"[modal_health] Container not ready after {timeout}s ({attempt} attempts). "
-        f"Check Modal dashboard for container status."
+        "Is the Modal app deployed?"
     )
