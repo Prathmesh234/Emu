@@ -34,7 +34,7 @@ User Prompt
 | Desktop shell | Electron 40 |
 | Backend server | Python + FastAPI |
 | Python packages | `uv` (no pip/poetry/conda) |
-| Vision + reasoning | Claude (Anthropic) |
+| Vision + reasoning | Claude, OpenAI, Gemini, or self-hosted (see Providers) |
 | Action execution | Win32 `user32.dll` via persistent PowerShell |
 | Screen capture | Electron `desktopCapturer` |
 | IPC | Electron `ipcMain`/`ipcRenderer` |
@@ -114,8 +114,17 @@ emulation-agent/
     ├── prompts/
     │   └── system_prompt.py       # Dynamic system prompt builder
     ├── providers/
-    │   └── claude/
-    │       └── client.py          # Claude API integration
+    │   ├── registry.py            # Auto-detect provider from env vars
+    │   ├── claude/
+    │   │   └── client.py          # Claude API (Anthropic)
+    │   ├── openai_provider/
+    │   │   └── client.py          # OpenAI API (GPT-4o / GPT-4.1)
+    │   ├── gemini/
+    │   │   └── client.py          # Google Gemini API
+    │   ├── openai_compatible/
+    │   │   └── client.py          # Any OpenAI-compat server (vLLM, SGLang, Ollama)
+    │   └── modal/
+    │       └── client.py          # Modal GPU inference
     ├── models/
     │   ├── actions.py             # Action types enum
     │   ├── request.py             # AgentRequest model
@@ -148,11 +157,23 @@ uv sync
 
 ### Environment variables
 
-Create a `.env` file in `backend/` or set in your shell:
+Set **one** API key and Emu auto-detects the provider. Create a `.env` in `backend/` or export in your shell:
 
+```bash
+# Pick ONE — Emu uses whichever key it finds (checked in this order):
+export ANTHROPIC_API_KEY=sk-ant-...       # → Claude (Anthropic)
+export OPENAI_API_KEY=sk-...              # → OpenAI (GPT-4o / GPT-4.1)
+export GOOGLE_API_KEY=AIza...             # → Google Gemini
+
+# Self-hosted GPU (vLLM, SGLang, Ollama, etc.):
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=none                # most local servers don't need a real key
+
+# Force a specific provider (overrides auto-detection):
+export EMU_PROVIDER=claude                # claude | openai | gemini | openai_compatible | modal
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-```
+
+See the **Providers** section below for full details.
 
 ### Run
 
@@ -164,6 +185,108 @@ uv run uvicorn main:app --reload --port 8000
 # Terminal 2 — Electron app
 npm start
 ```
+
+---
+
+## Providers
+
+Emu is backend-agnostic — it works with any vision-language model. All providers share the same system prompt, context chain, and response format. Just export the right API key and go.
+
+### Supported Providers
+
+| Provider | Env Var | Default Model | Notes |
+|---|---|---|---|
+| **Claude** (Anthropic) | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | Best quality. Recommended for most users. |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-4.1` | Set `OPENAI_MODEL` to override (e.g. `gpt-4o`). |
+| **Google Gemini** | `GOOGLE_API_KEY` | `gemini-2.5-flash` | Set `GEMINI_MODEL` to override. |
+| **OpenAI-compatible** | `OPENAI_BASE_URL` + `OPENAI_API_KEY` | Auto-detected from `/v1/models` | Works with vLLM, SGLang, Ollama, and any OpenAI-compat server. |
+| **Modal** (GPU) | *(none needed)* | `Qwen/Qwen3.5-35B-A3B` | Remote GPU inference via Modal. |
+
+### Auto-Detection
+
+The backend checks environment variables in this order and loads the first match:
+
+1. `EMU_PROVIDER` — explicit override (e.g. `EMU_PROVIDER=openai`)
+2. `ANTHROPIC_API_KEY` → Claude
+3. `OPENAI_BASE_URL` + `OPENAI_API_KEY` → OpenAI-compatible (self-hosted)
+4. `OPENAI_API_KEY` → OpenAI
+5. `GOOGLE_API_KEY` → Gemini
+6. Fallback → Modal
+
+### Self-Hosted GPU Setup (vLLM / SGLang / Ollama)
+
+Run any vision-language model on your own hardware via the OpenAI-compatible provider:
+
+```bash
+# vLLM
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen2.5-VL-72B-Instruct --port 8000
+
+# SGLang
+python -m sglang.launch_server \
+  --model Qwen/Qwen2.5-VL-72B-Instruct --port 30000
+
+# Ollama
+ollama serve  # default port 11434
+ollama pull llava
+```
+
+Then point Emu at it:
+
+```bash
+# vLLM
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=none
+
+# SGLang
+export OPENAI_BASE_URL=http://localhost:30000/v1
+export OPENAI_API_KEY=none
+
+# Ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export OPENAI_API_KEY=none
+
+# Optional: specify the model name if auto-detection doesn't work
+export OPENAI_COMPAT_MODEL=Qwen/Qwen2.5-VL-72B-Instruct
+```
+
+The backend will poll `/v1/models` until the server is ready, then auto-detect the model name.
+
+### Adding a New Provider
+
+All providers implement the same three-function interface:
+
+```python
+def call_model(agent_req: AgentRequest) -> AgentResponse: ...
+def is_ready() -> bool: ...
+def ensure_ready(**kwargs) -> None: ...
+```
+
+1. Create `backend/providers/your_provider/client.py` implementing those functions
+2. Create `__init__.py` re-exporting them
+3. Add an entry to `_PROVIDER_MAP` in `backend/providers/registry.py`
+4. Add auto-detection logic in `_detect_provider()`
+
+---
+
+## Safety Features
+
+### Shell Command Confirmation
+
+Every `shell_exec` action requires explicit user approval before execution. When the model wants to run a command:
+
+1. The command is displayed in a scrollable preview with dark-themed monospace formatting
+2. **Allow** / **Deny** buttons appear below the command
+3. If denied, the model receives feedback: `"DENIED — user has denied this command. Try a different approach."`
+4. The model then adapts and tries an alternative strategy
+
+### File Locks
+
+Protected workspace files (`SOUL.md`, `AGENTS.md`, `USER.md`, `IDENTITY.md`) are enforced at the harness level — not just in the prompt. Any `shell_exec` command that attempts to write, delete, or rename these files is automatically blocked before execution.
+
+### Command Timeout
+
+All PowerShell commands have a 30-second timeout. If a command hangs (e.g. from an accidental recursive search), it's automatically killed and returns an error. This prevents the persistent PowerShell process from locking up.
 
 ---
 
@@ -382,8 +505,8 @@ Moves the Electron window off-screen (`x: -9999`) with `setBounds(false)` (no an
 ## Planned Work
 
 - [ ] Multi-monitor support
-- [ ] Confirmation step for destructive actions
-- [ ] Open model support (Qwen-VL, InternVL)
+- [x] Confirmation step for destructive actions (shell_exec Allow/Deny)
+- [x] Open model support (OpenAI, Gemini, vLLM, SGLang, Ollama)
 - [ ] Electron packaging / distribution
 - [ ] Vector retrieval for old memory chunks
 - [ ] `drag` action

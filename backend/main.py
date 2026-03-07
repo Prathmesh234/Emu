@@ -19,12 +19,12 @@ from context_manager import ContextManager
 from workspace import ensure_session_dir
 
 # ── Inference backend ────────────────────────────────────────────────────────
-# Swap between backends by changing this single import.
+# Auto-detects provider from environment variables.
+# Override with EMU_PROVIDER=claude|openai|gemini|openai_compatible|modal
 #
-#   Modal (GPU):   from providers.modal import call_model, is_ready, ensure_ready
-#   Claude (API):  from providers.claude import call_model, is_ready, ensure_ready
-#
-from providers.claude import call_model, ensure_ready, is_ready
+from providers.registry import load_provider
+
+call_model, is_ready, ensure_ready, _provider_name = load_provider()
 
 app = FastAPI(title="Emulation Agent API")
 
@@ -199,14 +199,21 @@ async def agent_step(req: AgentRequest):
     # Route action to frontend via WebSocket
     action_payload = response.action.model_dump(exclude_none=True)
 
+    # shell_exec commands require user confirmation before execution
+    needs_confirm = (
+        response.action.type.value == "shell_exec"
+        and not response.done
+    )
+
     await manager.send(session_id, {
-        "type":               "step",
-        "reasoning":          response_json,
-        "reasoning_content":  response.reasoning_content or "",
-        "action":             action_payload,
-        "done":               response.done,
-        "confidence":         response.confidence,
-        "final_message":      response.final_message,
+        "type":                 "step",
+        "reasoning":            response_json,
+        "reasoning_content":    response.reasoning_content or "",
+        "action":               action_payload,
+        "done":                 response.done,
+        "confidence":           response.confidence,
+        "final_message":        response.final_message,
+        "requires_confirmation": needs_confirm,
     })
 
     if response.done:

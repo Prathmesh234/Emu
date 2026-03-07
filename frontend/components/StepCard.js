@@ -97,11 +97,40 @@ function StepCard(data, stepNum) {
         actionDesc.textContent = desc;
         actionBlock.appendChild(actionDesc);
 
-        // Status badge (will be updated after execution)
-        const badge = document.createElement('div');
-        badge.className = 'step-action-status pending';
-        badge.textContent = 'Executing…';
-        actionBlock.appendChild(badge);
+        // Shell exec commands: show scrollable command preview + Allow/Deny
+        if (data.requires_confirmation && data.action.type === 'shell_exec') {
+            const cmdPreview = document.createElement('div');
+            cmdPreview.className = 'step-cmd-preview';
+            cmdPreview.textContent = data.action.command || '';
+            actionBlock.appendChild(cmdPreview);
+
+            const btnRow = document.createElement('div');
+            btnRow.className = 'step-confirm-btns';
+
+            const allowBtn = document.createElement('button');
+            allowBtn.className = 'step-confirm-btn allow';
+            allowBtn.textContent = 'Allow';
+
+            const denyBtn = document.createElement('button');
+            denyBtn.className = 'step-confirm-btn deny';
+            denyBtn.textContent = 'Deny';
+
+            btnRow.appendChild(allowBtn);
+            btnRow.appendChild(denyBtn);
+            actionBlock.appendChild(btnRow);
+
+            // Status badge (hidden until user decides)
+            const badge = document.createElement('div');
+            badge.className = 'step-action-status pending';
+            badge.style.display = 'none';
+            actionBlock.appendChild(badge);
+        } else {
+            // Status badge (will be updated after execution)
+            const badge = document.createElement('div');
+            badge.className = 'step-action-status pending';
+            badge.textContent = 'Executing…';
+            actionBlock.appendChild(badge);
+        }
 
         card.appendChild(actionBlock);
     }
