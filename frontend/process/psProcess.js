@@ -24,6 +24,7 @@ let pending = null;         // currently executing { cmd, resolve, reject }
 const cmdQueue = [];        // waiting commands
 const SENTINEL = '##PS_DONE##';
 const ERR_MARKER = '##PS_ERR##';
+const CMD_TIMEOUT_MS = 30_000;  // 30s per-command timeout
 
 // ── Internal: dequeue and send the next command ────────────────────────────
 function _flush() {
@@ -31,6 +32,19 @@ function _flush() {
     pending = cmdQueue.shift();
     const preview = pending.cmd.slice(0, 80).replace(/\n/g, '\\n');
     console.log(`[psProcess] >> ${preview}${pending.cmd.length > 80 ? '...' : ''}`);
+
+    // Start a timeout timer — if the command doesn't complete in time, reject it
+    pending.timer = setTimeout(() => {
+        if (!pending) return;
+        const { reject } = pending;
+        const timedOutCmd = pending.cmd.slice(0, 80);
+        console.error(`[psProcess] TIMEOUT (${CMD_TIMEOUT_MS}ms): ${timedOutCmd}`);
+        pending = null;
+        // Drain any partial output so it doesn't bleed into the next command
+        buffer = '';
+        reject(new Error(`Command timed out after ${CMD_TIMEOUT_MS / 1000}s. Avoid long-running or recursive commands.`));
+        _flush();
+    }, CMD_TIMEOUT_MS);
 
     // Base64-encode the command so that any quotes, here-strings, or
     // multi-line content can never interfere with the sentinel line.
@@ -73,6 +87,7 @@ function start() {
                 output = output.slice(0, errIdx).trim();
             }
 
+            if (pending.timer) clearTimeout(pending.timer);
             const { resolve, reject } = pending;
             pending = null;
 
@@ -94,6 +109,7 @@ function start() {
         console.warn('[psProcess] exited with code', code);
         ps = null;
         if (pending) {
+            if (pending.timer) clearTimeout(pending.timer);
             pending.reject(new Error('PowerShell process exited unexpectedly'));
             pending = null;
         }
