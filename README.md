@@ -194,13 +194,13 @@ Emu is backend-agnostic — it works with any vision-language model. All provide
 
 ### Supported Providers
 
-| Provider | Env Var | Default Model | Notes |
-|---|---|---|---|
-| **Claude** (Anthropic) | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | Best quality. Recommended for most users. |
-| **OpenAI** | `OPENAI_API_KEY` | `gpt-4.1` | Set `OPENAI_MODEL` to override (e.g. `gpt-4o`). |
-| **Google Gemini** | `GOOGLE_API_KEY` | `gemini-2.5-flash` | Set `GEMINI_MODEL` to override. |
-| **OpenAI-compatible** | `OPENAI_BASE_URL` + `OPENAI_API_KEY` | Auto-detected from `/v1/models` | Works with vLLM, SGLang, Ollama, and any OpenAI-compat server. |
-| **Modal** (GPU) | *(none needed)* | `Qwen/Qwen3.5-35B-A3B` | Remote GPU inference via Modal. |
+| Provider | Env Var | Default Model | API | Notes |
+|---|---|---|---|---|
+| **Claude** (Anthropic) | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | Messages API | Best quality. Recommended for most users. |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-5.4` | [Responses API](https://platform.openai.com/docs/api-reference/responses) | Set `OPENAI_MODEL` to override. Uses the latest Responses API (not Chat Completions). |
+| **Google Gemini** | `GOOGLE_API_KEY` | `gemini-3-flash-preview` | [Gemini 3 API](https://ai.google.dev/gemini-api/docs/gemini-3) | Set `GEMINI_MODEL` to override. Uses google-genai SDK with typed Parts. |
+| **OpenAI-compatible** | `OPENAI_BASE_URL` + `OPENAI_API_KEY` | Auto-detected from `/v1/models` | [Chat Completions](https://docs.vllm.ai/en/stable/serving/openai_compatible_server/) | Works with vLLM, SGLang, Ollama, and any OpenAI-compat server. |
+| **Modal** (GPU) | *(none needed)* | `Qwen/Qwen3.5-35B-A3B` | OpenAI-compat | Remote GPU inference via Modal. |
 
 ### Auto-Detection
 
@@ -215,16 +215,19 @@ The backend checks environment variables in this order and loads the first match
 
 ### Self-Hosted GPU Setup (vLLM / SGLang / Ollama)
 
-Run any vision-language model on your own hardware via the OpenAI-compatible provider:
+Run any vision-language model on your own hardware via the OpenAI-compatible provider.
+Uses the standard `/v1/chat/completions` endpoint that all major serving frameworks implement.
+
+- [vLLM docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server/)
+- [SGLang docs](https://docs.sglang.io/basic_usage/openai_api_completions.html)
+- [Ollama OpenAI compat](https://github.com/ollama/ollama/blob/main/docs/openai.md)
 
 ```bash
-# vLLM
-python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen2.5-VL-72B-Instruct --port 8000
+# vLLM (recommended entrypoint)
+vllm serve Qwen/Qwen2.5-VL-72B-Instruct --port 8000
 
-# SGLang
-python -m sglang.launch_server \
-  --model Qwen/Qwen2.5-VL-72B-Instruct --port 30000
+# SGLang (recommended entrypoint)
+sglang serve Qwen/Qwen2.5-VL-72B-Instruct --port 30000
 
 # Ollama
 ollama serve  # default port 11434

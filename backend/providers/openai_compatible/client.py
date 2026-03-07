@@ -1,12 +1,29 @@
 """
 client.py — OpenAI-compatible endpoint client (vLLM, SGLang, Ollama, etc.)
 
-Connects to any server that implements the OpenAI /v1/chat/completions API.
-Works out of the box with:
-  - vLLM:   OPENAI_BASE_URL=http://localhost:8000/v1
-  - SGLang: OPENAI_BASE_URL=http://localhost:30000/v1
-  - Ollama: OPENAI_BASE_URL=http://localhost:11434/v1
-  - Any other OpenAI-compatible server
+For self-hosted GPU inference. Connects to any server that implements the
+OpenAI /v1/chat/completions API. Uses Chat Completions (not Responses API)
+since that's the standard implemented by open-source serving frameworks.
+
+Tested with:
+  - vLLM (https://docs.vllm.ai/en/stable/serving/openai_compatible_server/)
+    Start: vllm serve <model> --port 8000
+    Set:   OPENAI_BASE_URL=http://localhost:8000/v1
+
+  - SGLang (https://docs.sglang.io/basic_usage/openai_api_completions.html)
+    Start: sglang serve <model> --port 30000
+    Set:   OPENAI_BASE_URL=http://localhost:30000/v1
+
+  - Ollama (https://github.com/ollama/ollama/blob/main/docs/openai.md)
+    Start: ollama serve
+    Set:   OPENAI_BASE_URL=http://localhost:11434/v1
+
+Both vLLM and SGLang implement /v1/chat/completions, /v1/completions,
+and /v1/models. They auto-apply HuggingFace chat templates and support
+vision models with base64 image input via the image_url content type.
+
+vLLM also supports tool calling (--tool-call-parser) and reasoning
+content (--enable-reasoning) for compatible models.
 
 Drop-in replacement for other providers — same public interface:
 
@@ -38,7 +55,6 @@ API_KEY = os.environ.get("OPENAI_API_KEY", "none")
 MODEL_NAME = os.environ.get("OPENAI_COMPAT_MODEL", "")
 MAX_TOKENS = 1024
 TEMPERATURE = 0.6
-REQUEST_TIMEOUT = 300
 
 SCREENSHOT_PREFIX = "data:image/"
 
@@ -89,7 +105,6 @@ def ensure_ready(timeout: int = 300, poll_interval: int = 5, **kwargs) -> None:
     while time.time() < deadline:
         attempt += 1
         try:
-            # Try /v1/models or /models depending on base URL
             models_url = BASE_URL.rstrip("/") + "/models"
             resp = requests.get(models_url, timeout=10)
             resp.raise_for_status()
@@ -143,7 +158,13 @@ def _detect_model() -> str:
 # ── Message builder ──────────────────────────────────────────────────────────
 
 def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, messages) in OpenAI chat format."""
+    """Build (system_prompt, messages) in OpenAI Chat Completions format.
+
+    Uses Chat Completions (not Responses API) since vLLM, SGLang, and
+    Ollama all implement /v1/chat/completions. Image content is passed
+    as type: "image_url" with a data URI, which both vLLM and SGLang
+    support for vision models.
+    """
     system_prompt = ""
     raw: list[dict] = []
 
@@ -173,7 +194,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     message = choice.message if choice else None
     content = message.content or "" if message else ""
 
-    # Some servers (vLLM with reasoning models) include reasoning_content
+    # vLLM with --enable-reasoning surfaces reasoning_content on the message
     reasoning = getattr(message, "reasoning_content", None) if message else None
 
     data = _extract_json(content)

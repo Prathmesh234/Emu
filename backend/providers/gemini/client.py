@@ -1,5 +1,11 @@
 """
-client.py — Google Gemini API client
+client.py — Google Gemini API client (Gemini 3 Flash)
+
+Uses the google-genai SDK (>= 1.51.0) with client.models.generate_content().
+System instructions are passed via GenerateContentConfig.system_instruction.
+Images are sent as types.Part with inline_data (types.Blob).
+
+Docs: https://ai.google.dev/gemini-api/docs/gemini-3
 
 Drop-in replacement for other providers — same public interface:
 
@@ -9,7 +15,7 @@ Drop-in replacement for other providers — same public interface:
 
 Environment:
     GOOGLE_API_KEY  — required
-    GEMINI_MODEL    — optional (default: gemini-2.5-flash)
+    GEMINI_MODEL    — optional (default: gemini-3-flash-preview)
 """
 
 import base64
@@ -19,13 +25,14 @@ import re
 import time
 
 from google import genai
+from google.genai import types
 
 from models import Action, AgentRequest, AgentResponse, MessageRole
 from prompts import SYSTEM_PROMPT
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 MAX_TOKENS = 1024
 
 SCREENSHOT_PREFIX = "data:image/"
@@ -42,7 +49,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
     resp = client.models.generate_content(
         model=MODEL_NAME,
         contents=contents,
-        config=genai.types.GenerateContentConfig(
+        config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             max_output_tokens=MAX_TOKENS,
         ),
@@ -62,38 +69,41 @@ def ensure_ready(**kwargs) -> None:
 
 # ── Message builder ──────────────────────────────────────────────────────────
 
-def _build_contents(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, contents) in Gemini format."""
+def _build_contents(req: AgentRequest) -> tuple[str, list]:
+    """Build (system_prompt, contents) using Gemini types.
+
+    Uses types.Content with types.Part for structured content.
+    Images are passed as types.Part with inline_data (types.Blob).
+    Gemini uses role="model" for assistant turns.
+    """
     system_prompt = ""
-    contents: list[dict] = []
+    contents: list[types.Content] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
             system_prompt = pm.content
         elif pm.role == MessageRole.assistant:
-            contents.append({
-                "role": "model",
-                "parts": [{"text": pm.content}],
-            })
+            contents.append(types.Content(
+                role="model",
+                parts=[types.Part(text=pm.content)],
+            ))
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
-                # Parse data URI → raw bytes
                 mime_type, b64_data = _parse_data_uri(pm.content)
-                img_bytes = base64.b64decode(b64_data)
-                contents.append({
-                    "role": "user",
-                    "parts": [{
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": b64_data,
-                        }
-                    }],
-                })
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part(
+                        inline_data=types.Blob(
+                            mime_type=mime_type,
+                            data=base64.b64decode(b64_data),
+                        ),
+                    )],
+                ))
             else:
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": pm.content}],
-                })
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part(text=pm.content)],
+                ))
 
     # Gemini requires alternating user/model turns — merge consecutive same-role
     contents = _merge_consecutive(contents)
@@ -110,12 +120,12 @@ def _parse_data_uri(data_uri: str) -> tuple[str, str]:
     return "image/png", data_uri
 
 
-def _merge_consecutive(contents: list[dict]) -> list[dict]:
+def _merge_consecutive(contents: list[types.Content]) -> list[types.Content]:
     """Merge consecutive same-role turns (Gemini requires alternating)."""
-    merged: list[dict] = []
+    merged: list[types.Content] = []
     for item in contents:
-        if merged and merged[-1]["role"] == item["role"]:
-            merged[-1]["parts"].extend(item["parts"])
+        if merged and merged[-1].role == item.role:
+            merged[-1].parts.extend(item.parts)
         else:
             merged.append(item)
     return merged

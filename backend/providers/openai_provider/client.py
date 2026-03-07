@@ -1,5 +1,11 @@
 """
-client.py — OpenAI API client (GPT-4o / GPT-4.1)
+client.py — OpenAI Responses API client (GPT-5.4)
+
+Uses the Responses API (client.responses.create) which is OpenAI's latest
+and recommended API primitive — replaces Chat Completions with better
+caching, multi-turn support, and built-in tool primitives.
+
+Docs: https://platform.openai.com/docs/api-reference/responses
 
 Drop-in replacement for other providers — same public interface:
 
@@ -9,7 +15,7 @@ Drop-in replacement for other providers — same public interface:
 
 Environment:
     OPENAI_API_KEY  — required
-    OPENAI_MODEL    — optional (default: gpt-4.1)
+    OPENAI_MODEL    — optional (default: gpt-5.4)
 """
 
 import json
@@ -24,7 +30,7 @@ from prompts import SYSTEM_PROMPT
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MODEL_NAME = os.environ.get("OPENAI_MODEL", "gpt-4.1")
+MODEL_NAME = os.environ.get("OPENAI_MODEL", "gpt-5.4")
 MAX_TOKENS = 1024
 
 SCREENSHOT_PREFIX = "data:image/"
@@ -35,13 +41,14 @@ client = OpenAI()  # reads OPENAI_API_KEY from env
 # ── Public API (matches provider interface) ──────────────────────────────────
 
 def call_model(agent_req: AgentRequest) -> AgentResponse:
-    system_prompt, messages = _build_messages(agent_req)
+    instructions, input_messages = _build_input(agent_req)
 
     start = time.time()
-    resp = client.chat.completions.create(
+    resp = client.responses.create(
         model=MODEL_NAME,
-        max_tokens=MAX_TOKENS,
-        messages=[{"role": "system", "content": system_prompt}] + messages,
+        instructions=instructions,
+        input=input_messages,
+        max_output_tokens=MAX_TOKENS,
     )
     elapsed_ms = int((time.time() - start) * 1000)
 
@@ -58,35 +65,49 @@ def ensure_ready(**kwargs) -> None:
 
 # ── Message builder ──────────────────────────────────────────────────────────
 
-def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, messages) in OpenAI chat format."""
-    system_prompt = ""
+def _build_input(req: AgentRequest) -> tuple[str, list[dict]]:
+    """Build (instructions, input) for the Responses API.
+
+    The Responses API uses:
+      - `instructions` param for system/developer instructions
+      - `input` array with role: "user" / "assistant" messages
+      - Image content uses type: "input_image" with image_url
+      - Text content uses type: "input_text" with text
+    """
+    instructions = ""
     raw: list[dict] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
-            system_prompt = pm.content
+            instructions = pm.content
         elif pm.role == MessageRole.assistant:
-            raw.append({"role": "assistant", "content": pm.content})
+            raw.append({"role": "assistant", "content": [
+                {"type": "output_text", "text": pm.content},
+            ]})
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
                 raw.append({
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": pm.content}},
+                        {"type": "input_image", "image_url": pm.content},
                     ],
                 })
             else:
-                raw.append({"role": "user", "content": pm.content})
+                raw.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": pm.content},
+                    ],
+                })
 
-    return system_prompt or SYSTEM_PROMPT.strip(), raw
+    return instructions or SYSTEM_PROMPT.strip(), raw
 
 
 # ── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
-    choice = resp.choices[0] if resp.choices else None
-    content = choice.message.content or "" if choice else ""
+    # output_text is a convenience property that aggregates all text output
+    content = resp.output_text or ""
 
     data = _extract_json(content)
 
