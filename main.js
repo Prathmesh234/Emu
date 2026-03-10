@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
 const psProcess = require('./frontend/process/psProcess');
 const { initEmu } = require('./frontend/emu');
@@ -12,7 +12,6 @@ let mainWindow;
 const { registerAll } = require('./frontend/actions');
 registerAll(ipcMain, {
     BACKEND_URL,
-    desktopCapturer,
     screen,
     getMainWindow: () => mainWindow
 });

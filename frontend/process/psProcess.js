@@ -118,10 +118,17 @@ function start() {
         cmdQueue.length = 0;
     });
 
-    // Pre-load assemblies used by all actions.
+    // Pre-load assemblies and P/Invoke types used by all actions.
     const MEMBER_DEF = [
         '[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);',
         '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);',
+    ].join(' ');
+
+    // GDI types for physical-pixel screen capture (GetDeviceCaps).
+    const GDI_DEF = [
+        '[DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr hdc, int index);',
+        '[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);',
+        '[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);',
     ].join(' ');
 
     run('Add-Type -AssemblyName System.Windows.Forms')
@@ -131,6 +138,10 @@ function start() {
     run(`Add-Type -MemberDefinition '${MEMBER_DEF}' -Name U32 -Namespace W`)
         .then(() => console.log('[psProcess] U32 type loaded — ready'))
         .catch(err => console.error('[psProcess] U32 load error:', err));
+
+    run(`Add-Type -MemberDefinition '${GDI_DEF}' -Name GDI -Namespace W`)
+        .then(() => console.log('[psProcess] GDI type loaded'))
+        .catch(err => console.error('[psProcess] GDI load error:', err));
 
     console.log('[psProcess] started');
 }

@@ -1,11 +1,16 @@
-# OmniParser Integration
+# LEARNINGS.md — Engineering Decisions & Implementation Notes
+
+> Captures key technical challenges, failed approaches, and final solutions
+> encountered while building the Human Emulation Desktop Agent.
+
+---
+
+## 1. OmniParser Integration
 
 > How Emu uses OmniParser V2 to give the VLM precise UI element coordinates
 > on every screenshot, eliminating coordinate guessing.
 
----
-
-## The Problem
+### The Problem
 
 Vision-language models are good at understanding what's on screen but bad at
 pinpointing exact pixel coordinates for click targets. When Emu's VLM says
@@ -13,7 +18,7 @@ pinpointing exact pixel coordinates for click targets. When Emu's VLM says
 often off by 10–30 pixels. This leads to missed clicks, wrong targets, and
 wasted retry loops.
 
-## The Solution
+### The Solution
 
 Every screenshot now passes through **OmniParser V2** before reaching the
 model. OmniParser is a computer vision pipeline (YOLO + EasyOCR) that
@@ -29,9 +34,7 @@ The model receives:
 The model's job stays the same — understand context, reason about what
 to do next — but now it has precise click targets instead of guessing.
 
----
-
-## Architecture
+### Architecture
 
 ```
 Frontend screenshot (base64 PNG)
@@ -64,16 +67,13 @@ Frontend screenshot (base64 PNG)
               → uses precise coordinates
 ```
 
----
-
-## OmniParser V2 — Deep Dive
+### OmniParser V2 — Deep Dive
 
 OmniParser is an open-source screen parsing framework from Microsoft Research.
 Its job: take any screenshot and return a structured list of every interactable
-UI element on screen with bounding boxes. Understanding **why** it's built the
-way it is requires understanding why no single model can do this job alone.
+UI element on screen with bounding boxes.
 
-### The core insight: UI elements are two fundamentally different things
+#### The core insight: UI elements are two fundamentally different things
 
 A desktop screenshot contains two kinds of targets a user might click:
 
@@ -95,7 +95,7 @@ No single model handles both well:
 
 OmniParser's architecture **runs both in parallel and merges the results**.
 
-### Component 1: YOLO (icon / button detection)
+#### Component 1: YOLO (icon / button detection)
 
 **What**: YOLOv8, fine-tuned by Microsoft on a large dataset of desktop and web
 UI screenshots. The training data contains labelled bounding boxes for icons,
@@ -115,13 +115,7 @@ network and outputs all detected objects simultaneously. This makes it very fast
 **What it misses**: Text-based UI elements. YOLO sees "File Edit View" in the
 menu bar as a flat region, not three separate clickable items.
 
-**Weights location** (inside the Modal container):
-```
-/opt/omniparser/weights/icon_detect/model.pt    # Fine-tuned YOLOv8
-/opt/omniparser/weights/icon_detect/model.yaml  # Architecture config
-```
-
-### Component 2: EasyOCR (text detection + recognition)
+#### Component 2: EasyOCR (text detection + recognition)
 
 **What**: EasyOCR is a PyTorch-based OCR engine. It runs two models internally:
 1. **CRAFT** (Character Region Awareness for Text detection) — finds regions in
@@ -153,7 +147,7 @@ easyocr_args = {"paragraph": False, "text_threshold": 0.9}
   "File", "Edit", "View" as separate elements, not "File Edit View".
 - `text_threshold=0.9` — only accept high-confidence text to reduce noise.
 
-### Why both models together?
+#### Why both models together?
 
 Consider a typical application window:
 
@@ -181,7 +175,7 @@ Consider a typical application window:
 Without merging, the VLM would see duplicate entries for every text button.
 That's where the merge step comes in.
 
-### Component 3: remove_overlap_new() (merge + deduplication)
+#### Component 3: remove_overlap_new() (merge + deduplication)
 
 After both models finish, we have two lists of bounding boxes that partially
 overlap. OmniParser's `remove_overlap_new()` function resolves this:
@@ -219,7 +213,7 @@ EasyOCR detection, we keep the text version because it carries the readable
 label ("Save") which the VLM can use for reasoning. An icon-only detection
 just says "there's a clickable thing at (200, 400)".
 
-### Component 4: Custom PIL annotation (our addition)
+#### Component 4: Custom PIL annotation (our addition)
 
 OmniParser ships with an `annotate()` function that draws numbered boxes on
 the screenshot. We replaced it because:
@@ -236,7 +230,7 @@ Our replacement uses PIL (Pillow) directly:
 - **Small ID labels** (11px DejaVu Sans) positioned just above each box
 - **~50ms** instead of ~500ms
 
-### The full pipeline, step by step
+#### The full pipeline, step by step
 
 ```
 1. Screenshot arrives as base64 PNG
@@ -277,7 +271,7 @@ Our replacement uses PIL (Pillow) directly:
 10. Return JSON response
 ```
 
-### Why not use a single multimodal model instead?
+#### Why not use a single multimodal model instead?
 
 You might wonder: GPT-4o and Claude can "see" screenshots — why not just ask
 them to identify elements? Several reasons:
@@ -297,7 +291,7 @@ and guess coordinates," it's "look up element [1] TEXT 'File' → click center
 (25, 12)." The VLM focuses on understanding and planning; OmniParser handles
 perception.
 
-### Build-time patches (why we can't just use OmniParser stock)
+#### Build-time patches (why we can't just use OmniParser stock)
 
 OmniParser V2's codebase has a few assumptions that break in our environment:
 
@@ -325,18 +319,16 @@ _utils.reader = easyocr.Reader(["en"], gpu=True)
 A recent OmniParser update added a required `scale_img` parameter to
 `predict_yolo()`. All internal callers use `False`. We pass it explicitly.
 
----
-
-## OmniParser on Modal
+### OmniParser on Modal
 
 OmniParser V2 runs on an **A10G GPU** via Modal serverless infrastructure.
 
-### Why Modal?
+**Why Modal?**
 - YOLO + EasyOCR need GPU — running locally would be slow and require CUDA
 - Modal cold-starts in ~15s, warm requests take ~1.5s
 - `min_containers=1` keeps one container warm at all times
 
-### Pipeline (inside the GPU container)
+**Pipeline (inside the GPU container):**
 
 ```
 Input: base64 PNG screenshot
@@ -365,111 +357,13 @@ Input: base64 PNG screenshot
   rainbow boxes that obscure the screen. We draw our own with PIL: 1px thin
   rectangles, red for icons, cyan for text, small ID labels.
 
-### File structure
-
-```
-backend/providers/modal/omni_parser/
-├── __init__.py     # Re-exports client functions
-├── deploy.py       # Modal deployment definition (modal deploy deploy.py)
-└── client.py       # Python client: parse_screenshot(), parse_screenshot_b64()
-```
-
-### Deployment
-
+**Deployment:**
 ```bash
 cd backend/providers/modal/omni_parser
 modal deploy deploy.py
 ```
 
-Endpoints after deploy:
-- **Parse**: `POST https://ppbhatt500--omniparser-v2-omniparserv2-parse.modal.run`
-- **Health**: `GET  https://ppbhatt500--omniparser-v2-omniparserv2-health.modal.run`
-
----
-
-## Pydantic Models
-
-Two new models in `models/request.py`:
-
-### ScreenElement
-```python
-class ScreenElement(BaseModel):
-    id:           int           # Matches the label drawn on the annotated image
-    type:         str           # "icon" | "text"
-    content:      str           # OCR text (empty for icons)
-    bbox_pixel:   list[int]     # [x1, y1, x2, y2] in pixels
-    center_pixel: list[int]     # [cx, cy] — the click target
-    interactable: bool
-```
-
-### ScreenAnnotation
-```python
-class ScreenAnnotation(BaseModel):
-    elements:     list[ScreenElement]
-    image_width:  int
-    image_height: int
-    latency_ms:   int
-```
-
-`PreviousMessage` now has an optional `annotations: ScreenAnnotation` field,
-populated only on screenshot messages.
-
----
-
-## Context Chain Integration
-
-### add_screenshot_turn()
-
-Before (old):
-```
-screenshot base64 → store as user message → done
-```
-
-After (new):
-```
-screenshot base64
-  → call parse_screenshot_b64(include_annotated=True)
-  → replace raw screenshot with annotated image
-  → build ScreenAnnotation from element list
-  → store as user message with annotations attached
-```
-
-If OmniParser fails (network error, timeout), the raw screenshot is used
-as a fallback — the agent still works, just without precise coordinates.
-
-### build_request()
-
-For the latest screenshot, after appending the image message, we now also
-inject a text message containing the formatted element list:
-
-```
-[SCREEN ELEMENTS] 1920x1080 — 47 elements detected
-  [0] ICON  bbox=(0,1040,48,1080)  center=(24,1060)  [clickable]
-  [1] TEXT "File"  bbox=(5,0,45,25)  center=(25,12)  [clickable]
-  [2] TEXT "Edit"  bbox=(50,0,90,25)  center=(70,12)  [clickable]
-  ...
-```
-
-This gives the model both visual (annotated image with boxes) and structured
-(text element list with coordinates) information about the screen.
-
----
-
-## System Prompt Changes
-
-Added to §2 (System Information):
-- Full description of OmniParser screen analysis
-- What the model receives (annotated image + element list)
-- How to use element coordinates for precise clicks
-- Example element list format
-
-Updated in §3 and §10:
-- Rule 5: "Prefer using center_pixel coordinates from [SCREEN ELEMENTS]"
-- Rule R8: "When clicking, prefer precise coordinates from [SCREEN ELEMENTS]"
-
----
-
-## Performance
+### Performance
 
 | Metric | Value |
 |---|---|
@@ -480,13 +374,7 @@ Updated in §3 and §10:
 | Concurrent requests | Up to 8 per container |
 | Min containers | 1 (always warm) |
 
-The ~1.5s added latency per screenshot is worth it — the model gets exact
-coordinates instead of guessing, which reduces failed clicks and retry loops
-significantly.
-
----
-
-## Data Flow Summary
+### Data Flow Summary
 
 ```
 User types task
@@ -512,3 +400,210 @@ VLM reasons → picks action → uses center_pixel for mouse_move
     ↓
 Frontend executes action → captures new screenshot → repeat
 ```
+
+---
+
+## 2. Cursor-Visible Screenshot Capture
+
+> How we replaced Electron's `desktopCapturer` with a PowerShell-based screen
+> capture pipeline that includes the mouse cursor and handles DPI scaling.
+
+### The Problem
+
+Electron's `desktopCapturer.getSources()` calls into Windows' Desktop
+Duplication API (DXGI) or Windows Graphics Capture. These APIs capture the
+**composed desktop framebuffer** — what's rendered to the display minus the
+hardware cursor. Windows renders the cursor in a separate hardware overlay
+that these capture APIs intentionally skip.
+
+**Result:** The model receives screenshots with no cursor visible, making it
+impossible for the VLM to know where the pointer currently is on screen.
+This hurts spatial grounding — the model can't verify "did my mouse_move
+actually land on the right target?"
+
+### Failed Approaches
+
+#### Attempt 1: `Cursors.Default.Draw()` with `Screen.PrimaryScreen.Bounds`
+
+```powershell
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+$cur = [System.Windows.Forms.Cursors]::Default
+$cur.Draw($g, (New-Object System.Drawing.Rectangle($pos.X, $pos.Y, ...)))
+```
+
+**Problem: DPI scaling.** On displays with 125%/150%/200% scaling,
+`Screen.PrimaryScreen.Bounds` returns **logical pixels** (e.g., 1664×1109),
+not physical pixels (e.g., 2496×1664). `CopyFromScreen` uses the logical
+dimensions to grab from the physical framebuffer, so it only captures the
+top-left portion of the screen — the rest is cropped.
+
+Additionally, `Cursors.Default.Draw()` rendered a tiny, nearly invisible
+system cursor icon that didn't scale with DPI and always showed the default
+arrow regardless of the actual cursor shape.
+
+#### Attempt 2: `SetProcessDPIAware()` (user32.dll)
+
+```powershell
+[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+```
+
+**Problem:** This sets "System DPI aware" — the legacy mode. On modern
+Windows with per-monitor scaling, it still doesn't report the true physical
+resolution. `Screen.Bounds` continued returning logical coordinates.
+
+#### Attempt 3: `SetProcessDpiAwareness(2)` (shcore.dll)
+
+```powershell
+[DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int value);
+```
+
+Passing `2` = `PROCESS_PER_MONITOR_DPI_AWARE` — the modern approach.
+
+**Problem:** Returned `E_ACCESSDENIED` (-2147024891). DPI awareness can only
+be set before any UI-related DLLs load, and PowerShell had already loaded
+`System.Windows.Forms` by this point. Too late to change it.
+
+### The Working Solution
+
+#### Step 1: Get true physical resolution via `GetDeviceCaps`
+
+Instead of relying on DPI awareness settings, query the **device capabilities**
+directly from the GDI device context:
+
+```powershell
+[DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr hdc, int index);
+[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+$hdc = [W.GDI]::GetDC([IntPtr]::Zero)           # desktop DC
+$physicalWidth  = [W.GDI]::GetDeviceCaps($hdc, 118)  # DESKTOPHORZRES
+$physicalHeight = [W.GDI]::GetDeviceCaps($hdc, 117)  # DESKTOPVERTRES
+[W.GDI]::ReleaseDC([IntPtr]::Zero, $hdc)
+```
+
+- `GetDeviceCaps(hdc, 118)` = `DESKTOPHORZRES` → **true physical width**
+- `GetDeviceCaps(hdc, 117)` = `DESKTOPVERTRES` → **true physical height**
+- These always return the real resolution regardless of DPI settings or
+  process awareness level.
+
+#### Step 2: Capture at physical resolution
+
+```powershell
+$bmp = New-Object System.Drawing.Bitmap($physicalWidth, $physicalHeight)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+```
+
+Using the physical dimensions means `CopyFromScreen` grabs the entire
+framebuffer — no cropping.
+
+#### Step 3: Convert cursor position from logical to physical
+
+`Cursor.Position` returns logical coordinates (since our process isn't
+DPI-aware). We compute the DPI scale ratio and convert:
+
+```powershell
+$pos = [System.Windows.Forms.Cursor]::Position
+$dpiScale = $physicalWidth / [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
+$px = [int]($pos.X * $dpiScale)
+$py = [int]($pos.Y * $dpiScale)
+```
+
+For a 150% scaled display: `dpiScale = 2496 / 1664 = 1.5`
+
+#### Step 4: Draw a cursor-shaped polygon
+
+Instead of using `Cursors.Default.Draw()` (which has its own DPI issues and
+always shows the default arrow in tiny size), we draw a **custom arrow polygon**
+using GDI+ primitives — a filled white shape with a black border:
+
+```powershell
+$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$s = 1.8 * $dpiScale    # scale factor — cursor grows with DPI
+
+# 7-point polygon shaped like a Windows cursor arrow
+$pts = @(
+  PointF($px, $py),                                    # tip (top-left)
+  PointF($px,                ($py + [int](20*$s))),     # down left edge
+  PointF(($px + [int](4*$s)),  ($py + [int](16*$s))),  # notch left
+  PointF(($px + [int](8*$s)),  ($py + [int](22*$s))),  # tail bottom-left
+  PointF(($px + [int](11*$s)), ($py + [int](19*$s))),  # tail bottom-right
+  PointF(($px + [int](7*$s)),  ($py + [int](13*$s))),  # notch right
+  PointF(($px + [int](13*$s)), ($py + [int](13*$s)))   # right wing
+)
+
+$g.FillPolygon([Brushes]::White, $pts)                  # white fill
+$pen = New-Object Pen([Color]::Black, [Math]::Max(2, [int](1.5*$dpiScale)))
+$g.DrawPolygon($pen, $pts)                              # black border
+```
+
+**Why a custom polygon instead of the system cursor icon:**
+- The system `Cursor.Draw()` doesn't scale with DPI — it's tiny on HiDPI screens
+- It always draws the default arrow, never the actual cursor shape (I-beam, hand, etc.)
+- A custom polygon scales perfectly with `$dpiScale` and is always visible
+- Anti-aliased edges make it look clean at any resolution
+- The white fill with black border ensures visibility against any background
+
+### Integration: Persistent PowerShell Process
+
+All capture commands run through `psProcess` — a single long-lived PowerShell
+process started when the Electron app launches. This avoids the 300–700ms
+cold-start of spawning a new `powershell.exe` per screenshot.
+
+At startup, `psProcess` preloads the required types:
+
+```javascript
+// psProcess.js — preloaded at start()
+'Add-Type -AssemblyName System.Windows.Forms'          // Forms, Cursor, Screen
+
+// P/Invoke types for mouse/keyboard actions
+'[DllImport("user32.dll")] ... mouse_event ...'
+'[DllImport("user32.dll")] ... keybd_event ...'
+
+// GDI types for physical-pixel screen capture
+'[DllImport("gdi32.dll")] ... GetDeviceCaps ...'
+'[DllImport("user32.dll")] ... GetDC ...'
+'[DllImport("user32.dll")] ... ReleaseDC ...'
+```
+
+These are loaded once and persist for the lifetime of the process.
+
+Each screenshot command is sent via `psProcess.run()`, which Base64-encodes
+the command, pipes it to stdin, and waits for a sentinel marker (##PS_DONE##)
+on stdout. The command saves the PNG to disk and writes the base64 string to
+stdout in one pass — no separate file read needed.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `frontend/process/psProcess.js` | Added GDI P/Invoke type preloading (`GetDeviceCaps`, `GetDC`, `ReleaseDC`) |
+| `frontend/actions/screenshot.js` | Replaced `desktopCapturer` with PowerShell capture (GetDeviceCaps + cursor polygon) |
+| `frontend/actions/fullCapture.js` | Same — also moves window off-screen before capture, restores after |
+| `main.js` | Removed `desktopCapturer` import (no longer needed) |
+
+### Performance
+
+| Aspect | Old (`desktopCapturer`) | New (PowerShell) |
+|---|---|---|
+| Capture API | DXGI / WGC (GPU-accelerated) | GDI+ BitBlt (CPU) |
+| Cursor | Not included | Custom polygon at true position |
+| DPI handling | Electron handles it | GetDeviceCaps for physical resolution |
+| Latency | ~50–100ms | ~100–200ms |
+| Process spawn | None (in-process) | None (reuses persistent PowerShell) |
+
+The ~50–100ms extra latency is negligible in the agent loop (which already
+includes 1.5s for OmniParser + 2–5s for VLM reasoning).
+
+### Key Takeaway
+
+Windows screen capture APIs (DXGI, WGC, GDI+) all exclude the hardware
+cursor by design. There's no flag to include it. The only option is to
+composite the cursor after capture. And when doing GDI+ capture on HiDPI
+displays, you **cannot rely on `Screen.Bounds`** — it returns logical pixels
+unless the process is DPI-aware before any UI DLLs load (which PowerShell
+isn't). `GetDeviceCaps(DESKTOPHORZRES/DESKTOPVERTRES)` is the reliable path
+to true physical pixel resolution.
