@@ -14,7 +14,7 @@ const psProcess = require('../process/psProcess');
 
 // Protected files that the agent must NEVER modify.
 // Read access is fine — only write/modify operations are blocked.
-const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md', 'USER.md', 'IDENTITY.md'];
+const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md'];
 
 // Patterns that indicate a write operation targeting a file
 const WRITE_PATTERNS = [

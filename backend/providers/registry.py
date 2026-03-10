@@ -74,3 +74,19 @@ def load_provider():
         mod.ensure_ready,
         name,
     )
+
+
+def load_compact_provider():
+    """
+    Load the compact client for the active provider.
+
+    Returns a compact(messages: list[PreviousMessage]) -> str function.
+    """
+    name = _detect_provider()
+    module_path = _PROVIDER_MAP[name]
+
+    compact_module = f"{module_path}.client_compact"
+    print(f"[provider] Loading compact client: {name}  (module: {compact_module})")
+    mod = importlib.import_module(compact_module)
+
+    return mod.compact

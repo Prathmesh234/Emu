@@ -22,7 +22,7 @@ from prompts import SYSTEM_PROMPT
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MODEL_NAME = "claude-sonnet-4-6"
+MODEL_NAME = "claude-opus-4-6"
 MAX_TOKENS = 1024
 
 SCREENSHOT_PREFIX = "data:image/"

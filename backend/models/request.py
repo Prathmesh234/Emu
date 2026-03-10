@@ -16,11 +16,33 @@ class MessageRole(str, Enum):
 
 # ── Sub-models ─────────────────────────────────────────────────────────────────
 
+class ScreenElement(BaseModel):
+    """A single UI element detected by OmniParser (icon or text)."""
+    id:           int
+    type:         str            # "icon" | "text"
+    content:      str = ""       # OCR text (empty for icons)
+    bbox_pixel:   list[int]      # [x1, y1, x2, y2] in pixels
+    center_pixel: list[int]      # [cx, cy] in pixels
+    interactable: bool = True
+
+
+class ScreenAnnotation(BaseModel):
+    """OmniParser detection results attached to a screenshot message."""
+    elements:     list[ScreenElement] = Field(default_factory=list)
+    image_width:  int = 0
+    image_height: int = 0
+    latency_ms:   int = 0
+
+
 class PreviousMessage(BaseModel):
     """A single turn in the conversation history."""
-    role:      MessageRole
-    content:   str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    role:        MessageRole
+    content:     str
+    annotations: Optional[ScreenAnnotation] = Field(
+        default=None,
+        description="OmniParser UI element detections (only on screenshot messages)"
+    )
+    timestamp:   datetime = Field(default_factory=datetime.utcnow)
 
 
 # ── Agent request ──────────────────────────────────────────────────────────────
@@ -122,4 +144,9 @@ class ActionCompleteRequest(BaseModel):
 
 class StopRequest(BaseModel):
     """User requests the agent to stop the current trajectory."""
+    session_id: str
+
+
+class CompactRequest(BaseModel):
+    """User requests context compaction for a bloated session."""
     session_id: str

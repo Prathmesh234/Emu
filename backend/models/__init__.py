@@ -2,8 +2,11 @@ from .actions import Action, ActionType, Coordinates
 from .request import (
     AgentRequest,
     ActionCompleteRequest,
+    CompactRequest,
     MessageRole,
     PreviousMessage,
+    ScreenAnnotation,
+    ScreenElement,
     ScreenshotRequest,
     StopRequest,
 )
@@ -17,9 +20,12 @@ __all__ = [
     # request
     "MessageRole",
     "PreviousMessage",
+    "ScreenAnnotation",
+    "ScreenElement",
     "AgentRequest",
     "ScreenshotRequest",
     "ActionCompleteRequest",
+    "CompactRequest",
     "StopRequest",
     # response
     "AgentResponse",

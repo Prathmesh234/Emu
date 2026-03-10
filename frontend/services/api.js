@@ -42,4 +42,13 @@ async function stopAgent(sessionId) {
     });
 }
 
-module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent };
+async function compactContext(sessionId) {
+    const res = await fetch(`${BACKEND_URL}/agent/compact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+    });
+    return res.json();
+}
+
+module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent, compactContext };

@@ -4,6 +4,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -12,6 +15,7 @@ from models import (
     AgentRequest,
     AgentResponse,
     ActionCompleteRequest,
+    CompactRequest,
     ScreenshotRequest,
     StopRequest,
 )
@@ -22,9 +26,10 @@ from workspace import ensure_session_dir
 # Auto-detects provider from environment variables.
 # Override with EMU_PROVIDER=claude|openai|gemini|openai_compatible|modal
 #
-from providers.registry import load_provider
+from providers.registry import load_provider, load_compact_provider
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
+compact_model = load_compact_provider()
 
 app = FastAPI(title="Emulation Agent API")
 
@@ -214,6 +219,7 @@ async def agent_step(req: AgentRequest):
         "confidence":           response.confidence,
         "final_message":        response.final_message,
         "requires_confirmation": needs_confirm,
+        "chain_length":         context_manager.chain_length(session_id),
     })
 
     if response.done:
@@ -270,6 +276,65 @@ async def agent_stop(req: StopRequest):
     })
 
     return {"session_id": session_id, "status": "stopped"}
+
+
+@app.post("/agent/compact")
+async def compact_context(req: CompactRequest):
+    """
+    Compact a bloated context chain.
+
+    Serialises the full chain (minus screenshots and system prompt),
+    sends it to a lightweight model for summarisation, then resets
+    the chain to: system prompt + compressed summary.
+    """
+    session_id = req.session_id
+    chain_len = context_manager.chain_length(session_id)
+    print(f"[compact] session={session_id}  chain_length={chain_len}")
+
+    if chain_len <= 4:
+        return {
+            "session_id": session_id,
+            "status": "skipped",
+            "message": "Context chain is too short to compact.",
+            "chain_length": chain_len,
+        }
+
+    # Get the message chain (screenshots → placeholders, system prompt stripped)
+    compact_messages = context_manager.get_compact_messages(session_id)
+
+    await manager.send(session_id, {
+        "type": "status",
+        "message": "Compacting context — summarising conversation history...",
+    })
+
+    try:
+        summary = compact_model(compact_messages)
+    except Exception as e:
+        print(f"[compact] Failed: {e}")
+        await manager.send(session_id, {
+            "type": "error",
+            "message": f"Context compaction failed: {e}",
+        })
+        return {"session_id": session_id, "status": "error", "error": str(e)}
+
+    # Reset the chain: system prompt + summary
+    context_manager.reset_with_summary(session_id, summary)
+    new_len = context_manager.chain_length(session_id)
+
+    print(f"[compact] Done. {chain_len} messages → {new_len} messages")
+    print(f"[compact] Summary:\n{summary}")
+
+    await manager.send(session_id, {
+        "type": "status",
+        "message": f"Context compacted: {chain_len} → {new_len} messages.",
+    })
+
+    return {
+        "session_id": session_id,
+        "status": "compacted",
+        "previous_length": chain_len,
+        "new_length": new_len,
+    }
 
 
 @app.websocket("/ws/{session_id}")

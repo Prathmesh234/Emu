@@ -21,7 +21,7 @@ modal_client detects these and renders them as multimodal image content.
 
 import json
 
-from models import AgentRequest, PreviousMessage, MessageRole
+from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
 from prompts import build_system_prompt
 from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
 
@@ -84,13 +84,60 @@ class ContextManager:
 
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """
-        Append a screenshot as a user message.
-        Stored as a data URI so modal_client can detect and render it as an image.
+        Run the screenshot through OmniParser for UI element detection,
+        then append it as a user message with annotations attached.
+
+        The annotated (labelled) image replaces the raw screenshot in the chain
+        so the model sees element IDs drawn on screen. The structured element
+        list is stored in annotations for coordinate-aware reasoning.
         """
         if not base64_screenshot.startswith("data:"):
             base64_screenshot = f"data:image/png;base64,{base64_screenshot}"
+
+        # Strip the data URI prefix for the OmniParser client
+        raw_b64 = base64_screenshot.split(",", 1)[1] if "," in base64_screenshot else base64_screenshot
+
+        annotations = None
+        try:
+            from providers.modal.omni_parser.client import parse_screenshot_b64
+            result = parse_screenshot_b64(raw_b64, include_annotated=True)
+
+            # Use the annotated image (with drawn element boxes) instead of raw
+            if result.annotated_image_base64:
+                base64_screenshot = f"data:image/png;base64,{result.annotated_image_base64}"
+
+            # Build the structured annotation
+            elements = [
+                ScreenElement(
+                    id=e.id, type=e.type, content=e.content,
+                    bbox_pixel=e.bbox_pixel, center_pixel=e.center_pixel,
+                    interactable=e.interactable,
+                )
+                for e in result.elements
+            ]
+            annotations = ScreenAnnotation(
+                elements=elements,
+                image_width=result.image_width,
+                image_height=result.image_height,
+                latency_ms=result.latency_ms,
+            )
+            print(f"[omniparser] {len(elements)} elements detected ({result.latency_ms}ms)")
+            for e in elements:
+                tag = e.type.upper()
+                coords = f"bbox=({e.bbox_pixel[0]},{e.bbox_pixel[1]},{e.bbox_pixel[2]},{e.bbox_pixel[3]})  center=({e.center_pixel[0]},{e.center_pixel[1]})"
+                lbl = e.content if e.content else ""
+                click = "  [clickable]" if e.interactable else ""
+                print(f"  [{e.id}] {tag}  label=\"{lbl}\"  {coords}{click}")
+        except Exception as e:
+            # OmniParser failure is non-fatal — fall back to raw screenshot
+            print(f"[omniparser] Failed, using raw screenshot: {e}")
+
         self._get(session_id).append(
-            PreviousMessage(role=MessageRole.user, content=base64_screenshot)
+            PreviousMessage(
+                role=MessageRole.user,
+                content=base64_screenshot,
+                annotations=annotations,
+            )
         )
 
     def add_assistant_turn(self, session_id: str, response_json: str) -> None:
@@ -128,7 +175,9 @@ class ContextManager:
                 user_message = m.content
                 break
 
-        # Build a lightweight copy: replace all but the last screenshot
+        # Build a lightweight copy: replace all but the last screenshot.
+        # For the latest screenshot, inject the element list as a follow-up text
+        # message so the model sees both the annotated image AND structured data.
         trimmed: list[PreviousMessage] = []
         last_screenshot_idx = -1
         for i, m in enumerate(history):
@@ -144,6 +193,12 @@ class ContextManager:
                 )
             else:
                 trimmed.append(m)
+                # After the latest screenshot, inject the element list as text
+                if i == last_screenshot_idx and m.annotations and m.annotations.elements:
+                    element_text = self._format_annotations(m.annotations)
+                    trimmed.append(
+                        PreviousMessage(role=MessageRole.user, content=element_text, timestamp=m.timestamp)
+                    )
 
         return AgentRequest(
             session_id=session_id,
@@ -156,3 +211,73 @@ class ContextManager:
     def clear_session(self, session_id: str) -> None:
         """Remove all history for a session."""
         self._history.pop(session_id, None)
+
+    @staticmethod
+    def _format_annotations(ann: ScreenAnnotation) -> str:
+        """Format screen annotations as a compact text block for the model."""
+        lines = [f"[SCREEN ELEMENTS] {ann.image_width}x{ann.image_height} — {len(ann.elements)} elements detected"]
+        for e in ann.elements:
+            x1, y1, x2, y2 = e.bbox_pixel
+            cx, cy = e.center_pixel
+            lbl = e.content if e.content else ""
+            click = "  [clickable]" if e.interactable else ""
+            lines.append(f'  [{e.id}] {e.type.upper()}  label="{lbl}"  bbox=({x1},{y1},{x2},{y2})  center=({cx},{cy}){click}')
+        return "\n".join(lines)
+
+    def get_compact_messages(self, session_id: str) -> list[PreviousMessage]:
+        """
+        Return the message chain for compaction.
+
+        Same as what the model sees via build_request(), but ALL screenshots
+        are replaced with placeholders (no point sending images to a text
+        summariser). The system prompt is stripped — it gets re-injected
+        after compaction.
+        """
+        history = self._get(session_id)
+        messages: list[PreviousMessage] = []
+
+        for m in history:
+            if m.role == MessageRole.system:
+                continue
+            elif m.role == MessageRole.user and m.content.startswith(SCREENSHOT_PREFIX):
+                messages.append(
+                    PreviousMessage(role=m.role, content=self.SCREENSHOT_PLACEHOLDER, timestamp=m.timestamp)
+                )
+            else:
+                messages.append(m)
+
+        return messages
+
+    def reset_with_summary(self, session_id: str, summary: str) -> None:
+        """
+        Replace the context chain with: system prompt + compacted summary.
+
+        The system prompt is rebuilt fresh (picks up current date/time).
+        The summary is injected as a user message so the model sees the
+        full trajectory context in a compressed form.
+        """
+        from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
+        from prompts import build_system_prompt
+
+        workspace_ctx = build_workspace_context()
+        bootstrap_mode = is_bootstrap_needed()
+        bootstrap_content = read_bootstrap() if bootstrap_mode else ""
+
+        system_prompt = build_system_prompt(
+            workspace_ctx,
+            session_id=session_id,
+            bootstrap_mode=bootstrap_mode,
+            bootstrap_content=bootstrap_content,
+        )
+
+        self._history[session_id] = [
+            PreviousMessage(role=MessageRole.system, content=system_prompt.strip()),
+            PreviousMessage(
+                role=MessageRole.user,
+                content="[COMPACTED SUMMARY]\n" + summary,
+            ),
+        ]
+
+    def chain_length(self, session_id: str) -> int:
+        """Return the number of messages in a session's context chain."""
+        return len(self._get(session_id))

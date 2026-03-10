@@ -11,9 +11,10 @@ Usage:
 """
 
 import time
+import os
 import requests
 
-MODAL_URL = "https://ppbhatt500--qwen35-35b-a3b-vlm-qwen35vlm.us-east.modal.direct"
+MODAL_URL = os.getenv("MODAL_VLM_URL", "https://ppbhatt500--qwen35-35b-a3b-vlm-qwen35vlm.us-east.modal.direct")
 HEALTH_ENDPOINT = f"{MODAL_URL}/health"
 MODELS_ENDPOINT = f"{MODAL_URL}/v1/models"
 

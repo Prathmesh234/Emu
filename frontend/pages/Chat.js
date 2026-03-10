@@ -19,6 +19,9 @@ let chatContainer, chatWrapper, chatInput, header;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Chain length threshold: auto-compact when the backend context chain exceeds this.
+const COMPACT_THRESHOLD = 20;
+
 /** Scroll chat to bottom after the browser has laid out new content. */
 function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -354,6 +357,25 @@ async function continueLoop() {
 
     // Send screenshot to backend (no new assistant message bubble — reuse current)
     try {
+        // Auto-compact if context chain is bloating
+        const chainLen = store.state.lastChainLength || 0;
+        if (chainLen >= COMPACT_THRESHOLD) {
+            console.log(`[continueLoop] chain_length=${chainLen} >= ${COMPACT_THRESHOLD} — auto-compacting`);
+            showStatus('Compacting context (summarising history)...');
+            try {
+                const result = await api.compactContext(store.state.sessionId);
+                console.log(`[continueLoop] compact result:`, result);
+                if (result.status === 'compacted') {
+                    updateStatus(`Compacted: ${result.previous_length} → ${result.new_length} messages`);
+                    store.state.lastChainLength = result.new_length;
+                    await sleep(1000);
+                }
+            } catch (compactErr) {
+                console.warn('[continueLoop] compact failed:', compactErr.message);
+            }
+            removeStatus();
+        }
+
         await api.postStep({
             sessionId:        store.state.sessionId,
             userMessage:      '',
@@ -381,6 +403,11 @@ async function handleWsMessage(data) {
 
         case 'step': {
             removeStatus();
+
+            // Track chain length for auto-compact
+            if (data.chain_length != null) {
+                store.state.lastChainLength = data.chain_length;
+            }
 
             // Move to side panel only for vision/action steps (not pure chat/done)
             if (!data.done && data.action) {
