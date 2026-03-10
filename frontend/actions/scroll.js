@@ -7,25 +7,27 @@
 const { ipcRenderer } = require('electron');
 const psProcess = require('../process/psProcess');
 
-async function scroll(x, y, direction = 'down', amount = 3) {
-    return await ipcRenderer.invoke('mouse:scroll', { x, y, direction, amount });
+async function scroll(direction = 'down', amount = 3) {
+    return await ipcRenderer.invoke('mouse:scroll', { direction, amount });
 }
 
 function register(ipcMain, BACKEND_URL) {
-    ipcMain.handle('mouse:scroll', async (_event, { x, y, direction = 'down', amount = 3 }) => {
+    ipcMain.handle('mouse:scroll', async (_event, { direction = 'down', amount = 3 }) => {
         try {
             // WHEEL_DELTA = 120 per notch; positive = up, negative = down
             const delta = direction === 'up' ? 120 * amount : -120 * amount;
 
+            // 1. Fire a zero-pixel MOUSEEVENTF_MOVE so the target window
+            //    receives WM_MOUSEMOVE and registers the cursor hovering.
+            // 2. Brief sleep to let the app process the move.
+            // 3. Fire MOUSEEVENTF_WHEEL at the current cursor position.
             await psProcess.run([
-                // Move cursor to the target element first so the OS routes the
-                // scroll to the correct window/control
-                `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x}, ${y})`,
-                // MOUSEEVENTF_WHEEL = 0x0800 (2048); dwData = wheel delta
-                `[W.U32]::mouse_event(0x0800, 0, 0, ${delta}, 0)`
+                `[W.U32]::mouse_event(0x0001, 0, 0, 0, 0)`,
+                `Start-Sleep -Milliseconds 100`,
+                `[W.U32]::mouse_event(0x0800, 0, 0, ${delta}, 0)`,
             ].join('; '));
 
-            return { success: true, x, y, direction, amount };
+            return { success: true, direction, amount };
         } catch (err) {
             return { success: false, error: err.message };
         }

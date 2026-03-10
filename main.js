@@ -4,7 +4,7 @@ const psProcess = require('./frontend/process/psProcess');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = 'http://172.23.104.4:8000';
 
 let mainWindow;
 

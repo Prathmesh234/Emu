@@ -48,6 +48,47 @@ FIRMWARE_FILES = [
 MEMORY_FILE = _WORKSPACE_DIR / "MEMORY.md"
 MEMORY_TOKEN_LIMIT = 3000  # rough char proxy (~4 chars/token → 12k chars)
 
+# ── Migration: root-level .emu/*.md → .emu/workspace/*.md ──────────────────
+# Early versions (or the agent itself) sometimes wrote USER.md / IDENTITY.md
+# to .emu/ instead of .emu/workspace/. If the root copy has non-template
+# content and the workspace copy is still the default, migrate it over.
+_MIGRATABLE_FILES = ["USER.md", "IDENTITY.md"]
+
+def _migrate_root_to_workspace():
+    """One-time migration of misplaced root-level .emu/*.md files."""
+    for name in _MIGRATABLE_FILES:
+        root_file = _EMU_DIR / name
+        ws_file = _WORKSPACE_DIR / name
+        if not root_file.exists():
+            continue
+        root_content = _read_file_raw(root_file)
+        if not root_content or len(root_content.strip()) < 20:
+            continue  # empty or trivial — nothing to migrate
+        ws_content = _read_file_raw(ws_file)
+        # Only migrate if the workspace copy is shorter (still template)
+        if ws_content and len(ws_content.strip()) >= len(root_content.strip()):
+            continue
+        try:
+            ws_file.write_text(root_content, encoding="utf-8")
+            print(f"[workspace] migrated .emu/{name} → .emu/workspace/{name}")
+        except OSError as e:
+            print(f"[workspace] migration failed for {name}: {e}")
+
+def _read_file_raw(filepath: Path) -> Optional[str]:
+    """Read file content without stripping, for migration comparison."""
+    try:
+        return filepath.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            return filepath.read_text(encoding="cp1252")
+        except (FileNotFoundError, PermissionError, OSError):
+            return None
+    except (FileNotFoundError, PermissionError, OSError):
+        return None
+
+# Run migration on module load (idempotent)
+_migrate_root_to_workspace()
+
 
 def get_workspace_dir() -> Path:
     return _WORKSPACE_DIR

@@ -27,6 +27,27 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
 .expand-btn { padding: 0.3rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.4rem; background: #fff; cursor: pointer; font-size: 0.75rem; -webkit-app-region: no-drag; }
 .expand-btn:hover { background: #f3f4f6; }
 
+/* Dangerous mode toggle */
+.danger-toggle {
+    display: flex; align-items: center; gap: 0.35rem; cursor: pointer;
+    -webkit-app-region: no-drag; user-select: none; font-size: 0.7rem;
+}
+.danger-toggle input { display: none; }
+.danger-slider {
+    position: relative; width: 28px; height: 16px; background: #d1d5db;
+    border-radius: 8px; transition: background 0.2s;
+}
+.danger-slider::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 12px; height: 12px; background: #fff; border-radius: 50%;
+    transition: transform 0.2s;
+}
+.danger-toggle.active .danger-slider { background: #ef4444; }
+.danger-toggle.active .danger-slider::after { transform: translateX(12px); }
+.danger-label { color: #6b7280; font-family: monospace; font-size: 0.65rem; }
+.danger-toggle.active .danger-label { color: #ef4444; font-weight: 600; }
+.danger-toggle.disabled { opacity: 0.4; pointer-events: none; }
+
 .chat-container { flex: 1; overflow-y: auto; }
 .chat-wrapper { padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 

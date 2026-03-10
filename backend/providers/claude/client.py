@@ -22,7 +22,7 @@ from prompts import SYSTEM_PROMPT
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MODEL_NAME = "claude-opus-4-6"
+MODEL_NAME = "claude-sonnet-4-5"
 MAX_TOKENS = 1024
 
 SCREENSHOT_PREFIX = "data:image/"
@@ -146,5 +146,6 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    print(f"[claude] WARNING: unparseable response:\n  {content[:300]}")
-    return {"action": {"type": "screenshot"}, "done": False, "confidence": 0.5}
+    # Plain text response — treat as conversational done, not a loop
+    print(f"[claude] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
+    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}

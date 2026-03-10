@@ -11,6 +11,7 @@ const state = {
     isSidePanel: false,
     sessionId: null,
     ws: null,
+    dangerousMode: false,
 
     // Transient references (current render cycle)
     currentAssistantEl: null,
@@ -63,6 +64,10 @@ function setSession(id) {
     state.sessionId = id;
 }
 
+function setDangerousMode(value) {
+    state.dangerousMode = value;
+}
+
 function setWebSocket(socket) {
     state.ws = socket;
 }
@@ -99,6 +104,7 @@ module.exports = {
     setStopped,
     setSidePanel,
     setSession,
+    setDangerousMode,
     setWebSocket,
     setAssistantEl,
     pushMessage,

@@ -20,7 +20,7 @@ let chatContainer, chatWrapper, chatInput, header;
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Chain length threshold: auto-compact when the backend context chain exceeds this.
-const COMPACT_THRESHOLD = 20;
+const COMPACT_THRESHOLD = 100;
 
 /** Scroll chat to bottom after the browser has laid out new content. */
 function scrollToBottom() {
@@ -40,6 +40,8 @@ function syncGeneratingUI(generating) {
         chatInput.setMode('send');
         chatInput.setTooltip('');
     }
+    // Disable the dangerous mode toggle mid-generation
+    if (header) header.setToggleDisabled(generating);
 }
 
 // ── Window helpers ───────────────────────────────────────────────────────
@@ -334,7 +336,7 @@ async function continueLoop() {
     const stepNum = store.state.stepCount;
 
     const screenshotStepData = {
-        action: { type: 'screenshot' },
+        action: null,
         screenshot: screenshot.base64,
         confidence: 1.0,
         done: false,
@@ -463,7 +465,7 @@ async function handleWsMessage(data) {
                     if (data.action.type === 'screenshot') {
                         console.log('[step] model requested screenshot — calling continueLoop');
                         await continueLoop();
-                    } else if (data.requires_confirmation) {
+                    } else if (data.requires_confirmation && !store.state.dangerousMode) {
                         // Shell exec confirmation — wait for user Allow/Deny
                         console.log('[step] awaiting user confirmation for shell_exec');
                         const decision = await waitForConfirmation(stepCard.element);
@@ -630,14 +632,18 @@ async function executeAction(action, stepEl) {
 // ── Session bootstrap ────────────────────────────────────────────────────
 
 async function initSession() {
+    console.log('[session] attempting to create session...');
     try {
         const id = await api.createSession();
+        if (!id) {
+            throw new Error('createSession returned empty id');
+        }
         store.setSession(id);
         initWebSocket(id);
-        console.log('[session] created', id);
+        console.log('[session] created successfully:', id);
     } catch (err) {
-        console.warn('[session] backend unreachable:', err.message);
-        console.log('[session] retrying in 2s...');
+        console.warn('[session] failed:', err.message);
+        console.log('[session] retrying in 2s... (is backend running on localhost:8000?)');
         setTimeout(initSession, 2000);
     }
 }

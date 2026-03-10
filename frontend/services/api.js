@@ -1,10 +1,16 @@
 // services/api.js — HTTP API calls to backend
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = 'http://172.23.104.4:8000';
 
 async function createSession() {
     const res = await fetch(`${BACKEND_URL}/agent/session`, { method: 'POST' });
+    if (!res.ok) {
+        throw new Error(`Session creation failed: ${res.status} ${res.statusText}`);
+    }
     const data = await res.json();
+    if (!data.session_id) {
+        throw new Error('Session response missing session_id');
+    }
     return data.session_id;
 }
 

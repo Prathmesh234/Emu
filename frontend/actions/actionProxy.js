@@ -9,7 +9,7 @@ const { leftClickOpen }  = require('./leftClickOpen');
 const { tripleClick }    = require('./tripleClick');
 const { navigateMouse }  = require('./navigate');
 const { scroll }         = require('./scroll');
-const { captureScreenshot } = require('./screenshot');
+const { captureScreenshot, getScaleFactors } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
 
@@ -60,14 +60,21 @@ const ACTION_MAP = {
         label: 'Mouse Move',
         icon:  '↗️',
         ipc:   'mouse:move',
-        dispatch: (a) => navigateMouse(a.coordinates.x, a.coordinates.y),
+        dispatch: (a) => {
+            // Scale coordinates from image space to screen space
+            const { scaleX, scaleY } = getScaleFactors();
+            const scaledX = Math.round(a.coordinates.x * scaleX);
+            const scaledY = Math.round(a.coordinates.y * scaleY);
+            console.log(`[mouse_move] scaling (${a.coordinates.x}, ${a.coordinates.y}) → (${scaledX}, ${scaledY}) [scale: ${scaleX.toFixed(2)}x, ${scaleY.toFixed(2)}y]`);
+            return navigateMouse(scaledX, scaledY);
+        },
         describe: (a) => `Move cursor to (${a.coordinates.x}, ${a.coordinates.y})`,
     },
     scroll: {
         label: 'Scroll',
         icon:  '📜',
         ipc:   'mouse:scroll',
-        dispatch: (a) => scroll(0, 0, a.direction, a.amount || 3),
+        dispatch: (a) => scroll(a.direction, a.amount || 3),
         describe: (a) => `Scroll ${a.direction} ${a.amount || 3} notches`,
     },
     type_text: {

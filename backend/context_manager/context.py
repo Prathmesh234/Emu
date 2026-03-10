@@ -19,11 +19,18 @@ Screenshots are stored as data URIs in user messages.
 modal_client detects these and renders them as multimodal image content.
 """
 
+import base64
 import json
+from datetime import datetime
+from pathlib import Path
 
 from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
 from prompts import build_system_prompt
 from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
+
+# Directory where screenshots are saved (same as frontend uses)
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+SCREENSHOTS_DIR = _BACKEND_DIR / "emulation_screen_shots"
 
 # Prefix used to identify screenshot messages in history
 SCREENSHOT_PREFIX = "data:image/"
@@ -105,6 +112,17 @@ class ContextManager:
             # Use the annotated image (with drawn element boxes) instead of raw
             if result.annotated_image_base64:
                 base64_screenshot = f"data:image/png;base64,{result.annotated_image_base64}"
+
+                # Save annotated screenshot to disk
+                try:
+                    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    annotated_path = SCREENSHOTS_DIR / f"screenshot_{timestamp}_annotated.png"
+                    annotated_bytes = base64.b64decode(result.annotated_image_base64)
+                    annotated_path.write_bytes(annotated_bytes)
+                    print(f"[omniparser] saved annotated screenshot → {annotated_path.name}")
+                except Exception as save_err:
+                    print(f"[omniparser] failed to save annotated screenshot: {save_err}")
 
             # Build the structured annotation
             elements = [
@@ -224,14 +242,17 @@ class ContextManager:
             lines.append(f'  [{e.id}] {e.type.upper()}  label="{lbl}"  bbox=({x1},{y1},{x2},{y2})  center=({cx},{cy}){click}')
         return "\n".join(lines)
 
+    # Prefix for screen element annotation blocks injected after screenshots
+    SCREEN_ELEMENTS_PREFIX = "[SCREEN ELEMENTS]"
+
     def get_compact_messages(self, session_id: str) -> list[PreviousMessage]:
         """
         Return the message chain for compaction.
 
-        Same as what the model sees via build_request(), but ALL screenshots
-        are replaced with placeholders (no point sending images to a text
-        summariser). The system prompt is stripped — it gets re-injected
-        after compaction.
+        Same as what the model sees via build_request(), but:
+          - ALL screenshots are replaced with placeholders
+          - [SCREEN ELEMENTS] blocks (bbox/coordinate data) are stripped
+          - The system prompt is removed (re-injected after compaction)
         """
         history = self._get(session_id)
         messages: list[PreviousMessage] = []
@@ -243,6 +264,10 @@ class ContextManager:
                 messages.append(
                     PreviousMessage(role=m.role, content=self.SCREENSHOT_PLACEHOLDER, timestamp=m.timestamp)
                 )
+            elif m.role == MessageRole.user and m.content.startswith(self.SCREEN_ELEMENTS_PREFIX):
+                # Skip screen element annotation blocks — huge bbox data
+                # that's useless for text summarisation
+                continue
             else:
                 messages.append(m)
 
@@ -253,28 +278,51 @@ class ContextManager:
         Replace the context chain with: system prompt + compacted summary.
 
         The system prompt is rebuilt fresh (picks up current date/time).
-        The summary is injected as a user message so the model sees the
-        full trajectory context in a compressed form.
+        Bootstrap mode is forced OFF — if we are compacting, we are already
+        in an active session, so the first-launch interview must never fire.
+        The summary is injected as a user turn framed as a continuation
+        directive, followed by an assistant acknowledgment that restates the
+        primary task so the model has a clear mandate.
         """
-        from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
+        from workspace import build_workspace_context
         from prompts import build_system_prompt
 
         workspace_ctx = build_workspace_context()
-        bootstrap_mode = is_bootstrap_needed()
-        bootstrap_content = read_bootstrap() if bootstrap_mode else ""
 
+        # Always bootstrap_mode=False: we're mid-session, never first-launch.
         system_prompt = build_system_prompt(
             workspace_ctx,
             session_id=session_id,
-            bootstrap_mode=bootstrap_mode,
-            bootstrap_content=bootstrap_content,
+            bootstrap_mode=False,
+            bootstrap_content="",
+        )
+
+        # Frame the summary as an explicit continuation directive
+        user_content = (
+            "[CONTEXT CONTINUATION — READ CAREFULLY]\n"
+            "The conversation history was compacted to save tokens. "
+            "Below is a detailed summary of everything that happened. "
+            "Your job is to CONTINUE the task described in ## PRIMARY TASK. "
+            "Do NOT start over. Do NOT ask the user to repeat themselves. "
+            "Pick up exactly where the summary says to.\n\n"
+            + summary
         )
 
         self._history[session_id] = [
             PreviousMessage(role=MessageRole.system, content=system_prompt.strip()),
             PreviousMessage(
                 role=MessageRole.user,
-                content="[COMPACTED SUMMARY]\n" + summary,
+                content=user_content,
+            ),
+            PreviousMessage(
+                role=MessageRole.assistant,
+                content=(
+                    '{"reasoning": "Context compacted. I have read the full '
+                    'continuation summary above. I know the user\'s primary task, '
+                    'what has been done so far, and what to do next. Continuing '
+                    'seamlessly.", "action": {"type": "screenshot"}, "done": false, '
+                    '"confidence": 0.95}'
+                ),
             ),
         ]
 

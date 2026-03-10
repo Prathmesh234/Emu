@@ -302,6 +302,12 @@ async def compact_context(req: CompactRequest):
     # Get the message chain (screenshots → placeholders, system prompt stripped)
     compact_messages = context_manager.get_compact_messages(session_id)
 
+    # Log what we're sending to the compact model
+    print(f"[compact] Sending {len(compact_messages)} messages to compact model")
+    for i, m in enumerate(compact_messages):
+        preview = m.content[:200].replace('\n', ' ')
+        print(f"[compact]   [{i}] {m.role.value}: {preview}...")
+
     await manager.send(session_id, {
         "type": "status",
         "message": "Compacting context — summarising conversation history...",
@@ -322,7 +328,9 @@ async def compact_context(req: CompactRequest):
     new_len = context_manager.chain_length(session_id)
 
     print(f"[compact] Done. {chain_len} messages → {new_len} messages")
-    print(f"[compact] Summary:\n{summary}")
+    print(f"[compact] ═══ COMPACTED SUMMARY START ═══")
+    print(summary)
+    print(f"[compact] ═══ COMPACTED SUMMARY END ═══")
 
     await manager.send(session_id, {
         "type": "status",

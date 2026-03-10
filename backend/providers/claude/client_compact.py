@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from models import PreviousMessage
 
 MODEL_NAME = "claude-haiku-4-5"
-MAX_TOKENS = 4096
+MAX_TOKENS = 8192
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 

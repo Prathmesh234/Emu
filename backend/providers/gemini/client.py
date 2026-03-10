@@ -177,5 +177,6 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    print(f"[gemini] WARNING: unparseable response:\n  {content[:300]}")
-    return {"action": {"type": "screenshot"}, "done": False, "confidence": 0.5}
+    # Plain text response — treat as conversational done, not a loop
+    print(f"[gemini] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
+    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}
