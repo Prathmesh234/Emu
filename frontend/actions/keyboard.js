@@ -102,18 +102,43 @@ function register(ipcMain) {
 
     // ── type_text ────────────────────────────────────────────────────────
     ipcMain.handle('keyboard:type', async (_event, { text }) => {
-        // SendKeys special characters that must be escaped with braces: + ^ % ~ { } [ ] ( )
-        const escaped = text.replace(/([+^%~{}[\]()])/g, '{$1}');
-        // Escape single quotes for PowerShell string literal
-        const psStr = escaped.replace(/'/g, "''");
+        // For long text (>50 chars), clipboard paste is instant and reliable.
+        // SendKeys types character-by-character which times out on long strings.
+        const PASTE_THRESHOLD = 50;
 
         try {
-            await psProcess.run(`[System.Windows.Forms.SendKeys]::SendWait('${psStr}')`);
+            if (text.length > PASTE_THRESHOLD) {
+                // Save current clipboard, paste text, restore clipboard
+                const cmds = [
+                    `$_prev = Get-Clipboard -ErrorAction SilentlyContinue`,
+                    `Set-Clipboard -Value ${psStringLiteral(text)}`,
+                    `Start-Sleep -Milliseconds 50`,
+                    `[System.Windows.Forms.SendKeys]::SendWait('^v')`,
+                    `Start-Sleep -Milliseconds 100`,
+                    `if ($_prev) { Set-Clipboard -Value $_prev } else { Set-Clipboard -Value '' }`,
+                ];
+                await psProcess.run(cmds.join('; '));
+            } else {
+                // Short text — SendKeys is fine
+                const escaped = text.replace(/([+^%~{}[\]()])/g, '{$1}');
+                const psStr = escaped.replace(/'/g, "''");
+                await psProcess.run(`[System.Windows.Forms.SendKeys]::SendWait('${psStr}')`);
+            }
             return { success: true };
         } catch (err) {
             return { success: false, error: err.message };
         }
     });
+}
+
+/**
+ * Safely encode a string as a PowerShell single-quoted literal.
+ * Handles embedded single quotes and newlines.
+ */
+function psStringLiteral(str) {
+    // Single quotes inside PS single-quoted strings are doubled
+    const escaped = str.replace(/'/g, "''");
+    return `'${escaped}'`;
 }
 
 module.exports = { keyPress, typeText, register };

@@ -253,6 +253,8 @@ def _repair_json(text: str) -> str:
     s = s.replace("'", '"')
     # Trailing commas
     s = re.sub(r',\s*([}\]])', r'\1', s)
+    # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
+    s = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', s)
     # Python booleans / None
     s = re.sub(r'\bTrue\b', 'true', s)
     s = re.sub(r'\bFalse\b', 'false', s)

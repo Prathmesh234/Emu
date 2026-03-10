@@ -170,8 +170,12 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Trailing commas fix
-    repaired = re.sub(r',\s*([}\]])', r'\1', text)
+    # Common JSON repairs
+    repaired = text
+    # Trailing commas
+    repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+    # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
+    repaired = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', repaired)
     try:
         return json.loads(repaired)
     except json.JSONDecodeError:
