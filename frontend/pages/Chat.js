@@ -22,6 +22,11 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Chain length threshold: auto-compact when the backend context chain exceeds this.
 const COMPACT_THRESHOLD = 100;
 
+// Generation counter: incremented on each new respond() call and on stop.
+// Used to detect stale WS messages from a previous generation cycle so
+// they don't accidentally execute actions after a stop or new task start.
+let _generationId = 0;
+
 /** Scroll chat to bottom after the browser has laid out new content. */
 function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -176,8 +181,12 @@ async function stopAgent() {
 
     console.log('[stopAgent] user requested stop');
     store.setStopped(true);
+    // Bump generation ID so any in-flight WS messages from the old
+    // generation are ignored — prevents stale actions from executing
+    _generationId++;
 
     // Notify backend — adds STOP to the context chain
+    // The session itself is NOT destroyed — user can continue chatting
     try {
         await api.stopAgent(store.state.sessionId);
     } catch (err) {
@@ -275,6 +284,9 @@ async function sendMessage() {
 
 async function respond(chat, base64Screenshot = null) {
     store.setStopped(false);
+    _generationId++;
+    const thisGenId = _generationId;
+    store.state._generationId = thisGenId;
     syncGeneratingUI(true);
 
     const lastUserMsg = store.getLastUserMessage(chat);
@@ -307,8 +319,14 @@ async function respond(chat, base64Screenshot = null) {
  * Called after the model requests a screenshot or after executing an action.
  */
 async function continueLoop() {
+    const loopGenId = _generationId;
     if (store.state.isStopped) {
         console.log('[continueLoop] stopped by user — bailing out');
+        return;
+    }
+    // If generation changed since this continueLoop was called, bail
+    if (loopGenId !== _generationId) {
+        console.log('[continueLoop] generation changed — bailing out');
         return;
     }
     const chat = store.getCurrentChat();
@@ -397,13 +415,22 @@ async function continueLoop() {
 
 async function handleWsMessage(data) {
     const { state } = store;
+    // Capture the generation ID at the time this message was received
+    const msgGenId = _generationId;
 
     switch (data.type) {
         case 'status':
-            showStatus(data.message);
+            // Status messages are always safe to show
+            if (msgGenId === _generationId) showStatus(data.message);
             break;
 
         case 'step': {
+            // If the generation has changed since this message was queued,
+            // this is a stale response from a previous generation — ignore it
+            if (msgGenId !== _generationId) {
+                console.log(`[step] stale message (gen ${msgGenId} vs current ${_generationId}) — ignoring`);
+                break;
+            }
             removeStatus();
 
             // Track chain length for auto-compact
@@ -662,6 +689,7 @@ function mount(appEl) {
     header = Header({
         onExpand: toggleWindow,
         onClose: () => window.close(),
+        onNewTask: newChat,
     });
     main.appendChild(header.element);
 

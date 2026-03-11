@@ -11,6 +11,7 @@ class ActionType(str, Enum):
     DOUBLE_CLICK = "double_click"
     TRIPLE_CLICK = "triple_click"
     MOUSE_MOVE   = "mouse_move"
+    DRAG         = "drag"
     SCROLL       = "scroll"
     TYPE_TEXT    = "type_text"
     KEY_PRESS    = "key_press"
@@ -42,10 +43,16 @@ class Action(BaseModel):
 
     type: ActionType = Field(..., description="The kind of action to execute")
 
-    # Click / move / scroll position
+    # Click / move / scroll / drag start position
     coordinates: Optional[Coordinates] = Field(
         default=None,
-        description="Target screen coordinates (required for click, move, scroll)"
+        description="Target screen coordinates (required for click, move, scroll, drag start)"
+    )
+
+    # Drag end position
+    end_coordinates: Optional[Coordinates] = Field(
+        default=None,
+        description="End position for drag (required for DRAG — drag from coordinates to end_coordinates)"
     )
 
     # Type text

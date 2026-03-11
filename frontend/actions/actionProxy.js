@@ -8,6 +8,7 @@ const { rightClick }     = require('./rightClick');
 const { leftClickOpen }  = require('./leftClickOpen');
 const { tripleClick }    = require('./tripleClick');
 const { navigateMouse }  = require('./navigate');
+const { drag }           = require('./drag');
 const { scroll }         = require('./scroll');
 const { captureScreenshot, getScaleFactors } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
@@ -70,6 +71,21 @@ const ACTION_MAP = {
         },
         describe: (a) => `Move cursor to (${a.coordinates.x}, ${a.coordinates.y})`,
     },
+    drag: {
+        label: 'Drag',
+        icon:  '↔️',
+        ipc:   'mouse:drag',
+        dispatch: (a) => {
+            const { scaleX, scaleY } = getScaleFactors();
+            const startX = Math.round(a.coordinates.x * scaleX);
+            const startY = Math.round(a.coordinates.y * scaleY);
+            const endX = Math.round(a.end_coordinates.x * scaleX);
+            const endY = Math.round(a.end_coordinates.y * scaleY);
+            console.log(`[drag] scaling (${a.coordinates.x},${a.coordinates.y}) → (${startX},${startY}) to (${a.end_coordinates.x},${a.end_coordinates.y}) → (${endX},${endY})`);
+            return drag(startX, startY, endX, endY);
+        },
+        describe: (a) => `Drag from (${a.coordinates.x}, ${a.coordinates.y}) to (${a.end_coordinates.x}, ${a.end_coordinates.y})`,
+    },
     scroll: {
         label: 'Scroll',
         icon:  '📜',
@@ -129,7 +145,7 @@ function withTimeout(promise, ms, label) {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-const ACTION_TIMEOUT_MS = 10_000;   // 10 s — generous for IPC + psProcess
+const ACTION_TIMEOUT_MS = 15_000;   // 15 s — generous for IPC + psProcess (drag needs more)
 
 /**
  * Execute a backend action object.

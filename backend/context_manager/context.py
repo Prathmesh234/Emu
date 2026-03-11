@@ -85,6 +85,8 @@ class ContextManager:
 
     def add_user_message(self, session_id: str, text: str) -> None:
         """Append a text-only user message (the task instruction)."""
+        if not text or not text.strip():
+            return  # Skip empty messages
         self._get(session_id).append(
             PreviousMessage(role=MessageRole.user, content=text)
         )
@@ -218,6 +220,23 @@ class ContextManager:
                         PreviousMessage(role=MessageRole.user, content=element_text, timestamp=m.timestamp)
                     )
 
+        # Middle-trim: if the chain is still too long after screenshot replacement,
+        # keep system prompt + first user message + last N turns. This prevents
+        # the context from exceeding model limits before auto-compact fires.
+        if len(trimmed) > MAX_CHAIN_LENGTH:
+            # Keep: [0] system, [1] first user message, then last (MAX-2) messages
+            keep_head = 2  # system + first user message
+            keep_tail = MAX_CHAIN_LENGTH - keep_head
+            trimmed = trimmed[:keep_head] + [
+                PreviousMessage(
+                    role=MessageRole.user,
+                    content=(
+                        "[Note: Earlier conversation turns were trimmed to save space. "
+                        "Refer to .emu/sessions/" + session_id + "/plan.md for the full task plan.]"
+                    ),
+                )
+            ] + trimmed[-keep_tail:]
+
         return AgentRequest(
             session_id=session_id,
             user_message=user_message,
@@ -282,7 +301,7 @@ class ContextManager:
         in an active session, so the first-launch interview must never fire.
         The summary is injected as a user turn framed as a continuation
         directive, followed by an assistant acknowledgment that restates the
-        primary task so the model has a clear mandate.
+        key context so the model has a clear mandate.
         """
         from workspace import build_workspace_context
         from prompts import build_system_prompt
@@ -297,15 +316,36 @@ class ContextManager:
             bootstrap_content="",
         )
 
+        # Extract key sections from the summary for the assistant ack
+        primary_task = ""
+        current_step = ""
+        remaining_steps = ""
+        for line in summary.split("\n"):
+            if line.strip().startswith("## PRIMARY TASK"):
+                primary_task = "(see summary above)"
+            elif line.strip().startswith("## CURRENT STEP"):
+                current_step = "(see summary above)"
+            elif line.strip().startswith("## REMAINING STEPS"):
+                remaining_steps = "(see summary above)"
+
         # Frame the summary as an explicit continuation directive
         user_content = (
-            "[CONTEXT CONTINUATION — READ CAREFULLY]\n"
+            "[CONTEXT CONTINUATION — READ CAREFULLY]\n\n"
             "The conversation history was compacted to save tokens. "
-            "Below is a detailed summary of everything that happened. "
-            "Your job is to CONTINUE the task described in ## PRIMARY TASK. "
-            "Do NOT start over. Do NOT ask the user to repeat themselves. "
-            "Pick up exactly where the summary says to.\n\n"
+            "Below is a detailed summary of everything that happened so far.\n\n"
+            "YOUR INSTRUCTIONS:\n"
+            "1. Read the ENTIRE summary below carefully\n"
+            "2. Find ## REMAINING STEPS — those are your next actions\n"
+            "3. Continue from ## CURRENT STEP — do NOT restart from the beginning\n"
+            "4. Do NOT ask the user to repeat anything\n"
+            "5. Do NOT write a new plan.md — it already exists\n"
+            "6. If confused about what to do, read .emu/sessions/" + session_id + "/plan.md\n"
+            "7. Your next response should be a JSON action continuing the task\n\n"
+            "━━━━━━━━━━ COMPACTED CONTEXT BELOW ━━━━━━━━━━\n\n"
             + summary
+            + "\n\n━━━━━━━━━━ END OF COMPACTED CONTEXT ━━━━━━━━━━\n\n"
+            "REMINDER: Continue from ## REMAINING STEPS. Do NOT start over. "
+            "Respond with a JSON action to continue the task."
         )
 
         self._history[session_id] = [
@@ -317,10 +357,14 @@ class ContextManager:
             PreviousMessage(
                 role=MessageRole.assistant,
                 content=(
-                    '{"reasoning": "Context compacted. I have read the full '
-                    'continuation summary above. I know the user\'s primary task, '
-                    'what has been done so far, and what to do next. Continuing '
-                    'seamlessly.", "action": {"type": "screenshot"}, "done": false, '
+                    '{"reasoning": "Context was compacted. I have read the full '
+                    'continuation summary. I understand: (1) the PRIMARY TASK the user '
+                    'requested, (2) what steps are COMPLETED, (3) what CURRENT STEP was '
+                    'in progress, and (4) what REMAINING STEPS I need to execute next. '
+                    'I will NOT start over or ask the user to repeat. I will continue '
+                    'from where we left off by taking a screenshot to see the current '
+                    'screen state, then proceeding with the remaining steps.", '
+                    '"action": {"type": "screenshot"}, "done": false, '
                     '"confidence": 0.95}'
                 ),
             ),

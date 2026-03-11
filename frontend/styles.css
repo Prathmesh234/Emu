@@ -22,8 +22,48 @@ body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
     justify-content: space-between;
     -webkit-app-region: drag;
 }
+.header-left { display: flex; align-items: center; gap: 0.5rem; -webkit-app-region: no-drag; }
+.header-left h1 { -webkit-app-region: drag; }
 .header h1 { font-size: 1rem; font-weight: 600; }
 .header-actions { display: flex; gap: 0.5rem; -webkit-app-region: no-drag; }
+
+/* New task button */
+.new-task-btn {
+    width: 26px;
+    height: 26px;
+    border: 1px solid #d1d5db;
+    border-radius: 0.4rem;
+    background: #fff;
+    cursor: pointer;
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+    -webkit-app-region: no-drag;
+}
+.new-task-btn:hover { background: #f3f4f6; border-color: #9ca3af; }
+
+/* Queue disclaimer tooltip */
+.queue-disclaimer {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 0.4rem;
+    font-size: 0.72rem;
+    color: #92400e;
+    white-space: normal;
+    width: 260px;
+    z-index: 200;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    animation: fadeIn 0.15s ease-out;
+}
 .expand-btn { padding: 0.3rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.4rem; background: #fff; cursor: pointer; font-size: 0.75rem; -webkit-app-region: no-drag; }
 .expand-btn:hover { background: #f3f4f6; }
 
