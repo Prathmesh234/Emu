@@ -69,11 +69,17 @@ function start() {
         stdio: ['pipe', 'pipe', 'pipe']
     });
 
-    // Accumulate stdout and resolve pending promise when sentinel appears
+    // Accumulate stdout and resolve pending promise when sentinel appears.
+    // Uses a loop to handle multiple sentinels arriving in a single chunk
+    // (can happen if commands complete very quickly back-to-back).
     ps.stdout.on('data', chunk => {
         buffer += chunk.toString();
-        const idx = buffer.indexOf(SENTINEL);
-        if (idx !== -1 && pending) {
+        _drainBuffer();
+    });
+
+    function _drainBuffer() {
+        let idx;
+        while ((idx = buffer.indexOf(SENTINEL)) !== -1 && pending) {
             let output = buffer.slice(0, idx).trim();
             buffer = buffer.slice(idx + SENTINEL.length).replace(/^\r?\n/, '');
 
@@ -101,7 +107,7 @@ function start() {
             }
             _flush();
         }
-    });
+    }
 
     ps.stderr.on('data', d => console.error('[psProcess] stderr:', d.toString().trim()));
 

@@ -192,22 +192,52 @@ class OmniParserV2:
 
         result = {"elements": elements, "image_width": W, "image_height": H, "latency_ms": elapsed}
 
-        # Optional: draw clean annotation overlay (thin boxes + labels)
+        # Optional: draw clean annotation overlay (boxes + bold ID labels)
         if include_annotated:
             from PIL import ImageDraw, ImageFont
             ann = image.copy()
             draw = ImageDraw.Draw(ann)
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
-            except Exception:
-                font = ImageFont.load_default()
-            palette = {"icon": (255, 60, 60), "text": (0, 200, 220)}
+
+            # Use a bold font for the ID labels so the model can read them clearly.
+            # Try DejaVuSans-Bold first (best readability), fall back to regular, then default.
+            label_font = None
+            for font_path in [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]:
+                try:
+                    label_font = ImageFont.truetype(font_path, 14)
+                    break
+                except Exception:
+                    continue
+            if label_font is None:
+                label_font = ImageFont.load_default()
+
+            # Blue for ID labels — high contrast against most backgrounds
+            id_color = (30, 100, 255)  # bright blue
+            # Box outline colors per element type
+            box_palette = {"icon": (255, 60, 60), "text": (0, 200, 220)}
+
             for e in elements:
-                color = palette.get(e["type"], (200, 200, 200))
+                box_color = box_palette.get(e["type"], (200, 200, 200))
                 x1, y1, x2, y2 = e["bbox_pixel"]
-                label = f'{e["id"]} {e["content"][:20]}' if e["content"] else str(e["id"])
-                draw.rectangle([x1, y1, x2, y2], outline=color, width=1)
-                draw.text((x1+2, max(y1-13, 0)), label, fill=color, font=font)
+
+                # Draw bounding box (2px width for better visibility)
+                draw.rectangle([x1, y1, x2, y2], outline=box_color, width=2)
+
+                # Build label: just the ID number (bold + blue for clarity)
+                label = str(e["id"])
+                # Get text size for background pill
+                bbox = draw.textbbox((0, 0), label, font=label_font)
+                tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                lx = x1 + 2
+                ly = max(y1 - th - 4, 0)
+
+                # Draw a small white background pill behind the label for contrast
+                draw.rectangle([lx - 1, ly - 1, lx + tw + 3, ly + th + 2],
+                               fill=(255, 255, 255, 220), outline=id_color, width=1)
+                draw.text((lx + 1, ly), label, fill=id_color, font=label_font)
+
             buf = io.BytesIO(); ann.save(buf, format="PNG")
             result["annotated_image_base64"] = base64.b64encode(buf.getvalue()).decode()
 

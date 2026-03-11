@@ -9,6 +9,7 @@ const leftClick     = require('./leftClick');
 const rightClick    = require('./rightClick');
 const leftClickOpen = require('./leftClickOpen');
 const tripleClick   = require('./tripleClick');
+const drag          = require('./drag');
 const scroll        = require('./scroll');
 const keyboard      = require('./keyboard');
 const exec          = require('./exec');
@@ -23,6 +24,7 @@ module.exports = {
     rightClick:         rightClick.rightClick,
     leftClickOpen:      leftClickOpen.leftClickOpen,
     tripleClick:        tripleClick.tripleClick,
+    drag:               drag.drag,
     scroll:             scroll.scroll,
     keyPress:           keyboard.keyPress,
     typeText:           keyboard.typeText,
@@ -36,6 +38,7 @@ module.exports = {
         leftClick.register(ipcMain, deps.BACKEND_URL);
         leftClickOpen.register(ipcMain, deps.BACKEND_URL);
         tripleClick.register(ipcMain);
+        drag.register(ipcMain);
         rightClick.register(ipcMain, deps.BACKEND_URL);
         scroll.register(ipcMain, deps.BACKEND_URL);
         keyboard.register(ipcMain);

@@ -2,12 +2,36 @@
 
 const store = require('../state/store');
 
-function Header({ onExpand, onClose }) {
+function Header({ onExpand, onClose, onNewTask }) {
     const header = document.createElement('div');
     header.className = 'header';
 
+    // Left side: new task button + title
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'header-left';
+
+    // + New Task button
+    const newTaskBtn = document.createElement('button');
+    newTaskBtn.className = 'new-task-btn';
+    newTaskBtn.textContent = '+';
+    newTaskBtn.title = 'Start a new task';
+    newTaskBtn.onclick = () => {
+        if (store.state.isGenerating) {
+            // Show disclaimer tooltip that the task will be queued
+            const disclaimer = document.createElement('div');
+            disclaimer.className = 'queue-disclaimer';
+            disclaimer.textContent = 'A task is currently running. Your new task will be queued and start after the current one finishes.';
+            newTaskBtn.parentElement.appendChild(disclaimer);
+            // Auto-remove after 4s
+            setTimeout(() => disclaimer.remove(), 4000);
+        }
+        if (onNewTask) onNewTask();
+    };
+    leftGroup.appendChild(newTaskBtn);
+
     const h1 = document.createElement('h1');
     h1.textContent = '\u{1F9A4} Emu';
+    leftGroup.appendChild(h1);
 
     const actions = document.createElement('div');
     actions.className = 'header-actions';
@@ -54,7 +78,7 @@ function Header({ onExpand, onClose }) {
     if (onClose) closeBtn.onclick = onClose;
     actions.appendChild(closeBtn);
 
-    header.appendChild(h1);
+    header.appendChild(leftGroup);
     header.appendChild(actions);
 
     return {

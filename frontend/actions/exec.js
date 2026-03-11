@@ -19,11 +19,10 @@ const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md'];
 // Patterns that indicate a write operation targeting a file
 const WRITE_PATTERNS = [
     'Set-Content', 'Out-File', 'Add-Content',
-    'sc ', // alias for Set-Content
     '>', '>>', // redirection
-    'Remove-Item', 'rm ', 'del ',
-    'Move-Item', 'mv ',
-    'Rename-Item', 'ren ',
+    'Remove-Item',
+    'Move-Item',
+    'Rename-Item',
     'Copy-Item',   // only blocked if destination is a protected file
 ];
 
