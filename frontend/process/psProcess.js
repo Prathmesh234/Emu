@@ -69,9 +69,6 @@ function start() {
         stdio: ['pipe', 'pipe', 'pipe']
     });
 
-    // Accumulate stdout and resolve pending promise when sentinel appears.
-    // Uses a loop to handle multiple sentinels arriving in a single chunk
-    // (can happen if commands complete very quickly back-to-back).
     ps.stdout.on('data', chunk => {
         buffer += chunk.toString();
         _drainBuffer();
@@ -85,7 +82,6 @@ function start() {
 
             const cmdPreview = pending.cmd.slice(0, 60).replace(/\n/g, '\\n');
 
-            // Check for error marker emitted by the catch block
             let error = null;
             const errIdx = output.lastIndexOf(ERR_MARKER);
             if (errIdx !== -1) {
@@ -119,7 +115,6 @@ function start() {
             pending.reject(new Error('PowerShell process exited unexpectedly'));
             pending = null;
         }
-        // Reject anything still waiting in the queue
         for (const item of cmdQueue) item.reject(new Error('PowerShell process exited'));
         cmdQueue.length = 0;
     });
@@ -130,7 +125,6 @@ function start() {
         '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);',
     ].join(' ');
 
-    // GDI types for physical-pixel screen capture (GetDeviceCaps).
     const GDI_DEF = [
         '[DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr hdc, int index);',
         '[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);',

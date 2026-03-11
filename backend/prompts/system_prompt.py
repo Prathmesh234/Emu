@@ -231,10 +231,14 @@ Navigation and clicking are SEPARATE actions:
     Good for: file I/O, process checks, app launches, system state.
     Always add -Encoding UTF8 to Set-Content / Out-File.
 
-    CRITICAL: NEVER use Get-ChildItem with -Recurse (or any recursive
-    file search). It blocks the shell for minutes and will timeout.
-    Use Windows Search instead: Win key → type name → read results.
-    Get-ChildItem is fine for listing a KNOWN directory (no -Recurse).
+    BLOCKED COMMANDS (will be rejected with ILLEGAL COMMAND error):
+    • -Recurse / -r flag on any command (Get-ChildItem, gci, ls, dir /s)
+    • tree command
+    • Wildcard globbing across directories (e.g. Get-ChildItem C:\\**\\*.txt)
+    • Format-List * (produces excessive output)
+    These commands flood the shell buffer and break subsequent operations.
+    Instead: list ONE specific directory at a time with Get-ChildItem.
+    To find files: use Windows Search (Win key → type name → read results).
 
     Examples:
       Start-Process "chrome" "https://github.com"

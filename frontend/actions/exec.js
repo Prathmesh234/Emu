@@ -26,6 +26,33 @@ const WRITE_PATTERNS = [
     'Copy-Item',   // only blocked if destination is a protected file
 ];
 
+// ── Illegal command patterns ───────────────────────────────────────────────
+// Commands matching these are blocked BEFORE reaching the shared PowerShell
+// process. A bad command (e.g. recursive dir listing producing 100K+ lines)
+// can flood the stdout buffer and corrupt subsequent commands (screenshots).
+const ILLEGAL_PATTERNS = [
+    { pattern: /-Recurse/i,          reason: '-Recurse floods the shell buffer and blocks all subsequent commands. Use Get-ChildItem on a specific directory without -Recurse.' },
+    { pattern: /Get-ChildItem[^|]*\*[^|]*\*/i, reason: 'Wildcard globbing across nested directories is too expensive. List one directory at a time.' },
+    { pattern: /gci[^|]*-r\b/i,     reason: 'gci -r is shorthand for -Recurse which is blocked. List one directory at a time.' },
+    { pattern: /ls[^|]*-r\b/i,      reason: 'ls -r is shorthand for -Recurse which is blocked. List one directory at a time.' },
+    { pattern: /dir[^|]*\/s\b/i,    reason: 'dir /s is a recursive listing which is blocked. List one directory at a time.' },
+    { pattern: /tree\s/i,            reason: 'tree produces massive output that blocks the shell. Use Get-ChildItem on a specific directory.' },
+    { pattern: /Format-List\s*\*/i,  reason: 'Format-List * produces excessive output. Use Select-Object with specific properties.' },
+];
+
+/**
+ * Check if a command matches an illegal pattern.
+ * Returns { blocked: true, reason } or { blocked: false }.
+ */
+function checkIllegalCommand(command) {
+    for (const { pattern, reason } of ILLEGAL_PATTERNS) {
+        if (pattern.test(command)) {
+            return { blocked: true, reason };
+        }
+    }
+    return { blocked: false };
+}
+
 /**
  * Check if a command attempts to modify a protected .md file.
  * Returns the name of the protected file if blocked, null otherwise.
@@ -54,6 +81,14 @@ async function shellExec(command) {
 function register(ipcMain) {
     ipcMain.handle('shell:exec', async (_event, { command }) => {
         console.log(`[exec] shell:exec invoked: ${command.slice(0, 120)}`);
+
+        // Illegal command screening — catch dangerous patterns before they hit the shell
+        const illegal = checkIllegalCommand(command);
+        if (illegal.blocked) {
+            const msg = `ILLEGAL COMMAND BLOCKED: ${illegal.reason}`;
+            console.warn(`[exec] ${msg}`);
+            return { success: false, error: msg };
+        }
 
         // File lock check — block writes to protected .md files
         const lockedFile = checkFileLock(command);
