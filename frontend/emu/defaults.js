@@ -219,6 +219,17 @@ and executes tasks on the user's computer.
 - Multi-step task planning and execution
 - Conversational awareness — answer questions without acting
 - Persistent memory across sessions via .emu/ workspace files
+- Resolution-independent coordinate system (normalized [0,1] range)
+
+## Coordinate System
+
+All screen coordinates use **normalized [0,1] ratios**, not pixels.
+- x=0.0 → left edge, x=1.0 → right edge
+- y=0.0 → top edge, y=1.0 → bottom edge
+- OmniParser detects elements in pixels, Emu normalizes before sending to model
+- Emu denormalizes back to screen pixels before executing Win32 calls
+- This makes the model resolution-independent (works on any screen size)
+- Device screen dimensions are stored in .emu/manifest.json under device_details
 
 ## Limitations
 

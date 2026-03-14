@@ -141,10 +141,14 @@ class ContextManager:
                 image_height=result.image_height,
                 latency_ms=result.latency_ms,
             )
-            print(f"[omniparser] {len(elements)} elements detected ({result.latency_ms}ms)")
+            img_w = result.image_width or 1
+            img_h = result.image_height or 1
+            print(f"[omniparser] {len(elements)} elements detected ({result.latency_ms}ms)  [coords normalized to 0-1]")
             for e in elements:
                 tag = e.type.upper()
-                coords = f"bbox=({e.bbox_pixel[0]},{e.bbox_pixel[1]},{e.bbox_pixel[2]},{e.bbox_pixel[3]})  center=({e.center_pixel[0]},{e.center_pixel[1]})"
+                ncx = round(e.center_pixel[0] / img_w, 4)
+                ncy = round(e.center_pixel[1] / img_h, 4)
+                coords = f"center_px=({e.center_pixel[0]},{e.center_pixel[1]})  center_norm=({ncx},{ncy})"
                 lbl = e.content if e.content else ""
                 click = "  [clickable]" if e.interactable else ""
                 print(f"  [{e.id}] {tag}  label=\"{lbl}\"  {coords}{click}")
@@ -251,14 +255,25 @@ class ContextManager:
 
     @staticmethod
     def _format_annotations(ann: ScreenAnnotation) -> str:
-        """Format screen annotations as a compact text block for the model."""
-        lines = [f"[SCREEN ELEMENTS] {ann.image_width}x{ann.image_height} — {len(ann.elements)} elements detected"]
+        """Format screen annotations as a compact text block for the model.
+
+        All coordinates are normalized to [0, 1] range so the model is
+        resolution-independent.  Emu denormalizes back to pixels before
+        executing Win32 calls.
+        """
+        w = ann.image_width or 1   # guard against division by zero
+        h = ann.image_height or 1
+        lines = [f"[SCREEN ELEMENTS] {ann.image_width}x{ann.image_height} — {len(ann.elements)} elements detected  (coordinates normalized to 0-1)"]
         for e in ann.elements:
             x1, y1, x2, y2 = e.bbox_pixel
             cx, cy = e.center_pixel
+            # Normalize to [0, 1]
+            nx1, ny1 = round(x1 / w, 4), round(y1 / h, 4)
+            nx2, ny2 = round(x2 / w, 4), round(y2 / h, 4)
+            ncx, ncy = round(cx / w, 4), round(cy / h, 4)
             lbl = e.content if e.content else ""
             click = "  [clickable]" if e.interactable else ""
-            lines.append(f'  [{e.id}] {e.type.upper()}  label="{lbl}"  bbox=({x1},{y1},{x2},{y2})  center=({cx},{cy}){click}')
+            lines.append(f'  [{e.id}] {e.type.upper()}  label="{lbl}"  bbox=({nx1},{ny1},{nx2},{ny2})  center=({ncx},{ncy}){click}')
         return "\n".join(lines)
 
     # Prefix for screen element annotation blocks injected after screenshots

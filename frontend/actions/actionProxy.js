@@ -10,7 +10,7 @@ const { tripleClick }    = require('./tripleClick');
 const { navigateMouse }  = require('./navigate');
 const { drag }           = require('./drag');
 const { scroll }         = require('./scroll');
-const { captureScreenshot, getScaleFactors } = require('./screenshot');
+const { captureScreenshot, getScaleFactors, getScreenDimensions } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
 
@@ -62,12 +62,12 @@ const ACTION_MAP = {
         icon:  '↗️',
         ipc:   'mouse:move',
         dispatch: (a) => {
-            // Scale coordinates from image space to screen space
-            const { scaleX, scaleY } = getScaleFactors();
-            const scaledX = Math.round(a.coordinates.x * scaleX);
-            const scaledY = Math.round(a.coordinates.y * scaleY);
-            console.log(`[mouse_move] scaling (${a.coordinates.x}, ${a.coordinates.y}) → (${scaledX}, ${scaledY}) [scale: ${scaleX.toFixed(2)}x, ${scaleY.toFixed(2)}y]`);
-            return navigateMouse(scaledX, scaledY);
+            // Denormalize [0,1] coordinates → absolute screen pixels
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const absX = Math.round(a.coordinates.x * screenWidth);
+            const absY = Math.round(a.coordinates.y * screenHeight);
+            console.log(`[mouse_move] denorm (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY}) [screen: ${screenWidth}x${screenHeight}]`);
+            return navigateMouse(absX, absY);
         },
         describe: (a) => `Move cursor to (${a.coordinates.x}, ${a.coordinates.y})`,
     },
@@ -76,12 +76,13 @@ const ACTION_MAP = {
         icon:  '↔️',
         ipc:   'mouse:drag',
         dispatch: (a) => {
-            const { scaleX, scaleY } = getScaleFactors();
-            const startX = Math.round(a.coordinates.x * scaleX);
-            const startY = Math.round(a.coordinates.y * scaleY);
-            const endX = Math.round(a.end_coordinates.x * scaleX);
-            const endY = Math.round(a.end_coordinates.y * scaleY);
-            console.log(`[drag] scaling (${a.coordinates.x},${a.coordinates.y}) → (${startX},${startY}) to (${a.end_coordinates.x},${a.end_coordinates.y}) → (${endX},${endY})`);
+            // Denormalize [0,1] coordinates → absolute screen pixels
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const startX = Math.round(a.coordinates.x * screenWidth);
+            const startY = Math.round(a.coordinates.y * screenHeight);
+            const endX = Math.round(a.end_coordinates.x * screenWidth);
+            const endY = Math.round(a.end_coordinates.y * screenHeight);
+            console.log(`[drag] denorm (${a.coordinates.x},${a.coordinates.y}) → (${startX},${startY}) to (${a.end_coordinates.x},${a.end_coordinates.y}) → (${endX},${endY}) [screen: ${screenWidth}x${screenHeight}]`);
             return drag(startX, startY, endX, endY);
         },
         describe: (a) => `Drag from (${a.coordinates.x}, ${a.coordinates.y}) to (${a.end_coordinates.x}, ${a.end_coordinates.y})`,

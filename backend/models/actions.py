@@ -21,9 +21,9 @@ class ActionType(str, Enum):
 
 
 class Coordinates(BaseModel):
-    """Screen coordinates in logical pixels (before DPI scaling)."""
-    x: int = Field(..., description="Horizontal position in pixels")
-    y: int = Field(..., description="Vertical position in pixels")
+    """Normalized screen coordinates in [0, 1] range (resolution-independent)."""
+    x: float = Field(..., description="Horizontal position as ratio (0.0 = left edge, 1.0 = right edge)")
+    y: float = Field(..., description="Vertical position as ratio (0.0 = top edge, 1.0 = bottom edge)")
 
 
 class Action(BaseModel):
