@@ -10,6 +10,7 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const { screen } = require('electron');
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -63,7 +64,25 @@ function initEmu(appVersion = '0.0.0') {
     fs.writeFileSync(prefsPath, DEFAULTS.PREFERENCES, 'utf-8');
   }
 
-  // 4. Write or update manifest.json
+  // 4. Gather device / display details for the manifest
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
+  const scaleFactor = primaryDisplay.scaleFactor || 1;
+  const physicalWidth  = Math.round(screenWidth * scaleFactor);
+  const physicalHeight = Math.round(screenHeight * scaleFactor);
+
+  const deviceDetails = {
+    screen_width:    screenWidth,
+    screen_height:   screenHeight,
+    scale_factor:    scaleFactor,
+    physical_width:  physicalWidth,
+    physical_height: physicalHeight,
+    color_depth:     primaryDisplay.colorDepth || null,
+    rotation:        primaryDisplay.rotation || 0,
+    coordinate_system: 'normalized_0_1',
+  };
+
+  // 5. Write or update manifest.json
   if (!alreadyExists) {
     const manifest = {
       schema_version: 1,
@@ -85,8 +104,18 @@ function initEmu(appVersion = '0.0.0') {
         electron: process.versions.electron || 'unknown',
         python:   'unknown',   // filled in by backend later
       },
+      device_details: deviceDetails,
     };
     fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2), 'utf-8');
+  } else {
+    // Always update device_details on launch (screen may have changed)
+    try {
+      const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
+      existing.device_details = deviceDetails;
+      fs.writeFileSync(MANIFEST, JSON.stringify(existing, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('[emu] failed to update device_details in manifest:', e.message);
+    }
   }
 
   console.log(`[emu] .emu/ ${alreadyExists ? 'verified' : 'created'} at ${EMU_DIR}`);

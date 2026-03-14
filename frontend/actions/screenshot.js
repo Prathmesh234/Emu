@@ -13,17 +13,27 @@ const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_s
 let _scaleX = 1;
 let _scaleY = 1;
 
+// Screen dimensions for denormalizing [0,1] coordinates → absolute pixels
+let _screenWidth = 1920;
+let _screenHeight = 1080;
+
 function getScaleFactors() {
     return { scaleX: _scaleX, scaleY: _scaleY };
 }
 
+function getScreenDimensions() {
+    return { screenWidth: _screenWidth, screenHeight: _screenHeight };
+}
+
 async function captureScreenshot() {
     const result = await ipcRenderer.invoke('screenshot:capture');
-    // Update scale factors from the captured image dimensions
+    // Update scale factors and screen dimensions from the captured image
     if (result.success && result.imageWidth && result.screenWidth) {
         _scaleX = result.screenWidth / result.imageWidth;
         _scaleY = result.screenHeight / result.imageHeight;
-        console.log(`[screenshot] scale factors updated: ${_scaleX.toFixed(2)}x, ${_scaleY.toFixed(2)}y`);
+        _screenWidth = result.screenWidth;
+        _screenHeight = result.screenHeight;
+        console.log(`[screenshot] scale factors updated: ${_scaleX.toFixed(2)}x, ${_scaleY.toFixed(2)}y | screen: ${_screenWidth}x${_screenHeight}`);
     }
     return result;
 }
@@ -136,4 +146,4 @@ function register(ipcMain, { screen }) {
     });
 }
 
-module.exports = { captureScreenshot, register, getScaleFactors };
+module.exports = { captureScreenshot, register, getScaleFactors, getScreenDimensions };
