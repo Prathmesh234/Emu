@@ -35,8 +35,8 @@ User Prompt
 | Backend server | Python + FastAPI |
 | Python packages | `uv` (no pip/poetry/conda) |
 | Vision + reasoning | Claude, OpenAI, Gemini, or self-hosted (see Providers) |
-| Action execution | Win32 `user32.dll` via persistent PowerShell |
-| Screen capture | Electron `desktopCapturer` |
+| Action execution | Platform-native: `xdotool` (Linux), `cliclick` / AppleScript (macOS) via persistent shell |
+| Screen capture | Platform-native: `scrot` (Linux), `screencapture` (macOS) |
 | IPC | Electron `ipcMain`/`ipcRenderer` |
 
 ---
@@ -80,7 +80,7 @@ emulation-agent/
 │   │   ├── actionProxy.js         # Maps backend actions → IPC dispatch
 │   │   ├── screenshot.js          # Capture screen (panel included)
 │   │   ├── fullCapture.js         # Capture screen (panel excluded)
-│   │   ├── exec.js                # shell_exec — run PowerShell commands
+│   │   ├── exec.js                # shell_exec — run shell commands
 │   │   ├── navigate.js            # Move mouse cursor
 │   │   ├── leftClick.js           # Left click
 │   │   ├── leftClickOpen.js       # Double-click / open
@@ -90,7 +90,7 @@ emulation-agent/
 │   │   └── window.js              # Side-panel / centered toggle
 │   │
 │   ├── process/
-│   │   └── psProcess.js           # Persistent PowerShell process (~2–8 ms/action)
+│   │   └── psProcess.js           # Persistent shell process — bash (Linux) / zsh (macOS) (~2–8 ms/action)
 │   │
 │   ├── emu/                       # .emu/ folder management
 │   │   ├── init.js                # initEmu() — idempotent scaffold
@@ -141,7 +141,21 @@ emulation-agent/
 - [Node.js](https://nodejs.org/) (v18+)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) for Python package management
 - Python 3.12+
-- Windows (Win32 APIs used for mouse/keyboard actions)
+- macOS or Linux (see platform dependencies below)
+
+### Platform Dependencies
+
+**macOS** (built-in — no extra installs needed):
+- `screencapture` — screen capture
+- `sips` — image resize/convert
+- `cliclick` — mouse/keyboard automation (install via `brew install cliclick`)
+- AppleScript (`osascript`) — used for some keyboard actions
+
+**Linux**:
+- `scrot` — screen capture (`sudo apt install scrot`)
+- `ImageMagick` — image resize/convert (`sudo apt install imagemagick`)
+- `xdotool` — mouse/keyboard automation (`sudo apt install xdotool`)
+- `xclip` — clipboard support (`sudo apt install xclip`)
 
 ### Install
 
@@ -289,7 +303,7 @@ Protected workspace files (`SOUL.md`, `AGENTS.md`, `USER.md`, `IDENTITY.md`) are
 
 ### Command Timeout
 
-All PowerShell commands have a 30-second timeout. If a command hangs (e.g. from an accidental recursive search), it's automatically killed and returns an error. This prevents the persistent PowerShell process from locking up.
+All shell commands have a 30-second timeout. If a command hangs (e.g. from an accidental recursive search), it's automatically killed and returns an error. This prevents the persistent shell process from locking up.
 
 ---
 
@@ -471,7 +485,7 @@ The agent follows specific rules for writing to memory files:
 | `scroll` | mouse | Scroll up/down N notches |
 | `type_text` | keyboard | Type a string at current focus |
 | `key_press` | keyboard | Press a key combo (e.g., `ctrl+c`) |
-| `shell_exec` | system | Run a PowerShell command, get stdout |
+| `shell_exec` | system | Run a shell command, get stdout |
 | `wait` | system | Pause N milliseconds |
 | `done` | control | Task complete |
 
@@ -481,9 +495,9 @@ Screenshots are saved to `backend/emulation_screen_shots/`.
 
 ## Architecture Notes
 
-### Persistent PowerShell Process
+### Persistent Shell Process
 
-All mouse, keyboard, and shell_exec actions go through a single long-running PowerShell process (`frontend/process/psProcess.js`).
+All mouse, keyboard, and shell_exec actions go through a single long-running shell process (`frontend/process/psProcess.js`) — `zsh` on macOS, `bash` on Linux.
 
 Commands are Base64-encoded before piping to prevent unclosed quotes, here-strings, or multi-line content from interfering with the sentinel marker that signals command completion.
 
@@ -492,7 +506,7 @@ Commands are Base64-encoded before piping to prevent unclosed quotes, here-strin
 | Old — `spawnSync` per action | ~350–650 ms |
 | New — persistent stdin/stdout | ~2–8 ms |
 
-Win32 `user32.dll` (`mouse_event`, `keybd_event`) is P/Invoked once at startup and reused for every action.
+Platform-native tools (`xdotool` on Linux, `cliclick`/AppleScript on macOS) are invoked through this shell for all mouse and keyboard automation.
 
 ### Window Modes
 
@@ -507,6 +521,7 @@ Moves the Electron window off-screen (`x: -9999`) with `setBounds(false)` (no an
 
 ## Planned Work
 
+- [x] macOS + Linux support (platform-native shell, screenshot, mouse/keyboard)
 - [ ] Multi-monitor support
 - [x] Confirmation step for destructive actions (shell_exec Allow/Deny)
 - [x] Open model support (OpenAI, Gemini, vLLM, SGLang, Ollama)
