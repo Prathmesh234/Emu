@@ -1,9 +1,9 @@
 // Action: Shell Exec — run a shell command via psProcess
 //
 // Lets the agent read files, write files, list directories, check processes,
-// and do anything else that a PowerShell one-liner can accomplish.
+// and do anything else that a bash one-liner can accomplish.
 //
-// The command runs inside the persistent psProcess (same as mouse/keyboard),
+// The command runs inside the persistent shell process (same as mouse/keyboard),
 // so there is no spawn overhead.
 //
 // File locks: Commands that attempt to write/modify protected .md files
@@ -18,26 +18,26 @@ const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md'];
 
 // Patterns that indicate a write operation targeting a file
 const WRITE_PATTERNS = [
-    'Set-Content', 'Out-File', 'Add-Content',
+    'tee', 'tee -a',
     '>', '>>', // redirection
-    'Remove-Item',
-    'Move-Item',
-    'Rename-Item',
-    'Copy-Item',   // only blocked if destination is a protected file
+    'rm ', 'rm -',
+    'mv ',
+    'cp ',
+    'sed -i',
+    'chmod',
+    'chown',
 ];
 
 // ── Illegal command patterns ───────────────────────────────────────────────
-// Commands matching these are blocked BEFORE reaching the shared PowerShell
+// Commands matching these are blocked BEFORE reaching the shared shell
 // process. A bad command (e.g. recursive dir listing producing 100K+ lines)
 // can flood the stdout buffer and corrupt subsequent commands (screenshots).
 const ILLEGAL_PATTERNS = [
-    { pattern: /-Recurse/i,          reason: '-Recurse floods the shell buffer and blocks all subsequent commands. Use Get-ChildItem on a specific directory without -Recurse.' },
-    { pattern: /Get-ChildItem[^|]*\*[^|]*\*/i, reason: 'Wildcard globbing across nested directories is too expensive. List one directory at a time.' },
-    { pattern: /gci[^|]*-r\b/i,     reason: 'gci -r is shorthand for -Recurse which is blocked. List one directory at a time.' },
-    { pattern: /ls[^|]*-r\b/i,      reason: 'ls -r is shorthand for -Recurse which is blocked. List one directory at a time.' },
-    { pattern: /dir[^|]*\/s\b/i,    reason: 'dir /s is a recursive listing which is blocked. List one directory at a time.' },
-    { pattern: /tree\s/i,            reason: 'tree produces massive output that blocks the shell. Use Get-ChildItem on a specific directory.' },
-    { pattern: /Format-List\s*\*/i,  reason: 'Format-List * produces excessive output. Use Select-Object with specific properties.' },
+    { pattern: /find\s+\/\s/i,          reason: 'find from root floods the shell buffer and blocks all subsequent commands. Use find on a specific directory.' },
+    { pattern: /ls\s+-[^\s]*R/i,        reason: 'ls -R is a recursive listing which is blocked. List one directory at a time.' },
+    { pattern: /find\s.*-name\s.*\*.*\*/, reason: 'Wildcard globbing across nested directories is too expensive. List one directory at a time.' },
+    { pattern: /tree\s/i,               reason: 'tree produces massive output that blocks the shell. Use ls on a specific directory.' },
+    { pattern: /du\s+-[^\s]*a.*\//i,    reason: 'du -a on large directories produces excessive output. Use du on a specific directory without -a.' },
 ];
 
 /**

@@ -1,5 +1,5 @@
 // Action: Triple Click (select entire line/paragraph)
-// Three rapid mouse_event pairs inside the persistent psProcess.
+// Three rapid mouse clicks inside the persistent shell process.
 const { ipcRenderer } = require('electron');
 const psProcess = require('../process/psProcess');
 
@@ -11,7 +11,7 @@ function register(ipcMain) {
     ipcMain.handle('mouse:triple-click', async () => {
         try {
             await psProcess.run(
-                `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 30; [W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 30; [W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
+                `xdotool click --repeat 3 --delay 30 1`
             );
             return { success: true };
         } catch (err) {

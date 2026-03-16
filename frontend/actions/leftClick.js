@@ -9,9 +9,7 @@ async function leftClick(x, y) {
 function register(ipcMain, BACKEND_URL) {
     ipcMain.handle('mouse:left-click', async (_event, { x, y }) => {
         try {
-            await psProcess.run(
-                `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
-            );
+            await psProcess.run(`xdotool click 1`);
             return { success: true, x, y };
         } catch (err) {
             return { success: false, error: err.message };
@@ -20,4 +18,3 @@ function register(ipcMain, BACKEND_URL) {
 }
 
 module.exports = { leftClick, register };
-
