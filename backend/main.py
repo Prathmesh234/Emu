@@ -201,6 +201,13 @@ async def agent_step(req: AgentRequest):
     print(f"  done       : {response.done}")
     print(f"  confidence : {response.confidence}")
 
+    # Check if auto-compaction is needed after this turn
+    needs_compact = context_manager.needs_compaction(session_id)
+    if needs_compact:
+        chain_len = context_manager.chain_length(session_id)
+        token_est = context_manager.estimate_token_count(session_id)
+        print(f"[auto-compact] Chain at {chain_len} messages (~{token_est} tokens) — compaction recommended")
+
     # Route action to frontend via WebSocket
     action_payload = response.action.model_dump(exclude_none=True)
 
@@ -220,7 +227,30 @@ async def agent_step(req: AgentRequest):
         "final_message":        response.final_message,
         "requires_confirmation": needs_confirm,
         "chain_length":         context_manager.chain_length(session_id),
+        "needs_compaction":     needs_compact,
     })
+
+    # Auto-compact if threshold exceeded and task is still in progress
+    if needs_compact and not response.done:
+        print(f"[auto-compact] Triggering automatic context compaction...")
+        await manager.send(session_id, {
+            "type": "status",
+            "message": "Context getting large — auto-compacting to stay sharp...",
+        })
+        try:
+            compact_messages = context_manager.get_compact_messages(session_id)
+            summary = compact_model(compact_messages)
+            old_len = context_manager.chain_length(session_id)
+            context_manager.reset_with_summary(session_id, summary)
+            new_len = context_manager.chain_length(session_id)
+            print(f"[auto-compact] Done. {old_len} → {new_len} messages")
+            await manager.send(session_id, {
+                "type": "status",
+                "message": f"Context auto-compacted: {old_len} → {new_len} messages. Continuing seamlessly.",
+            })
+        except Exception as e:
+            print(f"[auto-compact] Failed (non-fatal): {e}")
+            # Non-fatal: the middle-trim fallback in build_request() will handle it
 
     if response.done:
         await manager.send(session_id, {
