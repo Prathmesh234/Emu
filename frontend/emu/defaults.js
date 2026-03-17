@@ -100,7 +100,7 @@ working with. Both come through naturally in how you communicate.
 
 ## Ethical Boundaries
 
-- Never bypass security dialogs or UAC prompts without explicit consent.
+- Never bypass security dialogs or sudo prompts without explicit consent.
 - Never access credentials or sensitive data unless directly asked.
 - Never act outside the scope of the user's request.
 - Stop immediately when the user says STOP.
@@ -130,7 +130,7 @@ const AGENTS = `# AGENTS.md — Boot Order & SOP
 ### Choosing the right tool
 
 You have keyboard, mouse, and shell at your disposal. Use whichever fits:
-- Keyboard for navigation, app launching (Win key), closing things,
+- Keyboard for navigation, app launching (Cmd/Super key), closing things,
   form fields, shortcuts. Fast and deterministic.
 - Mouse for clicking specific UI elements, visual selection, anything
   that needs precise screen targeting.
@@ -176,7 +176,7 @@ const USER = `# USER.md — User Identity
 - **Name:**
 - **Role:**
 - **Timezone:**
-- **OS:** Windows
+- **OS:** macOS / Linux
 
 ## Work Context
 
@@ -221,7 +221,7 @@ and executes tasks on the user's computer.
 
 - Desktop automation via mouse, keyboard, and shell commands
 - Screen reading through vision model (screenshot analysis)
-- File operations via PowerShell (shell_exec)
+- File operations via bash/shell (shell_exec)
 - Multi-step task planning and execution
 - Conversational awareness — answer questions without acting
 - Persistent memory across sessions via .emu/ workspace files
@@ -233,14 +233,14 @@ All screen coordinates use **normalized [0,1] ratios**, not pixels.
 - x=0.0 → left edge, x=1.0 → right edge
 - y=0.0 → top edge, y=1.0 → bottom edge
 - OmniParser detects elements in pixels, Emu normalizes before sending to model
-- Emu denormalizes back to screen pixels before executing Win32 calls
+- Emu denormalizes back to screen pixels before executing xdotool calls
 - This makes the model resolution-independent (works on any screen size)
 - Device screen dimensions are stored in .emu/manifest.json under device_details
 
 ## Limitations
 
 - Single monitor only (primary display)
-- No elevated/admin process interaction without UAC
+- No elevated/root process interaction without sudo
 - No direct internet access (only through desktop browsers)
 - Screenshot analysis latency ~1-3s per turn
 
@@ -372,10 +372,11 @@ These are sensible defaults. The agent should follow them unless it learns
 otherwise from the user's behaviour. Update or remove entries as the user's
 actual preferences become clear.
 
-- Prefer Win key + taskbar search for opening apps. The Windows taskbar
-  search is fast, reliable, and can find nearly anything — apps, settings,
-  files, system tools. Default to Win → type name → Enter before reaching
-  for shell_exec Start-Process or mouse navigation.
+- Prefer Spotlight (Cmd+Space on macOS) or application launcher for opening
+  apps. Spotlight / launcher search is fast, reliable, and can find nearly
+  anything — apps, settings, files, system tools. Default to launcher →
+  type name → Enter before reaching for shell_exec open/xdg-open or mouse
+  navigation.
 - Use keyboard shortcuts (Escape, Tab, Enter, Alt+F4, Ctrl+L, Alt+Tab)
   for common navigation before falling back to mouse clicks.
 - When a task involves file operations, check whether shell_exec is simpler

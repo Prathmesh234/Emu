@@ -1,6 +1,6 @@
 // Action: Left Click Open (double-click)
-// Both clicks run inside the persistent psProcess — no spawn overhead,
-// so they reliably land within Windows' double-click time window.
+// Both clicks run inside the persistent shell process — no spawn overhead,
+// so they reliably land within the double-click time window.
 const { ipcRenderer } = require('electron');
 const psProcess = require('../process/psProcess');
 
@@ -12,7 +12,7 @@ function register(ipcMain, BACKEND_URL) {
     ipcMain.handle('mouse:double-click', async (_event, { x, y }) => {
         try {
             await psProcess.run(
-                `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 50; [W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
+                `xdotool click --repeat 2 --delay 50 1`
             );
             return { success: true, x, y };
         } catch (err) {
@@ -22,5 +22,4 @@ function register(ipcMain, BACKEND_URL) {
 }
 
 module.exports = { leftClickOpen, register };
-
 

@@ -1,10 +1,12 @@
 // Action: Screenshot (default — includes panel + cursor)
-// Uses PowerShell CopyFromScreen + cursor compositing so the system cursor
-// is visible in captures (desktopCapturer excludes it on Windows).
+// Uses platform-native screenshot tools: screencapture on macOS, scrot on Linux.
+// Cursor is included in the capture by default.
 const { ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const psProcess = require('../process/psProcess');
+
+const isMac = process.platform === 'darwin';
 
 const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_screen_shots');
 
@@ -39,72 +41,44 @@ async function captureScreenshot() {
 }
 
 /**
- * Build the PowerShell command that captures the primary screen at true
- * physical resolution (via GetDeviceCaps), draws a cursor-shaped arrow
- * overlay, resizes to max 1920px width, saves as JPEG, and returns base64.
+ * Build the shell command that captures the screen, optionally resizes,
+ * saves as JPEG, and returns base64.
+ *
+ * macOS: uses screencapture (built-in) + sips for resize
+ * Linux: uses scrot + ImageMagick convert for resize
  *
  * JPEG quality 80 + resize keeps output under Claude's 5MB limit.
  */
 function buildCaptureCommand(filepath) {
-    const psPath = filepath.replace(/\.png$/, '.jpg').replace(/\\/g, '\\\\');
-    return [
-        `Add-Type -AssemblyName System.Drawing`,
-        // Get true physical pixel dimensions via GDI (DPI-safe)
-        `$hdc = [W.GDI]::GetDC([IntPtr]::Zero)`,
-        `$w = [W.GDI]::GetDeviceCaps($hdc, 118)`,   // DESKTOPHORZRES
-        `$h = [W.GDI]::GetDeviceCaps($hdc, 117)`,   // DESKTOPVERTRES
-        `[void][W.GDI]::ReleaseDC([IntPtr]::Zero, $hdc)`,
-        // Capture full physical screen
-        `$bmp = New-Object System.Drawing.Bitmap($w, $h)`,
-        `$g = [System.Drawing.Graphics]::FromImage($bmp)`,
-        `$g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($w, $h)))`,
-        // Convert logical cursor position → physical
-        `$pos = [System.Windows.Forms.Cursor]::Position`,
-        `$dpiScale = $w / [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width`,
-        `$px = [int]($pos.X * $dpiScale)`,
-        `$py = [int]($pos.Y * $dpiScale)`,
-        // Draw a Windows-style arrow cursor (filled white with black border)
-        `$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias`,
-        `$s = 1.8 * $dpiScale`,
-        // Define cursor polygon points - must be single statement to avoid semicolon breaking array syntax
-        `$pts = @(` +
-            `(New-Object System.Drawing.PointF($px, $py)),` +                                    // tip (top-left)
-            `(New-Object System.Drawing.PointF($px, ($py + [int](20*$s)))),` +                   // down left edge
-            `(New-Object System.Drawing.PointF(($px + [int](4*$s)), ($py + [int](16*$s)))),` +   // notch left
-            `(New-Object System.Drawing.PointF(($px + [int](8*$s)), ($py + [int](22*$s)))),` +   // tail bottom-left
-            `(New-Object System.Drawing.PointF(($px + [int](11*$s)), ($py + [int](19*$s)))),` +  // tail bottom-right
-            `(New-Object System.Drawing.PointF(($px + [int](7*$s)), ($py + [int](13*$s)))),` +   // notch right
-            `(New-Object System.Drawing.PointF(($px + [int](13*$s)), ($py + [int](13*$s))))` +   // right wing
-        `)`,
-        `$g.FillPolygon([System.Drawing.Brushes]::White, $pts)`,
-        `$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Black, [Math]::Max(2, [int](1.5*$dpiScale)))`,
-        `$g.DrawPolygon($pen, $pts)`,
-        `$pen.Dispose()`,
-        `$g.Dispose()`,
-        // Resize to max 1280px width to keep well under 5MB API limit
-        `$maxW = 1280`,
-        `$finalBmp = $bmp`,
-        `if ($bmp.Width -gt $maxW) {` +
-            ` $ratio = $maxW / $bmp.Width;` +
-            ` $newH = [int]($bmp.Height * $ratio);` +
-            ` $finalBmp = New-Object System.Drawing.Bitmap($maxW, $newH);` +
-            ` $gr = [System.Drawing.Graphics]::FromImage($finalBmp);` +
-            ` $gr.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;` +
-            ` $gr.DrawImage($bmp, 0, 0, $maxW, $newH);` +
-            ` $gr.Dispose();` +
-            ` $bmp.Dispose()` +
-        ` }`,
-        // Save as JPEG quality 60 (smaller file, faster inference)
-        `$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }`,
-        `$encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)`,
-        `$encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 60L)`,
-        `$finalBmp.Save('${psPath}', $codec, $encParams)`,
-        `$ms = New-Object System.IO.MemoryStream`,
-        `$finalBmp.Save($ms, $codec, $encParams)`,
-        // Output format: "width,height|base64data" so JS can parse dimensions
-        `Write-Output "$($finalBmp.Width),$($finalBmp.Height)|$([Convert]::ToBase64String($ms.ToArray()))"`,
-        `$finalBmp.Dispose(); $ms.Dispose()`
-    ].join('; ');
+    const jpgPath = filepath.replace(/\.png$/, '.jpg');
+
+    if (isMac) {
+        // macOS: screencapture captures full screen with cursor (-C flag)
+        // sips converts/resizes, base64 encodes the result
+        return [
+            `screencapture -C -x -t jpg "${jpgPath}"`,
+            // Get image dimensions
+            `_w=$(sips -g pixelWidth "${jpgPath}" | tail -1 | awk '{print $2}')`,
+            `_h=$(sips -g pixelHeight "${jpgPath}" | tail -1 | awk '{print $2}')`,
+            // Resize to max 1280px width if needed
+            `if [ "$_w" -gt 1280 ]; then sips --resampleWidth 1280 "${jpgPath}" >/dev/null 2>&1; _w=$(sips -g pixelWidth "${jpgPath}" | tail -1 | awk '{print $2}'); _h=$(sips -g pixelHeight "${jpgPath}" | tail -1 | awk '{print $2}'); fi`,
+            // Output format: "width,height|base64data"
+            `printf "%s,%s|" "$_w" "$_h"`,
+            `base64 < "${jpgPath}" | tr -d '\\n'`,
+        ].join('; ');
+    } else {
+        // Linux: scrot captures full screen, ImageMagick converts to jpg + resize
+        return [
+            `scrot -o "${filepath}"`,
+            // Convert to JPEG and resize to max 1280px width
+            `convert "${filepath}" -resize '1280x>' -quality 60 "${jpgPath}"`,
+            // Get image dimensions
+            `_dims=$(identify -format '%w,%h' "${jpgPath}")`,
+            // Output format: "width,height|base64data"
+            `printf "%s|" "$_dims"`,
+            `base64 < "${jpgPath}" | tr -d '\\n'`,
+        ].join('; ');
+    }
 }
 
 function register(ipcMain, { screen }) {
