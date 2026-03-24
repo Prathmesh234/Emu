@@ -4,17 +4,9 @@ const psProcess = require('./frontend/process/psProcess');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
 
-const BACKEND_URL = 'http://172.23.104.4:8000';
+const BACKEND_URL = 'http://127.0.0.1:8000';
 
 let mainWindow;
-
-// ── IPC handlers (co-located with their action files) ─────────────────────
-const { registerAll } = require('./frontend/actions');
-registerAll(ipcMain, {
-    BACKEND_URL,
-    screen,
-    getMainWindow: () => mainWindow
-});
 
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -46,6 +38,14 @@ function createWindow() {
 app.whenReady().then(() => {
   // Bootstrap .emu/ folder (idempotent — safe on every launch)
   initEmu(pkg.version);
+
+  // Register IPC handlers AFTER app is ready (desktopCapturer + screen need this)
+  const { registerAll } = require('./frontend/actions');
+  registerAll(ipcMain, {
+      BACKEND_URL,
+      screen,
+      getMainWindow: () => mainWindow
+  });
 
   psProcess.start();
   createWindow();

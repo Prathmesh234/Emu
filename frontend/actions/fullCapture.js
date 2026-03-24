@@ -1,12 +1,12 @@
-// Action: Full Capture — screenshot WITHOUT the Electron panel + cursor
-// Moves the window off-screen, captures via platform-native tools
-// (screencapture on macOS, scrot on Linux), then restores the window.
+// Action: Full Capture — screenshot WITHOUT the Emu panel visible.
+// Moves the window off-screen, captures via desktopCapturer, restores window.
+// Used only when the user explicitly requests a clean capture.
+
 const { ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const psProcess = require('../process/psProcess');
 
-const isMac = process.platform === 'darwin';
+let desktopCapturer = null;
 
 const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_screen_shots');
 
@@ -14,78 +14,80 @@ async function fullCapture() {
     return await ipcRenderer.invoke('screenshot:fullCapture');
 }
 
-/** Shell capture command — platform-native screenshot + base64 output */
-function buildCaptureCommand(filepath) {
-    if (isMac) {
-        // macOS: screencapture -C includes cursor, -x suppresses sound
-        return [
-            `screencapture -C -x "${filepath}"`,
-            // Get image dimensions
-            `_w=$(sips -g pixelWidth "${filepath}" | tail -1 | awk '{print $2}')`,
-            `_h=$(sips -g pixelHeight "${filepath}" | tail -1 | awk '{print $2}')`,
-            // Output format: "width,height|base64data"
-            `printf "%s,%s|" "$_w" "$_h"`,
-            `base64 < "${filepath}" | tr -d '\\n'`,
-        ].join('; ');
-    } else {
-        // Linux: scrot captures full screen
-        return [
-            `scrot -o "${filepath}"`,
-            // Get image dimensions via ImageMagick identify
-            `_dims=$(identify -format '%w,%h' "${filepath}")`,
-            // Output format: "width,height|base64data"
-            `printf "%s|" "$_dims"`,
-            `base64 < "${filepath}" | tr -d '\\n'`,
-        ].join('; ');
-    }
-}
-
 function register(ipcMain, { screen, getMainWindow }) {
+    desktopCapturer = require('electron').desktopCapturer;
     if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
     ipcMain.handle('screenshot:fullCapture', async () => {
         try {
             const win = getMainWindow();
-            const { width, height } = screen.getPrimaryDisplay().size;
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
+            const scaleFactor = primaryDisplay.scaleFactor || 1;
 
-            // Move window off-screen so it doesn't appear in the capture.
+            // Move window off-screen so it doesn't appear in the capture
             let savedBounds = null;
             if (win) {
                 savedBounds = win.getBounds();
                 win.setBounds({ ...savedBounds, x: -9999 }, false);
             }
 
-            // Tiny delay for the OS to composite the frame without our window
-            await new Promise(r => setTimeout(r, 80));
+            // Wait for the compositor to remove the window from the frame
+            await new Promise(r => setTimeout(r, 100));
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `fullcapture_${timestamp}.png`;
-            const filepath = path.join(SCREENSHOTS_DIR, filename);
-
-            let output;
+            let result;
             try {
-                output = await psProcess.run(buildCaptureCommand(filepath));
+                const sources = await desktopCapturer.getSources({
+                    types: ['screen'],
+                    thumbnailSize: {
+                        width: Math.round(screenWidth * scaleFactor),
+                        height: Math.round(screenHeight * scaleFactor),
+                    },
+                });
+
+                if (!sources || sources.length === 0) {
+                    throw new Error('desktopCapturer returned no sources');
+                }
+
+                const nativeImage = sources[0].thumbnail;
+                if (nativeImage.isEmpty()) {
+                    throw new Error('desktopCapturer returned empty image');
+                }
+
+                const size = nativeImage.getSize();
+                const finalSize = size;
+
+                // JPEG at 80% quality
+                const jpegBuffer = nativeImage.toJPEG(80);
+                const base64 = jpegBuffer.toString('base64');
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `fullcapture_${timestamp}.jpg`;
+                const filepath = path.join(SCREENSHOTS_DIR, filename);
+                fs.writeFileSync(filepath, jpegBuffer);
+
+                console.log(`[fullCapture] captured ${finalSize.width}×${finalSize.height}`);
+                result = {
+                    success: true,
+                    filename,
+                    path: filepath,
+                    width: screenWidth,
+                    height: screenHeight,
+                    base64,
+                    imageWidth: finalSize.width,
+                    imageHeight: finalSize.height,
+                };
             } finally {
-                // Restore window immediately after capture — even on error
+                // Restore window immediately — even on error
                 if (win && savedBounds) {
                     win.setBounds(savedBounds, false);
                     win.setAlwaysOnTop(true, 'screen-saver');
                 }
             }
 
-            // Parse output format: "width,height|base64data"
-            const pipeIdx = output.indexOf('|');
-            if (pipeIdx === -1) {
-                throw new Error('Invalid capture output format');
-            }
-            const dims = output.slice(0, pipeIdx).split(',');
-            const imageWidth = parseInt(dims[0], 10);
-            const imageHeight = parseInt(dims[1], 10);
-            const base64 = output.slice(pipeIdx + 1).trim();
-
-            console.log(`[fullCapture] saved ${filepath}`);
-            return { success: true, filename, path: filepath, width, height, base64, imageWidth, imageHeight };
+            return result;
         } catch (err) {
+            console.error('[fullCapture] failed:', err.message);
             return { success: false, error: err.message };
         }
     });

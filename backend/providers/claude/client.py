@@ -118,6 +118,32 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     )
 
 
+def _fix_literal_newlines(text: str) -> str:
+    """Escape literal newlines/tabs inside JSON string values (LLMs often emit these)."""
+    result = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+        elif ch == '\\' and in_string:
+            result.append(ch)
+            escape_next = True
+        elif ch == '"':
+            in_string = not in_string
+            result.append(ch)
+        elif ch == '\n' and in_string:
+            result.append('\\n')
+        elif ch == '\r' and in_string:
+            result.append('\\r')
+        elif ch == '\t' and in_string:
+            result.append('\\t')
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+
 def _extract_json(content: str) -> dict:
     """Pull the JSON object out of Claude's text response."""
     text = content.strip()
@@ -139,12 +165,17 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    # Repair: escape literal newlines/tabs inside string values
+    repaired = _fix_literal_newlines(text)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        pass
+
     # Common JSON repairs
-    repaired = text
     # Trailing commas
     repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
     # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
-    # Handles both coordinates and end_coordinates fields
     repaired = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', repaired)
     try:
         return json.loads(repaired)

@@ -52,17 +52,20 @@ function _flush() {
     // can never interfere with the sentinel line.
     // On the bash side we decode → eval in the current shell.
     const encoded = Buffer.from(pending.cmd, 'utf-8').toString('base64');
-    const wrapped = isMac
-        ? `_code_=$(echo '${encoded}' | base64 -D) && eval "$_code_" 2>"${ERR_MARKER}" || echo "${ERR_MARKER}$?"; echo "${SENTINEL}"`
-        : `_code_=$(echo '${encoded}' | base64 -d) && eval "$_code_" 2>"${ERR_MARKER}" || echo "${ERR_MARKER}$?"; echo "${SENTINEL}"`;
+    const decode = isMac
+        ? `_code_=$(echo "$_enc_" | base64 -D)`
+        : `_code_=$(echo "$_enc_" | base64 -d)`;
 
-    // Simpler approach: decode, run in subshell, capture errors
+    // Decode, eval in the current shell, capture exit status.
+    // stderr is sent to a temp file so it doesn't contaminate stdout
+    // (critical for screenshot base64 output). On failure the stderr
+    // contents are surfaced via ERR_MARKER.
     const safeWrapped = [
         `_enc_='${encoded}'`,
-        isMac
-            ? `_code_=$(echo "$_enc_" | base64 -D)`
-            : `_code_=$(echo "$_enc_" | base64 -d)`,
-        `eval "$_code_" 2>&1 || echo "${ERR_MARKER}command failed"`,
+        decode,
+        `_stderr_=$(mktemp)`,
+        `eval "$_code_" 2>"$_stderr_"; _rc_=$?`,
+        `if [ $_rc_ -ne 0 ]; then _emsg_=$(cat "$_stderr_" 2>/dev/null); rm -f "$_stderr_"; echo "${ERR_MARKER}$_emsg_"; else rm -f "$_stderr_"; fi`,
         `echo "${SENTINEL}"`,
     ].join('; ');
 
@@ -74,7 +77,8 @@ function start() {
     if (ps) return;
 
     const shell = isMac ? '/bin/zsh' : '/bin/bash';
-    ps = spawn(shell, ['--norc', '--noprofile', '-i'], {
+    const shellArgs = isMac ? ['-f'] : ['--norc', '--noprofile'];
+    ps = spawn(shell, shellArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, TERM: 'dumb' }
     });

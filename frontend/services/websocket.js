@@ -7,7 +7,7 @@
 
 const store = require('../state/store');
 
-const WS_URL = 'ws://172.23.104.4:8000';
+const WS_URL = 'ws://127.0.0.1:8000';
 
 let onMessageHandler = null;
 let _closing = false;
