@@ -23,7 +23,7 @@ from prompts import SYSTEM_PROMPT
 # ── Configuration ────────────────────────────────────────────────────────────
 import os
 
-MODAL_URL = os.getenv("MODAL_VLM_URL", "https://ppbhatt500--qwen35-35b-a3b-vlm-qwen35vlm.us-east.modal.direct")
+MODAL_URL = os.getenv("MODAL_VLM_URL", "")
 MODEL_NAME = "Qwen/Qwen3.5-35B-A3B"
 MAX_TOKENS = 1024
 TEMPERATURE = 0.6

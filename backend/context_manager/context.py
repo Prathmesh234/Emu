@@ -101,7 +101,9 @@ class ContextManager:
         list is stored in annotations for coordinate-aware reasoning.
         """
         if not base64_screenshot.startswith("data:"):
-            base64_screenshot = f"data:image/png;base64,{base64_screenshot}"
+            # Detect format from base64 header: JPEG starts with /9j, PNG with iVBOR
+            mime = "image/jpeg" if base64_screenshot.startswith("/9j") else "image/png"
+            base64_screenshot = f"data:{mime};base64,{base64_screenshot}"
 
         # Strip the data URI prefix for the OmniParser client
         raw_b64 = base64_screenshot.split(",", 1)[1] if "," in base64_screenshot else base64_screenshot

@@ -54,11 +54,17 @@ function register(ipcMain, { screen, getMainWindow }) {
                     throw new Error('desktopCapturer returned empty image');
                 }
 
+                // Resize to max 1280px width (consistent with screenshot.js)
                 const size = nativeImage.getSize();
-                const finalSize = size;
+                let finalImage = nativeImage;
+                if (size.width > 1280) {
+                    const newHeight = Math.round((1280 / size.width) * size.height);
+                    finalImage = nativeImage.resize({ width: 1280, height: newHeight, quality: 'good' });
+                }
+                const finalSize = finalImage.getSize();
 
                 // JPEG at 80% quality
-                const jpegBuffer = nativeImage.toJPEG(80);
+                const jpegBuffer = finalImage.toJPEG(80);
                 const base64 = jpegBuffer.toString('base64');
 
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -66,13 +72,13 @@ function register(ipcMain, { screen, getMainWindow }) {
                 const filepath = path.join(SCREENSHOTS_DIR, filename);
                 fs.writeFileSync(filepath, jpegBuffer);
 
-                console.log(`[fullCapture] captured ${finalSize.width}×${finalSize.height}`);
+                console.log(`[fullCapture] captured ${finalSize.width}×${finalSize.height} (screen: ${screenWidth}×${screenHeight})`);
                 result = {
                     success: true,
                     filename,
                     path: filepath,
-                    width: screenWidth,
-                    height: screenHeight,
+                    screenWidth,
+                    screenHeight,
                     base64,
                     imageWidth: finalSize.width,
                     imageHeight: finalSize.height,
@@ -87,8 +93,9 @@ function register(ipcMain, { screen, getMainWindow }) {
 
             return result;
         } catch (err) {
-            console.error('[fullCapture] failed:', err.message);
-            return { success: false, error: err.message };
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[fullCapture] failed:', msg);
+            return { success: false, error: msg };
         }
     });
 }

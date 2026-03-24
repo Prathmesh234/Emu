@@ -18,7 +18,7 @@ import requests
 from prompts.system_prompt import SYSTEM_PROMPT
 
 # --- Configuration ---
-MODAL_URL = "https://ppbhatt500--qwen35-35b-a3b-vlm-qwen35vlm.us-east.modal.direct"
+MODAL_URL = os.getenv("MODAL_VLM_URL", "")
 SCREENSHOT_DIR = Path(__file__).parent / "emulation_screen_shots"
 
 
