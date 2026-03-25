@@ -7,6 +7,7 @@ Public API for the workspace reader module.
 from .reader import (
     build_workspace_context,
     ensure_session_dir,
+    get_device_details,
     get_sessions_dir,
     get_workspace_dir,
     is_bootstrap_needed,
@@ -23,6 +24,7 @@ from .reader import (
 __all__ = [
     "build_workspace_context",
     "ensure_session_dir",
+    "get_device_details",
     "get_sessions_dir",
     "get_workspace_dir",
     "is_bootstrap_needed",

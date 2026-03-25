@@ -92,5 +92,5 @@ class Action(BaseModel):
     # Shell exec
     command: Optional[str] = Field(
         default=None,
-        description="PowerShell command to execute (used with SHELL_EXEC)"
+        description="Shell command to execute (used with SHELL_EXEC)"
     )

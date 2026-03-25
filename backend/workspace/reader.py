@@ -101,8 +101,8 @@ def get_sessions_dir() -> Path:
 def _read_file(filepath: Path) -> Optional[str]:
     """Read a file, return content or None.
 
-    Falls back to cp1252 (Windows default) if UTF-8 decoding fails —
-    PowerShell's Set-Content writes ANSI by default.
+    Falls back to cp1252 if UTF-8 decoding fails — handles files that
+    may have been created with non-UTF-8 encoding.
     """
     try:
         return filepath.read_text(encoding="utf-8").strip()
@@ -209,6 +209,34 @@ def append_session_notes(session_id: str, note: str) -> Path:
     with open(notes_path, "a", encoding="utf-8") as f:
         f.write(note + "\n")
     return notes_path
+
+
+# ── Manifest / Device Details ────────────────────────────────────────────────
+
+def read_manifest() -> Optional[dict]:
+    """Read manifest.json and return the parsed dict, or None."""
+    try:
+        return json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def get_device_details() -> dict:
+    """Extract platform and device details from manifest.json for system prompt injection."""
+    manifest = read_manifest()
+    if not manifest:
+        return {}
+    result = {}
+    platform = manifest.get("platform", {})
+    if platform:
+        result["os_name"] = platform.get("os_name", "macOS")
+        result["arch"] = platform.get("arch", "unknown")
+    device = manifest.get("device_details", {})
+    if device:
+        result["screen_width"] = device.get("screen_width")
+        result["screen_height"] = device.get("screen_height")
+        result["scale_factor"] = device.get("scale_factor")
+    return result
 
 
 # ── Builder ─────────────────────────────────────────────────────────────────

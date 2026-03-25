@@ -71,6 +71,22 @@ function initEmu(appVersion = '0.0.0') {
   const physicalWidth  = Math.round(screenWidth * scaleFactor);
   const physicalHeight = Math.round(screenHeight * scaleFactor);
 
+  // Collect macOS version information
+  const osVersion = typeof process.getSystemVersion === 'function'
+      ? process.getSystemVersion()     // Electron API: e.g. "14.5.0"
+      : os.release();                  // Fallback: Darwin kernel version
+
+  // Map macOS version number to marketing name
+  const macOSNames = {
+    '15': 'Sequoia', '14': 'Sonoma', '13': 'Ventura', '12': 'Monterey',
+    '11': 'Big Sur', '10.15': 'Catalina', '10.14': 'Mojave',
+  };
+  const majorVersion = osVersion.split('.').slice(0, os.platform() === 'darwin' && parseInt(osVersion) >= 11 ? 1 : 2).join('.');
+  const macOSName = macOSNames[majorVersion] || '';
+  const osDisplayName = os.platform() === 'darwin'
+      ? `macOS ${macOSName} ${osVersion}`.trim()
+      : `${os.platform()} ${osVersion}`;
+
   const deviceDetails = {
     screen_width:    screenWidth,
     screen_height:   screenHeight,
@@ -99,19 +115,29 @@ function initEmu(appVersion = '0.0.0') {
         history: ['claude'],
       },
       platform: {
-        os:       os.platform(),
-        arch:     os.arch(),
-        electron: process.versions.electron || 'unknown',
-        python:   'unknown',   // filled in by backend later
+        os:           os.platform(),
+        os_version:   osVersion,
+        os_name:      osDisplayName,
+        arch:         os.arch(),
+        electron:     process.versions.electron || 'unknown',
+        python:       'unknown',   // filled in by backend later
       },
       device_details: deviceDetails,
     };
     fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2), 'utf-8');
   } else {
-    // Always update device_details on launch (screen may have changed)
+    // Always update device_details and platform on launch (screen or OS may have changed)
     try {
       const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
       existing.device_details = deviceDetails;
+      existing.platform = {
+        ...existing.platform,
+        os:         os.platform(),
+        os_version: osVersion,
+        os_name:    osDisplayName,
+        arch:       os.arch(),
+        electron:   process.versions.electron || 'unknown',
+      };
       fs.writeFileSync(MANIFEST, JSON.stringify(existing, null, 2), 'utf-8');
     } catch (e) {
       console.warn('[emu] failed to update device_details in manifest:', e.message);

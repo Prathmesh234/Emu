@@ -1,5 +1,5 @@
 // Action: Scroll
-// Uses cliclick on macOS (scroll via AppleScript), xdotool on Linux.
+// Uses Python Quartz CGEvents on macOS, xdotool on Linux.
 //
 // direction: 'up' | 'down'
 // amount:    number of "notches" to scroll (each notch = one scroll click)
@@ -17,18 +17,16 @@ function register(ipcMain, BACKEND_URL) {
         try {
             if (isMac) {
                 // cliclick doesn't support scroll natively.
-                // Use osascript to generate scroll wheel events.
+                // Use a Python one-liner with Quartz (PyObjC) to generate
+                // reliable scroll-wheel CGEvents on macOS.
                 // Positive = scroll up, negative = scroll down.
                 const scrollAmount = direction === 'up' ? amount : -amount;
-                const cmd = `osascript -e 'tell application "System Events" to scroll area 1 of (first process whose frontmost is true) scroll {0, ${scrollAmount}}'`;
-                // Fallback: use AppleScript mouse scroll via CGEvent
-                // This uses a Python one-liner with Quartz for reliable scroll events
-                const pycmd = `python3 -c "
+                const cmd = `python3 -c "
 import Quartz
 e = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 1, ${scrollAmount})
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 "`;
-                await psProcess.run(pycmd);
+                await psProcess.run(cmd);
             } else {
                 // xdotool: button 4 = scroll up, button 5 = scroll down
                 const button = direction === 'up' ? 4 : 5;
