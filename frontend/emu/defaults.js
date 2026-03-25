@@ -227,7 +227,7 @@ All screen coordinates use **normalized [0,1] ratios**, not pixels.
 - x=0.0 → left edge, x=1.0 → right edge
 - y=0.0 → top edge, y=1.0 → bottom edge
 - OmniParser detects elements in pixels, Emu normalizes before sending to model
-- Emu denormalizes back to screen pixels before executing xdotool calls
+- Emu denormalizes back to screen pixels before executing cliclick/osascript calls
 - This makes the model resolution-independent (works on any screen size)
 - Device screen dimensions are stored in .emu/manifest.json under device_details
 
@@ -281,7 +281,7 @@ Guidelines:
   If they elaborate, engage with what they shared.
 - It's okay to share a bit about yourself too — "I'm pretty good at
   shell commands, so if there's anything you usually do manually in
-  Explorer, I can probably handle it faster" — this makes it feel
+  Finder, I can probably handle it faster" — this makes it feel
   bidirectional.
 - Aim for 2-4 exchanges total, not a long interrogation.
 
@@ -342,10 +342,10 @@ actual preferences become clear.
   anything — apps, settings, files, system tools. Default to launcher →
   type name → Enter before reaching for shell_exec open/xdg-open or mouse
   navigation.
-- Use keyboard shortcuts (Escape, Tab, Enter, Alt+F4, Ctrl+L, Alt+Tab)
+- Use keyboard shortcuts (Escape, Tab, Enter, Cmd+Q, Cmd+L, Cmd+Tab)
   for common navigation before falling back to mouse clicks.
 - When a task involves file operations, check whether shell_exec is simpler
-  before navigating through File Explorer with the mouse.
+  before navigating through Finder with the mouse.
 `;
 
 module.exports = {

@@ -18,6 +18,7 @@ def build_system_prompt(
     session_id: str = "",
     bootstrap_mode: bool = False,
     bootstrap_content: str = "",
+    device_details: dict | None = None,
 ) -> str:
     """
     Build the full system prompt with dynamic date, session ID, and workspace context.
@@ -31,6 +32,8 @@ def build_system_prompt(
                         Injects the bootstrap interview block.
         bootstrap_content: Raw BOOTSTRAP.md content. Injected when bootstrap_mode
                            is True so the agent sees the interview questions.
+        device_details: Dict with os_name, arch, screen_width, screen_height,
+                        scale_factor from manifest.json. Injected into <system>.
 
     Returns:
         Complete system prompt string.
@@ -48,6 +51,24 @@ def build_system_prompt(
 
     prompt = prompt.replace("{date}", today).replace("{time}", now).replace("{session_id}", session_id or "unknown")
 
+    # Inject device details into the {device_info} placeholder
+    device_info = ""
+    if device_details:
+        os_name = device_details.get("os_name", "macOS")
+        arch = device_details.get("arch", "")
+        sw = device_details.get("screen_width")
+        sh = device_details.get("screen_height")
+        sf = device_details.get("scale_factor")
+        parts = [f"System: {os_name}"]
+        if arch:
+            parts.append(f"({arch})")
+        if sw and sh:
+            parts.append(f"| Display: {sw}×{sh}")
+            if sf and sf != 1:
+                parts.append(f"@{sf}x")
+        device_info = " ".join(parts)
+    prompt = prompt.replace("{device_info}", device_info or "System: macOS")
+
     if workspace_context:
         prompt += "\n\n" + workspace_context
 
@@ -58,7 +79,7 @@ SYSTEM_PROMPT = None
 
 
 def _lazy_system_prompt():
-    return build_system_prompt("")
+    return build_system_prompt("", device_details=None)
 
 
 class _LazyPrompt:
@@ -114,7 +135,8 @@ doesn't add information or warmth.
 </personality>
 
 <system>
-OS: macOS | Shell: bash/zsh | Coords: normalized [0,1] range, (0,0) top-left, (1,1) bottom-right
+{device_info}
+Shell: zsh | Coords: normalized [0,1] range, (0,0) top-left, (1,1) bottom-right
 Monitor: single display | Screenshots: auto, latest only (prior ones
 replaced with "[screenshot taken]" — rely on your earlier reasoning).
 Coordinates are resolution-independent ratios. Emu converts to screen

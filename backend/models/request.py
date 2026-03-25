@@ -110,7 +110,7 @@ class AgentRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "user_message": "Open Notepad and type hello world",
+                "user_message": "Open TextEdit and type hello world",
                 "base64_screenshot": "<base64-encoded-png>",
                 "timestamp": "2026-03-03T12:00:00Z",
                 "previous_messages": [

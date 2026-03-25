@@ -8,7 +8,7 @@ of the codebase — no custom dataclasses.
 Chain structure (built inside AgentRequest.previous_messages)
 ─────────────────────────────────────────────────────────────
   [system]    system prompt
-  [user]      "Open Notepad and type hello world"   ← text task
+  [user]      "Open TextEdit and type hello world"   ← text task
   [assistant] reasoning + action: screenshot         ← model asks to see screen
   [user]      data:image/png;base64,iVBOR...         ← screenshot from frontend
   [assistant] reasoning + action: left_click(x,y)    ← model acts
@@ -26,7 +26,7 @@ from pathlib import Path
 
 from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
 from prompts import build_system_prompt
-from workspace import build_workspace_context, is_bootstrap_needed, read_bootstrap
+from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
 
 # Directory where screenshots are saved (same as frontend uses)
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -72,11 +72,13 @@ class ContextManager:
             bootstrap_mode = is_bootstrap_needed()
             bootstrap_content = read_bootstrap() if bootstrap_mode else ""
 
+            device_info = get_device_details()
             system_prompt = build_system_prompt(
                 workspace_ctx,
                 session_id=session_id,
                 bootstrap_mode=bootstrap_mode,
                 bootstrap_content=bootstrap_content,
+                device_details=device_info,
             )
             self._history[session_id] = [
                 PreviousMessage(role=MessageRole.system, content=system_prompt.strip())
@@ -260,8 +262,8 @@ class ContextManager:
         """Format screen annotations as a compact text block for the model.
 
         All coordinates are normalized to [0, 1] range so the model is
-        resolution-independent.  Emu denormalizes back to pixels before
-        executing Win32 calls.
+        resolution-independent.  Emu denormalizes back to screen pixels
+        before executing cliclick/osascript commands on macOS.
         """
         w = ann.image_width or 1   # guard against division by zero
         h = ann.image_height or 1
@@ -320,10 +322,11 @@ class ContextManager:
         directive, followed by an assistant acknowledgment that restates the
         key context so the model has a clear mandate.
         """
-        from workspace import build_workspace_context
+        from workspace import build_workspace_context, get_device_details
         from prompts import build_system_prompt
 
         workspace_ctx = build_workspace_context()
+        device_info = get_device_details()
 
         # Always bootstrap_mode=False: we're mid-session, never first-launch.
         system_prompt = build_system_prompt(
@@ -331,6 +334,7 @@ class ContextManager:
             session_id=session_id,
             bootstrap_mode=False,
             bootstrap_content="",
+            device_details=device_info,
         )
 
         # Extract key sections from the summary for the assistant ack
