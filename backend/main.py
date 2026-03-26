@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,12 @@ from providers.registry import load_provider, load_compact_provider
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
+
+# ── OmniParser mode ──────────────────────────────────────────────────────────
+_use_omni = os.environ.get("USE_OMNI_PARSER", "").strip() in ("1", "true", "yes")
+print(f"[config] OmniParser: {'ENABLED' if _use_omni else 'DISABLED (direct screenshot mode)'}")
+if not _use_omni:
+    print(f"[config] To enable OmniParser, set USE_OMNI_PARSER=1")
 
 app = FastAPI(title="Emulation Agent API")
 

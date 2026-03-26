@@ -21,6 +21,7 @@ modal_client detects these and renders them as multimodal image content.
 
 import base64
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -98,68 +99,76 @@ class ContextManager:
 
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """
-        Run the screenshot through OmniParser for UI element detection,
-        then append it as a user message with annotations attached.
+        Append a screenshot as a user message.
 
-        The annotated (labelled) image replaces the raw screenshot in the chain
-        so the model sees element IDs drawn on screen. The structured element
-        list is stored in annotations for coordinate-aware reasoning.
+        When USE_OMNI_PARSER=1 (env var), the screenshot is first sent through
+        OmniParser for UI element detection. The annotated (labelled) image
+        replaces the raw screenshot and structured element data is attached.
+
+        By default (no env var), the raw screenshot (with cursor overlay already
+        applied by the frontend) is passed directly to the model without any
+        OmniParser processing.
         """
         if not base64_screenshot.startswith("data:"):
             base64_screenshot = f"data:image/png;base64,{base64_screenshot}"
 
-        # Strip the data URI prefix for the OmniParser client
-        raw_b64 = base64_screenshot.split(",", 1)[1] if "," in base64_screenshot else base64_screenshot
-
         annotations = None
-        try:
-            from providers.modal.omni_parser.client import parse_screenshot_b64
-            result = parse_screenshot_b64(raw_b64, include_annotated=True)
+        use_omni = os.environ.get("USE_OMNI_PARSER", "").strip()
 
-            # Use the annotated image (with drawn element boxes) instead of raw
-            if result.annotated_image_base64:
-                base64_screenshot = f"data:image/png;base64,{result.annotated_image_base64}"
+        if use_omni in ("1", "true", "yes"):
+            # Strip the data URI prefix for the OmniParser client
+            raw_b64 = base64_screenshot.split(",", 1)[1] if "," in base64_screenshot else base64_screenshot
 
-                # Save annotated screenshot to disk
-                try:
-                    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    annotated_path = SCREENSHOTS_DIR / f"screenshot_{timestamp}_annotated.png"
-                    annotated_bytes = base64.b64decode(result.annotated_image_base64)
-                    annotated_path.write_bytes(annotated_bytes)
-                    print(f"[omniparser] saved annotated screenshot → {annotated_path.name}")
-                except Exception as save_err:
-                    print(f"[omniparser] failed to save annotated screenshot: {save_err}")
+            try:
+                from providers.modal.omni_parser.client import parse_screenshot_b64
+                result = parse_screenshot_b64(raw_b64, include_annotated=True)
 
-            # Build the structured annotation
-            elements = [
-                ScreenElement(
-                    id=e.id, type=e.type, content=e.content,
-                    bbox_pixel=e.bbox_pixel, center_pixel=e.center_pixel,
-                    interactable=e.interactable,
+                # Use the annotated image (with drawn element boxes) instead of raw
+                if result.annotated_image_base64:
+                    base64_screenshot = f"data:image/png;base64,{result.annotated_image_base64}"
+
+                    # Save annotated screenshot to disk
+                    try:
+                        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                        annotated_path = SCREENSHOTS_DIR / f"screenshot_{timestamp}_annotated.png"
+                        annotated_bytes = base64.b64decode(result.annotated_image_base64)
+                        annotated_path.write_bytes(annotated_bytes)
+                        print(f"[omniparser] saved annotated screenshot → {annotated_path.name}")
+                    except Exception as save_err:
+                        print(f"[omniparser] failed to save annotated screenshot: {save_err}")
+
+                # Build the structured annotation
+                elements = [
+                    ScreenElement(
+                        id=e.id, type=e.type, content=e.content,
+                        bbox_pixel=e.bbox_pixel, center_pixel=e.center_pixel,
+                        interactable=e.interactable,
+                    )
+                    for e in result.elements
+                ]
+                annotations = ScreenAnnotation(
+                    elements=elements,
+                    image_width=result.image_width,
+                    image_height=result.image_height,
+                    latency_ms=result.latency_ms,
                 )
-                for e in result.elements
-            ]
-            annotations = ScreenAnnotation(
-                elements=elements,
-                image_width=result.image_width,
-                image_height=result.image_height,
-                latency_ms=result.latency_ms,
-            )
-            img_w = result.image_width or 1
-            img_h = result.image_height or 1
-            print(f"[omniparser] {len(elements)} elements detected ({result.latency_ms}ms)  [coords normalized to 0-1]")
-            for e in elements:
-                tag = e.type.upper()
-                ncx = round(e.center_pixel[0] / img_w, 4)
-                ncy = round(e.center_pixel[1] / img_h, 4)
-                coords = f"center_px=({e.center_pixel[0]},{e.center_pixel[1]})  center_norm=({ncx},{ncy})"
-                lbl = e.content if e.content else ""
-                click = "  [clickable]" if e.interactable else ""
-                print(f"  [{e.id}] {tag}  label=\"{lbl}\"  {coords}{click}")
-        except Exception as e:
-            # OmniParser failure is non-fatal — fall back to raw screenshot
-            print(f"[omniparser] Failed, using raw screenshot: {e}")
+                img_w = result.image_width or 1
+                img_h = result.image_height or 1
+                print(f"[omniparser] {len(elements)} elements detected ({result.latency_ms}ms)  [coords normalized to 0-1]")
+                for e in elements:
+                    tag = e.type.upper()
+                    ncx = round(e.center_pixel[0] / img_w, 4)
+                    ncy = round(e.center_pixel[1] / img_h, 4)
+                    coords = f"center_px=({e.center_pixel[0]},{e.center_pixel[1]})  center_norm=({ncx},{ncy})"
+                    lbl = e.content if e.content else ""
+                    click = "  [clickable]" if e.interactable else ""
+                    print(f"  [{e.id}] {tag}  label=\"{lbl}\"  {coords}{click}")
+            except Exception as e:
+                # OmniParser failure is non-fatal — fall back to raw screenshot
+                print(f"[omniparser] Failed, using raw screenshot: {e}")
+        else:
+            print(f"[screenshot] OmniParser skipped (direct screenshot mode)")
 
         self._get(session_id).append(
             PreviousMessage(
