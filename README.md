@@ -134,71 +134,35 @@ emulation-agent/
 
 ---
 
-## Setup
+## Quick Start
+
+```bash
+# Terminal 1 — backend (installs deps, deploys Modal if needed, starts server)
+./backend.sh
+
+# Terminal 2 — frontend (installs deps, launches Electron)
+./frontend.sh
+```
+
+Set your API key before running, or Emu falls back to Modal (free GPU):
+
+```bash
+# Pick ONE — create backend/.env or export in your shell:
+export ANTHROPIC_API_KEY=sk-ant-...       # → Claude (recommended)
+export OPENAI_API_KEY=sk-...              # → OpenAI
+export GOOGLE_API_KEY=AIza...             # → Google Gemini
+export EMU_PROVIDER=modal                 # → Modal GPU (no key needed)
+```
+
+`backend.sh` handles everything: Python venv, dependency install, Modal deployments (model + OmniParser), and server startup. See **[SETUP.md](SETUP.md)** for the full setup guide, provider configuration, OmniParser, self-hosted models, and troubleshooting.
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) for Python package management
+- [Node.js](https://nodejs.org/) v18+
 - Python 3.12+
-- macOS or Linux (see platform dependencies below)
-
-### Platform Dependencies
-
-**macOS** (built-in — no extra installs needed):
-- `screencapture` — screen capture
-- `sips` — image resize/convert
-- `cliclick` — mouse/keyboard automation (install via `brew install cliclick`)
-- AppleScript (`osascript`) — used for some keyboard actions
-
-**Linux**:
-- `scrot` — screen capture (`sudo apt install scrot`)
-- `ImageMagick` — image resize/convert (`sudo apt install imagemagick`)
-- `xdotool` — mouse/keyboard automation (`sudo apt install xdotool`)
-- `xclip` — clipboard support (`sudo apt install xclip`)
-
-### Install
-
-```bash
-# Frontend
-npm install
-
-# Backend
-cd backend
-uv venv
-uv sync
-```
-
-### Environment variables
-
-Set **one** API key and Emu auto-detects the provider. Create a `.env` in `backend/` or export in your shell:
-
-```bash
-# Pick ONE — Emu uses whichever key it finds (checked in this order):
-export ANTHROPIC_API_KEY=sk-ant-...       # → Claude (Anthropic)
-export OPENAI_API_KEY=sk-...              # → OpenAI (GPT-4o / GPT-4.1)
-export GOOGLE_API_KEY=AIza...             # → Google Gemini
-
-# Self-hosted GPU (vLLM, SGLang, Ollama, etc.):
-export OPENAI_BASE_URL=http://localhost:8000/v1
-export OPENAI_API_KEY=none                # most local servers don't need a real key
-
-# Force a specific provider (overrides auto-detection):
-export EMU_PROVIDER=claude                # claude | openai | gemini | openai_compatible | modal
-```
-
-See the **Providers** section below for full details.
-
-### Run
-
-```bash
-# Terminal 1 — FastAPI backend
-cd backend
-uv run uvicorn main:app --reload --port 8000
-
-# Terminal 2 — Electron app
-npm start
-```
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **Linux**: `sudo apt install scrot imagemagick xdotool xclip`
+- **macOS**: `brew install cliclick`
 
 ---
 
