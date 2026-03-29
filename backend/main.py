@@ -24,7 +24,7 @@ from workspace import ensure_session_dir
 
 # ── Inference backend ────────────────────────────────────────────────────────
 # Auto-detects provider from environment variables.
-# Override with EMU_PROVIDER=claude|openai|gemini|openai_compatible|modal
+# Override with EMU_PROVIDER=claude|openai|openrouter|gemini|openai_compatible|modal
 #
 from providers.registry import load_provider, load_compact_provider
 
