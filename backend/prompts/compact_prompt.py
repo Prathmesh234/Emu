@@ -164,6 +164,9 @@ CONTINUATION_DIRECTIVE = """\
 Your conversation history was compacted to stay within token limits.
 Below is a STRUCTURED STATE SNAPSHOT of everything that happened.
 
+You have already completed {step_count} steps before this compaction.
+Your step counter continues from {step_count} — do NOT reset to step 1.
+
 INSTRUCTIONS — follow these EXACTLY:
 1. Read the ENTIRE snapshot below
 2. Check ## PLAN → find steps marked [TODO] — those are your next actions

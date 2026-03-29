@@ -22,6 +22,7 @@ modal_client detects these and renders them as multimodal image content.
 import base64
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -75,6 +76,8 @@ class ContextManager:
     def __init__(self):
         # session_id -> [PreviousMessage, ...]
         self._history: dict[str, list[PreviousMessage]] = {}
+        # Tracks steps completed before compaction so step_index doesn't reset
+        self._step_offset: dict[str, int] = {}
 
     def _get(self, session_id: str) -> list[PreviousMessage]:
         """Return existing history or bootstrap a new session with the system prompt."""
@@ -216,8 +219,11 @@ class ContextManager:
         """
         history = self._get(session_id)
 
-        # Count steps: each assistant turn = 1 step
-        step_index = sum(1 for m in history if m.role == MessageRole.assistant)
+        # Count steps: each assistant turn = 1 step + offset from prior compactions
+        step_index = (
+            self._step_offset.get(session_id, 0)
+            + sum(1 for m in history if m.role == MessageRole.assistant)
+        )
 
         # Get the original user message (first user turn)
         user_message = ""
@@ -279,6 +285,7 @@ class ContextManager:
     def clear_session(self, session_id: str) -> None:
         """Remove all history for a session."""
         self._history.pop(session_id, None)
+        self._step_offset.pop(session_id, None)
 
     @staticmethod
     def _format_annotations(ann: ScreenAnnotation) -> str:
@@ -435,8 +442,19 @@ class ContextManager:
             use_omni_parser=USE_OMNI_PARSER,
         )
 
+        # Preserve the true step count across compactions
+        old_history = self._history.get(session_id, [])
+        old_steps = sum(1 for m in old_history if m.role == MessageRole.assistant)
+        self._step_offset[session_id] = self._step_offset.get(session_id, 0) + old_steps
+
         # Use the structured continuation directive from compact_prompt.py
-        user_content = CONTINUATION_DIRECTIVE.replace("{session_id}", session_id).replace("{summary}", summary)
+        total_steps = self._step_offset[session_id]
+        user_content = (
+            CONTINUATION_DIRECTIVE
+            .replace("{session_id}", session_id)
+            .replace("{summary}", summary)
+            .replace("{step_count}", str(total_steps))
+        )
 
         self._history[session_id] = [
             PreviousMessage(role=MessageRole.system, content=system_prompt.strip()),
