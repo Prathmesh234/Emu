@@ -19,6 +19,7 @@ def build_system_prompt(
     bootstrap_mode: bool = False,
     bootstrap_content: str = "",
     device_details: dict | None = None,
+    use_omni_parser: bool = False,
 ) -> str:
     """
     Build the full system prompt with dynamic date, session ID, and workspace context.
@@ -41,7 +42,13 @@ def build_system_prompt(
     today = datetime.now().strftime("%A, %B %d, %Y")
     now   = datetime.now().strftime("%H:%M")
 
-    prompt = _BASE_PROMPT
+    # Select the vision block based on whether OmniParser is active
+    if use_omni_parser:
+        vision_block = _OMNIPARSER_BLOCK
+    else:
+        vision_block = _DIRECT_SCREENSHOT_BLOCK
+
+    prompt = _BASE_PROMPT.replace("{vision_block}", vision_block)
 
     if bootstrap_mode:
         prompt += "\n\n" + _BOOTSTRAP_BLOCK
@@ -79,7 +86,7 @@ SYSTEM_PROMPT = None
 
 
 def _lazy_system_prompt():
-    return build_system_prompt("", device_details=None)
+    return build_system_prompt("", device_details=None, use_omni_parser=False)
 
 
 class _LazyPrompt:
@@ -143,37 +150,7 @@ Coordinates are resolution-independent ratios. Emu converts to screen
 pixels before executing actions. The model never needs to know pixel counts.
 </system>
 
-<omniparser>
-Each screenshot comes with TWO things:
-  1. ANNOTATED IMAGE — boxes with ID NUMBERS drawn on detected elements
-  2. [SCREEN ELEMENTS] text block — structured data for each element
-
-CRITICAL WORKFLOW FOR CLICKING:
-  Step 1: Look at the annotated image to find your target element
-  Step 2: Note the ID NUMBER shown on/near that element (e.g., [42])
-  Step 3: Find that ID in the [SCREEN ELEMENTS] list below the image
-  Step 4: Use the EXACT center=(x,y) normalized coordinates from that ID's entry
-
-COORDINATES ARE NORMALIZED [0,1]:
-  All coordinates in [SCREEN ELEMENTS] are ratios, NOT pixels.
-  x=0.0 means left edge, x=1.0 means right edge.
-  y=0.0 means top edge, y=1.0 means bottom edge.
-  Emu automatically converts these to screen pixels before executing.
-
-EXAMPLE:
-  You want to click the Chrome icon. In the annotated image you see
-  Chrome has ID [15] drawn on it. You look in [SCREEN ELEMENTS] and find:
-    [15] ICON  label="Chrome"  bbox=(0.0521,0.1852,0.0781,0.2315)  center=(0.0651,0.2083)  [clickable]
-  Your mouse_move action MUST use coordinates: { "x": 0.0651, "y": 0.2083 }
-
-RULES:
-  - NEVER guess coordinates. ALWAYS look up the ID in the element list.
-  - NEVER estimate "roughly in the center" — use the EXACT center values.
-  - Coordinates are ALWAYS in [0,1] range. Never use pixel values.
-  - If the element is TEXT with a label, match the label to confirm identity.
-  - If no matching element exists → scroll to reveal it, or try keyboard.
-  - The annotated image IDs correspond 1:1 with [SCREEN ELEMENTS] IDs.
-</omniparser>
+{vision_block}
 
 <action_model>
 Navigation and clicking are SEPARATE actions:
@@ -351,9 +328,11 @@ Button with no shortcut? → mouse. App opens fastest via search? → keyboard.
 </tool_selection>
 
 <execution_protocol>
-1. PLAN FIRST (MANDATORY) — Every task starts with shell_exec writing
-   .emu/sessions/{session_id}/plan.md before any desktop action.
-   No exceptions. Even simple tasks get a plan. This is non-negotiable.
+1. PLAN FIRST (MANDATORY) — Your FIRST response to any new task must
+   be a shell_exec that writes .emu/sessions/{session_id}/plan.md.
+   That response contains ONLY the shell_exec action — nothing else.
+   The next desktop action happens in your NEXT turn, after the plan
+   is written.
 
    Format:
      ## Task
@@ -363,8 +342,9 @@ Button with no shortcut? → mouse. App opens fastest via search? → keyboard.
      ## Expected Outcome
      <what success looks like>
 
-2. OBSERVE → ACT → VERIFY — One action per turn. Screenshot arrives
-   auto. Analyse → decide → execute → observe result. Repeat.
+2. ONE ACTION PER TURN — You respond with exactly one action, then
+   wait for the next screenshot. Never combine two actions in one
+   response. You will always get another turn.
 
 3. COMPLETION — THIS IS CRITICAL. You MUST use done=true when:
    - The task is visibly complete (you can see success on screen)
@@ -444,6 +424,27 @@ If you need to ask a clarifying question, put it in final_message:
 }
 
 NEVER respond with plain text. ALWAYS wrap in JSON.
+
+ONE ACTION PER RESPONSE — ABSOLUTE RULE:
+  This is a turn-based system. You send ONE action, then you receive
+  a screenshot showing the result, then you send the NEXT single action.
+  You will ALWAYS get another turn. There is no need to batch.
+
+  NEVER do any of these:
+    - Multiple JSON objects in one response
+    - An action inside final_message (final_message is plain text ONLY)
+    - A list or array of actions
+    - Describing future actions in JSON — only the IMMEDIATE next step
+    - Nesting one action inside another
+
+  CORRECT:
+    { "action": { "type": "key_press", "key": "space", "modifiers": ["cmd"] }, "done": false, "confidence": 0.98 }
+
+  WRONG (batching two steps):
+    { "action": { "type": "key_press", "key": "space", "modifiers": ["cmd"] }, "next": { "type": "type_text", "text": "..." } }
+
+  WRONG (action inside final_message):
+    { "action": { "type": "done" }, "done": true, "final_message": "{\"action\":{\"type\":\"screenshot\"}}" }
 </response_format>
 
 <workspace>
@@ -532,6 +533,91 @@ Turn 8 — Acknowledge:
 Pattern: plan → execute → report → user confirms → write memory → done.
 </example>
 """
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VISION BLOCKS — conditionally injected based on OmniParser config
+# ═══════════════════════════════════════════════════════════════════════════
+
+_OMNIPARSER_BLOCK = """\
+<omniparser>
+Each screenshot comes with TWO things:
+  1. ANNOTATED IMAGE — boxes with ID NUMBERS drawn on detected elements
+  2. [SCREEN ELEMENTS] text block — structured data for each element
+
+CRITICAL WORKFLOW FOR CLICKING:
+  Step 1: Look at the annotated image to find your target element
+  Step 2: Note the ID NUMBER shown on/near that element (e.g., [42])
+  Step 3: Find that ID in the [SCREEN ELEMENTS] list below the image
+  Step 4: Use the EXACT center=(x,y) normalized coordinates from that ID's entry
+
+COORDINATES ARE NORMALIZED [0,1]:
+  All coordinates in [SCREEN ELEMENTS] are ratios, NOT pixels.
+  x=0.0 means left edge, x=1.0 means right edge.
+  y=0.0 means top edge, y=1.0 means bottom edge.
+  Emu automatically converts these to screen pixels before executing.
+
+EXAMPLE:
+  You want to click the Chrome icon. In the annotated image you see
+  Chrome has ID [15] drawn on it. You look in [SCREEN ELEMENTS] and find:
+    [15] ICON  label="Chrome"  bbox=(0.0521,0.1852,0.0781,0.2315)  center=(0.0651,0.2083)  [clickable]
+  Your mouse_move action MUST use coordinates: { "x": 0.0651, "y": 0.2083 }
+
+RULES:
+  - NEVER guess coordinates. ALWAYS look up the ID in the element list.
+  - NEVER estimate "roughly in the center" — use the EXACT center values.
+  - Coordinates are ALWAYS in [0,1] range. Never use pixel values.
+  - If the element is TEXT with a label, match the label to confirm identity.
+  - If no matching element exists → scroll to reveal it, or try keyboard.
+  - The annotated image IDs correspond 1:1 with [SCREEN ELEMENTS] IDs.
+</omniparser>"""
+
+_DIRECT_SCREENSHOT_BLOCK = """\
+<vision_mode>
+MODE: DIRECT SCREENSHOTS (no OmniParser)
+
+You receive RAW screenshots — there are NO annotated element IDs, NO
+bounding boxes, and NO [SCREEN ELEMENTS] text block. You must visually
+interpret the screenshot yourself.
+
+HOW TO CLICK TARGETS:
+  1. LOOK at the screenshot carefully to find your target (button, icon,
+     text field, link, menu item, etc.)
+  2. ESTIMATE the normalized coordinates of the target's CENTER
+  3. Use mouse_move with those coordinates, then click
+
+COORDINATE ESTIMATION GUIDE:
+  Coordinates are normalized [0,1] ratios:
+    x=0.0 → left edge    x=0.5 → horizontal center    x=1.0 → right edge
+    y=0.0 → top edge     y=0.5 → vertical center      y=1.0 → bottom edge
+
+  Think in terms of screen regions:
+    - macOS menu bar: y ≈ 0.01-0.02
+    - Dock (bottom): y ≈ 0.95-0.99
+    - Window title bar: typically y ≈ 0.03-0.06
+    - Center of screen: (0.5, 0.5)
+
+  Estimate by asking: "How far from the left edge is this element as a
+  fraction of screen width?" Same for top edge / screen height.
+
+ACCURACY TIPS:
+  - Be precise. Look at the element's actual position relative to the
+    full screenshot dimensions.
+  - For text/buttons, aim for the CENTER of the element, not the edge.
+  - If a click doesn't land on the right element, adjust coordinates
+    based on where the cursor actually appeared in the next screenshot.
+  - The cursor position is visible in screenshots — use it to calibrate.
+
+WHEN VISUAL TARGETING IS HARD:
+  - Small or ambiguous elements → prefer keyboard shortcuts or shell_exec
+  - Can't find an element → try scrolling to reveal it
+  - Repeated misclicks → switch to keyboard navigation (Tab, arrow keys)
+    or shell_exec as an alternative approach
+
+IMPORTANT: There are NO element IDs or [SCREEN ELEMENTS] data in this
+mode. Do NOT reference element IDs or wait for annotation data. You must
+rely entirely on your visual understanding of the screenshot.
+</vision_mode>"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -90,6 +90,7 @@ class ContextManager:
                 bootstrap_mode=bootstrap_mode,
                 bootstrap_content=bootstrap_content,
                 device_details=device_info,
+                use_omni_parser=USE_OMNI_PARSER,
             )
             self._history[session_id] = [
                 PreviousMessage(role=MessageRole.system, content=system_prompt.strip())
@@ -350,6 +351,7 @@ class ContextManager:
             bootstrap_mode=False,
             bootstrap_content="",
             device_details=device_info,
+            use_omni_parser=USE_OMNI_PARSER,
         )
 
         # Extract key sections from the summary for the assistant ack

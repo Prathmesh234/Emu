@@ -21,7 +21,8 @@ function register(ipcMain, BACKEND_URL) {
                 // reliable scroll-wheel CGEvents on macOS.
                 // Positive = scroll up, negative = scroll down.
                 const scrollAmount = direction === 'up' ? amount : -amount;
-                const cmd = `python3 -c "
+                const backendDir = require('path').resolve(__dirname, '../../backend');
+                const cmd = `cd "${backendDir}" && uv run python3 -c "
 import Quartz
 e = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 1, ${scrollAmount})
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)

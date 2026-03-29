@@ -106,6 +106,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     reasoning = getattr(message, "reasoning_content", None) if message else None
 
     data = _extract_json(content)
+    data = _sanitize_single_action(data)
 
     return AgentResponse(
         action=Action(**data.get("action", {"type": "done"})),
@@ -118,6 +119,32 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     )
 
 
+def _sanitize_single_action(data: dict) -> dict:
+    """Enforce one-action-per-response. Strip extra actions the model may batch."""
+    # Strip rogue keys that look like batched actions
+    for key in ("next", "next_action", "actions", "step2", "then"):
+        if key in data:
+            print(f"[openrouter] WARN: stripped batched key '{key}' from response")
+            del data[key]
+
+    # If final_message contains JSON with an "action" key, it's a nested action
+    fm = data.get("final_message")
+    if isinstance(fm, str) and fm.strip().startswith("{"):
+        try:
+            inner = json.loads(fm)
+            if isinstance(inner, dict) and "action" in inner:
+                print(f"[openrouter] WARN: final_message contained nested action — extracting real action")
+                # The real action was stuffed inside final_message; promote it
+                data["action"] = inner["action"]
+                data["done"] = inner.get("done", False)
+                data["confidence"] = inner.get("confidence", data.get("confidence", 1.0))
+                data["final_message"] = inner.get("final_message")
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return data
+
+
 def _extract_json(content: str) -> dict:
     """Pull the JSON object out of the model's text response."""
     text = content.strip()
@@ -128,11 +155,20 @@ def _extract_json(content: str) -> dict:
     elif "```" in text:
         text = text.split("```", 1)[1].split("```", 1)[0].strip()
 
-    # Isolate outermost { ... }
+    # Extract only the FIRST JSON object. Models sometimes concatenate
+    # multiple objects (e.g. {...}{...}). json.JSONDecoder.raw_decode
+    # stops after the first valid object.
     brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start : brace_end + 1]
+    if brace_start != -1:
+        try:
+            decoder = json.JSONDecoder()
+            obj, end_idx = decoder.raw_decode(text, brace_start)
+            remainder = text[end_idx:].strip()
+            if remainder:
+                print(f"[openrouter] WARN: model returned multiple objects, using only the first. Discarded: {remainder[:120]}")
+            return obj
+        except json.JSONDecodeError:
+            pass
 
     try:
         return json.loads(text)

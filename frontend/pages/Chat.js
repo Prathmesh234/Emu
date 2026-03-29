@@ -83,11 +83,7 @@ function addMessage(role, content, index) {
     const empty = chatWrapper.querySelector('.empty-state');
     if (empty) empty.remove();
 
-    const msg = Message(role, content, () => {
-        if (store.state.isGenerating) return;
-        if (role === 'user') editMessage(index);
-        else regenerate(index);
-    });
+    const msg = Message(role, content);
 
     chatWrapper.appendChild(msg.element);
     scrollToBottom();
