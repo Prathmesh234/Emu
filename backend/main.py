@@ -27,9 +27,13 @@ from workspace import ensure_session_dir
 # Override with EMU_PROVIDER=claude|openai|openrouter|gemini|openai_compatible|modal
 #
 from providers.registry import load_provider, load_compact_provider
+from context_manager.context import USE_OMNI_PARSER
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
+
+print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
+print(f"[config]   To enable: --use-omni-parser flag or USE_OMNI_PARSER=1 env var")
 
 app = FastAPI(title="Emulation Agent API")
 
