@@ -248,8 +248,9 @@ def build_workspace_context() -> str:
 
     Concatenates:
       1. Firmware files (always)
-      2. MEMORY.md (conditional)
-      3. Today + yesterday daily logs (conditional)
+      2. Skills metadata (always — lightweight name+description only)
+      3. MEMORY.md (conditional)
+      4. Today + yesterday daily logs (conditional)
 
     Returns empty string if nothing is available.
     """
@@ -257,7 +258,12 @@ def build_workspace_context() -> str:
     memory = read_memory()
     dailies = read_recent_daily_memories()
 
-    if not firmware and not memory and not dailies:
+    # Load skills metadata (lightweight — only name + description)
+    from skills import load_skills, format_skills_for_prompt
+    skills = load_skills()
+    skills_block = format_skills_for_prompt(skills)
+
+    if not firmware and not memory and not dailies and not skills_block:
         return ""
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -277,6 +283,16 @@ def build_workspace_context() -> str:
             sections.append(f"┌─ {label} ─┐")
             sections.append(content)
             sections.append("")
+
+    # Skills — always present (metadata only, token-light)
+    if skills_block:
+        sections.append("── SKILLS (available capabilities) " + "─" * 41)
+        sections.append("")
+        sections.append(skills_block)
+        sections.append("")
+        sections.append("To use a skill, call use_skill with the skill name.")
+        sections.append("The skill's full instructions will be loaded into context.")
+        sections.append("")
 
     # Conditional — memory
     if memory:

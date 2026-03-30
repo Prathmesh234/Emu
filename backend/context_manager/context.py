@@ -20,6 +20,7 @@ from pathlib import Path
 
 from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
 from prompts import build_system_prompt
+from prompts.plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
 
 # OmniParser toggle
@@ -123,9 +124,13 @@ class ContextManager:
     6. Repeat 3-5
     """
 
+    # Plan reminder injection interval (every N assistant turns, offset from plan inject)
+    PLAN_REMINDER_INTERVAL = 15
+
     def __init__(self):
         self._history: dict[str, list[PreviousMessage]] = {}
         self._step_offset: dict[str, int] = {}
+        self._plan_injected: dict[str, bool] = {}
         self.action_validator = ActionValidator()
 
     def _get(self, session_id: str) -> list[PreviousMessage]:
@@ -149,12 +154,39 @@ class ContextManager:
         return self._history[session_id]
 
     def add_user_message(self, session_id: str, text: str) -> None:
-        """Append a text-only user message."""
+        """Append a text-only user message.
+
+        On the first real user task (not system feedback like tool results),
+        auto-injects the planning directive so the model plans before acting.
+        """
         if not text or not text.strip():
             return
-        self._get(session_id).append(
+
+        history = self._get(session_id)
+        history.append(
             PreviousMessage(role=MessageRole.user, content=text)
         )
+
+        # Inject planning directive on first real user message
+        # Skip if: already injected, or message is system feedback (tool results, action results, etc.)
+        is_system_feedback = text.startswith("[") and any(
+            text.startswith(prefix) for prefix in [
+                "[update_plan result]", "[read_plan result]", "[write_memory result]",
+                "[compact_context result]", "[shell_exec", "[ACTION REJECTED]",
+                "[PLAN CHECKPOINT", "[CONTEXT CONTINUATION]", "[PLANNING REQUIRED]",
+                "[PLAN CHECK]",
+            ]
+        )
+
+        if not self._plan_injected.get(session_id) and not is_system_feedback:
+            # Check if there are any assistant turns yet (no = first task)
+            has_assistant_turns = any(m.role == MessageRole.assistant for m in history)
+            if not has_assistant_turns:
+                history.append(
+                    PreviousMessage(role=MessageRole.user, content=PLAN_DIRECTIVE)
+                )
+                self._plan_injected[session_id] = True
+                print(f"[plan] Injected planning directive for session {session_id}")
 
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """Append a screenshot as a user message, optionally via OmniParser."""
@@ -238,6 +270,11 @@ class ContextManager:
         turns = self._count_assistant_turns(session_id) + self._step_offset.get(session_id, 0)
         return turns > 0 and turns % PLAN_INJECT_INTERVAL == 0
 
+    def _should_inject_plan_reminder(self, session_id: str) -> bool:
+        """Check if it's time for a lightweight plan reminder."""
+        turns = self._count_assistant_turns(session_id) + self._step_offset.get(session_id, 0)
+        return turns > 0 and turns % self.PLAN_REMINDER_INTERVAL == 0
+
     def build_request(self, session_id: str) -> AgentRequest:
         """
         Build an AgentRequest from the current history.
@@ -274,6 +311,13 @@ class ContextManager:
                     PreviousMessage(role=MessageRole.user, content=plan_msg)
                 )
                 print(f"[plan-inject] Auto-injected plan.md at step {step_index}")
+
+        # Lightweight plan reminder (offset from full plan injection)
+        elif self._should_inject_plan_reminder(session_id):
+            history.append(
+                PreviousMessage(role=MessageRole.user, content=PLAN_REMINDER)
+            )
+            print(f"[plan-remind] Injected plan reminder at step {step_index}")
 
         # Build trimmed copy: replace all but latest screenshot
         trimmed: list[PreviousMessage] = []
@@ -322,6 +366,7 @@ class ContextManager:
         """Remove all history for a session."""
         self._history.pop(session_id, None)
         self._step_offset.pop(session_id, None)
+        self._plan_injected.pop(session_id, None)
         self.action_validator.clear(session_id)
 
     @staticmethod

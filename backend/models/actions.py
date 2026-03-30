@@ -23,6 +23,7 @@ class ActionType(str, Enum):
     READ_PLAN       = "read_plan"
     UPDATE_PLAN     = "update_plan"
     WRITE_MEMORY    = "write_memory"
+    USE_SKILL       = "use_skill"
 
 
 class Coordinates(BaseModel):
@@ -101,4 +102,10 @@ class Action(BaseModel):
     target: Optional[Literal["daily_log", "long_term", "preferences"]] = Field(
         default=None,
         description="Memory target (used with WRITE_MEMORY)"
+    )
+
+    # Skill invocation
+    skill_name: Optional[str] = Field(
+        default=None,
+        description="Name of the skill to load (used with USE_SKILL)"
     )
