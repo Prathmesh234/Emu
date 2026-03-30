@@ -39,6 +39,7 @@ _MANIFEST_PATH = _EMU_DIR / "manifest.json"
 FIRMWARE_FILES = [
     ("SOUL.md",        _WORKSPACE_DIR / "SOUL.md"),
     ("AGENTS.md",      _WORKSPACE_DIR / "AGENTS.md"),
+    ("TOOLS.md",       _WORKSPACE_DIR / "TOOLS.md"),
     ("USER.md",        _WORKSPACE_DIR / "USER.md"),
     ("IDENTITY.md",    _WORKSPACE_DIR / "IDENTITY.md"),
     ("preferences.md", _GLOBAL_DIR / "preferences.md"),

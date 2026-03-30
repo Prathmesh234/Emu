@@ -5,19 +5,24 @@ from pydantic import BaseModel, Field
 
 
 class ActionType(str, Enum):
-    SCREENSHOT   = "screenshot"
-    LEFT_CLICK   = "left_click"
-    RIGHT_CLICK  = "right_click"
-    DOUBLE_CLICK = "double_click"
-    TRIPLE_CLICK = "triple_click"
-    MOUSE_MOVE   = "mouse_move"
-    DRAG         = "drag"
-    SCROLL       = "scroll"
-    TYPE_TEXT    = "type_text"
-    KEY_PRESS    = "key_press"
-    SHELL_EXEC   = "shell_exec"
-    WAIT         = "wait"
-    DONE         = "done"
+    SCREENSHOT     = "screenshot"
+    LEFT_CLICK     = "left_click"
+    RIGHT_CLICK    = "right_click"
+    DOUBLE_CLICK   = "double_click"
+    TRIPLE_CLICK   = "triple_click"
+    MOUSE_MOVE     = "mouse_move"
+    DRAG           = "drag"
+    SCROLL         = "scroll"
+    TYPE_TEXT       = "type_text"
+    KEY_PRESS       = "key_press"
+    SHELL_EXEC     = "shell_exec"
+    WAIT           = "wait"
+    DONE           = "done"
+    # Agent tools — model-driven context management
+    COMPACT_CONTEXT = "compact_context"
+    READ_PLAN       = "read_plan"
+    UPDATE_PLAN     = "update_plan"
+    WRITE_MEMORY    = "write_memory"
 
 
 class Coordinates(BaseModel):
@@ -32,13 +37,6 @@ class Action(BaseModel):
 
     Only the fields relevant to the action type will be populated;
     all others remain None.
-
-    Click / move actions  → coordinates
-    Type actions          → text
-    Key press actions     → key + modifiers
-    Scroll actions        → coordinates + direction + amount
-    Wait actions          → ms
-    Done actions          → (no extra fields; signals task completion)
     """
 
     type: ActionType = Field(..., description="The kind of action to execute")
@@ -46,25 +44,25 @@ class Action(BaseModel):
     # Click / move / scroll / drag start position
     coordinates: Optional[Coordinates] = Field(
         default=None,
-        description="Target screen coordinates (required for click, move, scroll, drag start)"
+        description="Target screen coordinates (required for mouse_move, drag start)"
     )
 
     # Drag end position
     end_coordinates: Optional[Coordinates] = Field(
         default=None,
-        description="End position for drag (required for DRAG — drag from coordinates to end_coordinates)"
+        description="End position for drag (required for DRAG)"
     )
 
     # Type text
     text: Optional[str] = Field(
         default=None,
-        description="String to type (used with TYPE_TEXT)"
+        description="String to type (TYPE_TEXT) or plan content (UPDATE_PLAN) or memory content (WRITE_MEMORY)"
     )
 
     # Key press
     key: Optional[str] = Field(
         default=None,
-        description="Key identifier, e.g. 'enter', 'tab', 'escape' (used with KEY_PRESS)"
+        description="Key identifier, e.g. 'enter', 'tab' (used with KEY_PRESS)"
     )
     modifiers: Optional[list[str]] = Field(
         default=None,
@@ -93,4 +91,14 @@ class Action(BaseModel):
     command: Optional[str] = Field(
         default=None,
         description="Shell command to execute (used with SHELL_EXEC)"
+    )
+
+    # Agent tool params
+    focus: Optional[str] = Field(
+        default=None,
+        description="What to prioritize in compaction summary (used with COMPACT_CONTEXT)"
+    )
+    target: Optional[Literal["daily_log", "long_term", "preferences"]] = Field(
+        default=None,
+        description="Memory target (used with WRITE_MEMORY)"
     )

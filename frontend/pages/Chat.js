@@ -228,19 +228,29 @@ async function sendMessage() {
     const text = chatInput.textarea.value.trim();
     if (!text) return;
 
-    // If currently generating, stop instead
+    // If currently generating, stop the current task first, then send the new message
     if (store.state.isGenerating) {
+        // Grab the text before stopping (stop clears state)
+        const pendingText = text;
         await stopAgent();
-        return;
+        // Wait for stop to settle
+        await sleep(300);
+        // Now send the new message by putting it back and recursing
+        chatInput.textarea.value = pendingText;
+        chatInput.sendBtn.disabled = false;
+        // Fall through to send logic below (isGenerating is now false)
     }
+
+    const finalText = chatInput.textarea.value.trim();
+    if (!finalText) return;
 
     const chat = store.getCurrentChat();
     if (!chat) return;
 
     // Add user message
-    store.pushMessage(chat.id, { role: 'user', content: text });
-    addMessage('user', text, chat.messages.length - 1);
-    store.updateChatPreview(chat.id, text);
+    store.pushMessage(chat.id, { role: 'user', content: finalText });
+    addMessage('user', finalText, chat.messages.length - 1);
+    store.updateChatPreview(chat.id, finalText);
 
     // Clear input
     chatInput.textarea.value = '';
@@ -262,7 +272,7 @@ async function sendMessage() {
     // (see handleWsMessage 'step' case)
 
     // Debug: full-capture
-    if (/\bfull[-\s]?capture\b/i.test(text)) {
+    if (/\bfull[-\s]?capture\b/i.test(finalText)) {
         showStatus('Full capture (panel excluded)...');
         const result = await fullCapture();
         removeStatus();

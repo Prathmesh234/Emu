@@ -21,12 +21,14 @@ from models import (
     StopRequest,
 )
 from context_manager import ContextManager
-from workspace import ensure_session_dir
+from workspace import (
+    ensure_session_dir,
+    write_session_plan,
+    read_session_plan,
+    append_session_notes,
+)
 
 # ── Inference backend ────────────────────────────────────────────────────────
-# Auto-detects provider from environment variables.
-# Override with EMU_PROVIDER=claude|openai|openrouter|gemini|openai_compatible|modal
-#
 from providers.registry import load_provider, load_compact_provider
 from context_manager.context import USE_OMNI_PARSER
 
@@ -34,7 +36,6 @@ call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
 
 print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
-print(f"[config]   To enable: --use-omni-parser flag or USE_OMNI_PARSER=1 env var")
 
 app = FastAPI(title="Emulation Agent API")
 
@@ -50,7 +51,7 @@ app.add_middleware(
 )
 
 
-# ── WebSocket connection manager ─────────────────────────────────────────────────────
+# ── WebSocket connection manager ─────────────────────────────────────────────
 
 class ConnectionManager:
     def __init__(self):
@@ -74,7 +75,94 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────────
+# ── Agent tool handlers ──────────────────────────────────────────────────────
+
+async def handle_compact_context(session_id: str, focus: str = "") -> str:
+    """Handle the model's compact_context tool call."""
+    chain_len = context_manager.chain_length(session_id)
+    if chain_len <= 4:
+        return "Context is already short — no compaction needed."
+
+    await manager.send(session_id, {
+        "type": "status",
+        "message": "Compacting context as requested...",
+    })
+
+    try:
+        compact_messages = context_manager.get_compact_messages(session_id)
+        summary = compact_model(compact_messages)
+        old_len = chain_len
+        context_manager.reset_with_summary(session_id, summary)
+        new_len = context_manager.chain_length(session_id)
+        msg = f"Context compacted: {old_len} → {new_len} messages."
+        if focus:
+            msg += f" Focused on: {focus}"
+        print(f"[compact] Model-initiated. {old_len} → {new_len} messages")
+        await manager.send(session_id, {"type": "status", "message": msg})
+        return msg
+    except Exception as e:
+        print(f"[compact] Failed: {e}")
+        return f"Compaction failed: {e}. Continue without it."
+
+
+def handle_read_plan(session_id: str) -> str:
+    """Handle the model's read_plan tool call."""
+    plan = read_session_plan(session_id)
+    if plan:
+        return f"[YOUR PLAN]\n{plan}"
+    else:
+        return "No plan.md found for this session. You may need to create one."
+
+
+def handle_update_plan(session_id: str, content: str) -> str:
+    """Handle the model's update_plan tool call."""
+    if not content:
+        return "No content provided for plan update."
+    write_session_plan(session_id, content)
+    return "Plan updated successfully."
+
+
+def handle_write_memory(session_id: str, content: str, target: str = "daily_log") -> str:
+    """Handle the model's write_memory tool call."""
+    if not content:
+        return "No content provided for memory write."
+
+    _backend_dir = Path(__file__).parent
+    _project_root = _backend_dir.parent
+    _emu_dir = _project_root / ".emu"
+
+    try:
+        if target == "daily_log":
+            today = datetime.now().strftime("%Y-%m-%d")
+            time_now = datetime.now().strftime("%H:%M")
+            memory_dir = _emu_dir / "workspace" / "memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+            daily_path = memory_dir / f"{today}.md"
+            with open(daily_path, "a", encoding="utf-8") as f:
+                f.write(f"\n### {time_now}\n{content}\n")
+            return f"Written to daily log ({today})."
+
+        elif target == "long_term":
+            memory_path = _emu_dir / "workspace" / "MEMORY.md"
+            with open(memory_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{content}\n")
+            return "Written to long-term memory (MEMORY.md)."
+
+        elif target == "preferences":
+            prefs_path = _emu_dir / "global" / "preferences.md"
+            prefs_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(prefs_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{content}\n")
+            return "Written to preferences."
+
+        else:
+            return f"Unknown memory target: {target}. Use daily_log, long_term, or preferences."
+
+    except Exception as e:
+        return f"Memory write failed: {e}"
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -99,7 +187,7 @@ async def receive_screenshot(req: ScreenshotRequest):
 
 @app.post("/agent/session")
 async def create_session():
-    """Create a new agent session, scaffold its .emu/sessions/<id>/ directory."""
+    """Create a new agent session."""
     session_id = str(uuid.uuid4())
     session_dir = ensure_session_dir(session_id)
     print(f"[session] created {session_id}  dir={session_dir}")
@@ -109,7 +197,6 @@ async def create_session():
 @app.get("/agent/session/{session_id}")
 async def get_session(session_id: str):
     """Return current session state."""
-    # Placeholder until full session management is implemented
     return {"session_id": session_id, "status": "active"}
 
 
@@ -118,14 +205,11 @@ async def agent_step(req: AgentRequest):
     """
     Main agent loop entry point.
 
-    Two modes of invocation:
-      1. New task:   user_message is set, base64_screenshot is empty.
-                     Adds the user text to context, calls the model.
-                     Model will likely respond with a screenshot action.
-
-      2. Screenshot: base64_screenshot is set (after frontend captures).
-                     Adds the screenshot to context, calls the model.
-                     Model sees the screen and decides the next action.
+    Handles:
+    1. Text tasks / screenshot inputs → model call
+    2. Action validation (runtime, not prompt rules)
+    3. Agent tool dispatch (compact_context, read_plan, update_plan, write_memory)
+    4. Safety-net auto-compaction
     """
     session_id = req.session_id or str(uuid.uuid4())
     has_screenshot = bool(req.base64_screenshot)
@@ -137,7 +221,6 @@ async def agent_step(req: AgentRequest):
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
 
-    # Build the request from accumulated history
     agent_req = context_manager.build_request(session_id)
 
     # ── Log ──────────────────────────────────────────────────────────────────
@@ -185,7 +268,6 @@ async def agent_step(req: AgentRequest):
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-
     # ── Call inference backend ──────────────────────────────────────────────
     try:
         response: AgentResponse = call_model(agent_req)
@@ -197,26 +279,94 @@ async def agent_step(req: AgentRequest):
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-    # Persist the model's response in conversation history
-    response_json = response.model_dump_json(exclude_none=True)
-    context_manager.add_assistant_turn(session_id, response_json)
-
     print(f"[agent/step] Model responded in {response.inference_time_ms}ms")
     print(f"  action     : {response.action.type.value}")
     print(f"  done       : {response.done}")
     print(f"  confidence : {response.confidence}")
 
-    # Check if auto-compaction is needed after this turn
+    action_type = response.action.type.value
+    action_payload = response.action.model_dump(exclude_none=True)
+
+    # ── Handle agent tools (executed server-side, not sent to frontend) ────
+    agent_tool_types = {"compact_context", "read_plan", "update_plan", "write_memory"}
+
+    if action_type in agent_tool_types:
+        tool_result = ""
+
+        if action_type == "compact_context":
+            tool_result = await handle_compact_context(
+                session_id,
+                focus=response.action.focus or ""
+            )
+        elif action_type == "read_plan":
+            tool_result = handle_read_plan(session_id)
+        elif action_type == "update_plan":
+            tool_result = handle_update_plan(session_id, response.action.text or "")
+        elif action_type == "write_memory":
+            tool_result = handle_write_memory(
+                session_id,
+                content=response.action.text or "",
+                target=response.action.target or "daily_log",
+            )
+
+        print(f"[agent-tool] {action_type} → {tool_result[:200]}")
+
+        # Record assistant turn and inject tool result, then re-call model
+        response_json = response.model_dump_json(exclude_none=True)
+        context_manager.add_assistant_turn(session_id, response_json)
+        context_manager.add_user_message(session_id, f"[{action_type} result]\n{tool_result}")
+
+        await manager.send(session_id, {
+            "type": "status",
+            "message": f"Tool: {action_type} completed. Continuing...",
+        })
+
+        return {
+            "session_id": session_id,
+            "status": "tool_executed",
+            "action": action_payload,
+            "tool_result": tool_result,
+            "done": False,
+        }
+
+    # ── Action validation (runtime guardrails) ─────────────────────────────
+    is_valid, error_msg = context_manager.action_validator.validate(
+        session_id, action_payload
+    )
+
+    if not is_valid:
+        print(f"[validator] REJECTED: {error_msg}")
+        # Inject error as feedback — model learns from this
+        rejection_json = response.model_dump_json(exclude_none=True)
+        context_manager.add_assistant_turn(session_id, rejection_json)
+        context_manager.add_user_message(
+            session_id,
+            f"[ACTION REJECTED] {error_msg}\nChoose a different action."
+        )
+
+        await manager.send(session_id, {
+            "type": "status",
+            "message": f"Action rejected: {error_msg}",
+        })
+
+        return {
+            "session_id": session_id,
+            "status": "action_rejected",
+            "error": error_msg,
+            "done": False,
+        }
+
+    # ── Valid action — persist and route to frontend ───────────────────────
+    response_json = response.model_dump_json(exclude_none=True)
+    context_manager.add_assistant_turn(session_id, response_json)
+
+    # Safety-net auto-compaction (high threshold — model should self-compact before this)
     needs_compact = context_manager.needs_compaction(session_id)
     if needs_compact:
         chain_len = context_manager.chain_length(session_id)
         token_est = context_manager.estimate_token_count(session_id)
-        print(f"[auto-compact] Chain at {chain_len} messages (~{token_est} tokens) — compaction recommended")
+        print(f"[auto-compact] Safety net triggered at {chain_len} messages (~{token_est} tokens)")
 
-    # Route action to frontend via WebSocket
-    action_payload = response.action.model_dump(exclude_none=True)
-
-    # shell_exec commands require user confirmation before execution
     needs_confirm = (
         response.action.type.value == "shell_exec"
         and not response.done
@@ -235,12 +385,12 @@ async def agent_step(req: AgentRequest):
         "needs_compaction":     needs_compact,
     })
 
-    # Auto-compact if threshold exceeded and task is still in progress
+    # Safety-net auto-compact
     if needs_compact and not response.done:
-        print(f"[auto-compact] Triggering automatic context compaction...")
+        print(f"[auto-compact] Running safety-net compaction...")
         await manager.send(session_id, {
             "type": "status",
-            "message": "Context getting large — auto-compacting to stay sharp...",
+            "message": "Context getting large — auto-compacting...",
         })
         try:
             compact_messages = context_manager.get_compact_messages(session_id)
@@ -251,11 +401,10 @@ async def agent_step(req: AgentRequest):
             print(f"[auto-compact] Done. {old_len} → {new_len} messages")
             await manager.send(session_id, {
                 "type": "status",
-                "message": f"Context auto-compacted: {old_len} → {new_len} messages. Continuing seamlessly.",
+                "message": f"Auto-compacted: {old_len} → {new_len} messages.",
             })
         except Exception as e:
             print(f"[auto-compact] Failed (non-fatal): {e}")
-            # Non-fatal: the middle-trim fallback in build_request() will handle it
 
     if response.done:
         await manager.send(session_id, {
@@ -278,9 +427,6 @@ async def action_complete(req: ActionCompleteRequest):
     """Electron notifies backend that a dispatched action has finished."""
     print(f"[action/complete] session={req.session_id} channel={req.ipc_channel} ok={req.success}")
 
-    # Inject shell_exec output (or error) into the context chain so the model
-    # can see what a command returned.  This goes in as a user message right
-    # before the next screenshot.
     if req.output or req.error:
         text_parts = []
         if req.output:
@@ -295,15 +441,10 @@ async def action_complete(req: ActionCompleteRequest):
 
 @app.post("/agent/stop")
 async def agent_stop(req: StopRequest):
-    """
-    User interrupted the agent flow.
-    Append a STOP user message to the context chain so the model is
-    aware the user halted execution. The chain is preserved — the user
-    can continue the conversation afterwards.
-    """
+    """User interrupted the agent flow."""
     session_id = req.session_id
     context_manager.add_user_message(session_id, "STOP")
-    print(f"[agent/stop] session={session_id} — user interrupted, STOP added to chain")
+    print(f"[agent/stop] session={session_id}")
 
     await manager.send(session_id, {
         "type": "stopped",
@@ -315,13 +456,7 @@ async def agent_stop(req: StopRequest):
 
 @app.post("/agent/compact")
 async def compact_context(req: CompactRequest):
-    """
-    Compact a bloated context chain.
-
-    Serialises the full chain (minus screenshots and system prompt),
-    sends it to a lightweight model for summarisation, then resets
-    the chain to: system prompt + compressed summary.
-    """
+    """Manual compact endpoint (user-triggered via UI)."""
     session_id = req.session_id
     chain_len = context_manager.chain_length(session_id)
     print(f"[compact] session={session_id}  chain_length={chain_len}")
@@ -334,18 +469,11 @@ async def compact_context(req: CompactRequest):
             "chain_length": chain_len,
         }
 
-    # Get the message chain (screenshots → placeholders, system prompt stripped)
     compact_messages = context_manager.get_compact_messages(session_id)
-
-    # Log what we're sending to the compact model
-    print(f"[compact] Sending {len(compact_messages)} messages to compact model")
-    for i, m in enumerate(compact_messages):
-        preview = m.content[:200].replace('\n', ' ')
-        print(f"[compact]   [{i}] {m.role.value}: {preview}...")
 
     await manager.send(session_id, {
         "type": "status",
-        "message": "Compacting context — summarising conversation history...",
+        "message": "Compacting context...",
     })
 
     try:
@@ -358,14 +486,10 @@ async def compact_context(req: CompactRequest):
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-    # Reset the chain: system prompt + summary
     context_manager.reset_with_summary(session_id, summary)
     new_len = context_manager.chain_length(session_id)
 
-    print(f"[compact] Done. {chain_len} messages → {new_len} messages")
-    print(f"[compact] ═══ COMPACTED SUMMARY START ═══")
-    print(summary)
-    print(f"[compact] ═══ COMPACTED SUMMARY END ═══")
+    print(f"[compact] Done. {chain_len} → {new_len} messages")
 
     await manager.send(session_id, {
         "type": "status",
@@ -385,7 +509,6 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
     await manager.connect(session_id, ws)
     try:
         while True:
-            # Keep the connection alive; all messages are pushed from HTTP handlers
             await ws.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(session_id)

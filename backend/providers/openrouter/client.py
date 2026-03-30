@@ -177,8 +177,22 @@ def _extract_json(content: str) -> dict:
 
     # Common JSON repairs
     repaired = text
+    # Remove trailing commas before closing braces/brackets
     repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+    # Fix: "x": 123, 456} → "x":123,"y":456}
     repaired = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', repaired)
+    # Fix: coordinates: {"0.19,0.78"} or {"0.19, 0.78"} → coordinates: {"x":0.19,"y":0.78}
+    repaired = re.sub(
+        r'"coordinates"\s*:\s*\{\s*"?\s*(\d+\.?\d*)\s*,\s*(\d+\.?\d*)\s*"?\s*\}',
+        r'"coordinates":{"x":\1,"y":\2}',
+        repaired,
+    )
+    # Fix: coordinates: {0.19, 0.78} (no quotes) → coordinates: {"x":0.19,"y":0.78}
+    repaired = re.sub(
+        r'"coordinates"\s*:\s*\{\s*(\d+\.?\d*)\s*,\s*(\d+\.?\d*)\s*\}',
+        r'"coordinates":{"x":\1,"y":\2}',
+        repaired,
+    )
     try:
         return json.loads(repaired)
     except json.JSONDecodeError:
