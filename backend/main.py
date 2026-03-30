@@ -27,6 +27,7 @@ from workspace import (
     read_session_plan,
     append_session_notes,
 )
+from skills import get_skill_body
 
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
@@ -162,6 +163,17 @@ def handle_write_memory(session_id: str, content: str, target: str = "daily_log"
         return f"Memory write failed: {e}"
 
 
+def handle_use_skill(skill_name: str) -> str:
+    """Handle the model's use_skill tool call — load full skill body on demand."""
+    if not skill_name:
+        return "No skill name provided. Check available skills in the <skills> block."
+    body = get_skill_body(skill_name)
+    if body:
+        return f"[SKILL: {skill_name}]\n\n{body}"
+    else:
+        return f"Skill '{skill_name}' not found. Check available skills in the <skills> block."
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -288,7 +300,7 @@ async def agent_step(req: AgentRequest):
     action_payload = response.action.model_dump(exclude_none=True)
 
     # ── Handle agent tools (executed server-side, not sent to frontend) ────
-    agent_tool_types = {"compact_context", "read_plan", "update_plan", "write_memory"}
+    agent_tool_types = {"compact_context", "read_plan", "update_plan", "write_memory", "use_skill"}
 
     if action_type in agent_tool_types:
         tool_result = ""
@@ -307,6 +319,10 @@ async def agent_step(req: AgentRequest):
                 session_id,
                 content=response.action.text or "",
                 target=response.action.target or "daily_log",
+            )
+        elif action_type == "use_skill":
+            tool_result = handle_use_skill(
+                skill_name=response.action.skill_name or response.action.text or "",
             )
 
         print(f"[agent-tool] {action_type} → {tool_result[:200]}")

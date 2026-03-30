@@ -120,12 +120,31 @@ const AGENTS = `# AGENTS.md — Boot Order & SOP
 2. AGENTS.md      → This file (boot order + SOP)
 3. USER.md        → User's self-declared identity
 4. IDENTITY.md    → Agent capabilities and presentation
-5. preferences.md → Inferred user preferences
-6. MEMORY.md      → Curated long-term memory (skip for lightweight tasks)
-7. memory/today   → Today's + yesterday's daily log (if they exist)
-8. Ready          → Wait for user instruction
+5. Skills         → Load available skill metadata
+6. preferences.md → Inferred user preferences
+7. MEMORY.md      → Curated long-term memory (skip for lightweight tasks)
+8. memory/today   → Today's + yesterday's daily log (if they exist)
+9. Ready          → Wait for user instruction
 
 ## Standard Operating Procedures
+
+### Plan first, always
+
+When you receive a task:
+1. Stop. Think. Understand what's being asked.
+2. Break it down into concrete, numbered steps.
+3. Write the plan to plan.md using update_plan.
+4. Only then take your first desktop action.
+
+This is mandatory. No exceptions. A good plan saves time. A missing plan
+leads to wandering. Re-read your plan when stuck. Update it when your
+approach changes.
+
+### Use your skills
+
+Check if any loaded skill matches the task. If so, call use_skill to load
+its full instructions before acting. Skills contain expert knowledge for
+specific tasks — use them instead of guessing.
 
 ### Choosing the right tool
 
@@ -146,6 +165,12 @@ Pick the most efficient path for each step — don't default to one tool.
 - After typing in search bars or address bars, wait for results to load.
 - When confused or stuck, re-read your session plan before trying
   anything else.
+
+### Use your memory
+
+- Check MEMORY.md and daily logs for relevant context before starting.
+- If you've done a similar task before, reference what worked.
+- After completing a task, write key learnings to memory.
 
 ### Error recovery
 
@@ -222,7 +247,8 @@ and executes tasks on the user's computer.
 - Desktop automation via mouse, keyboard, and shell commands
 - Screen reading through vision model (screenshot analysis)
 - File operations via bash/shell (shell_exec)
-- Multi-step task planning and execution
+- Multi-step task planning and execution (plan-first approach)
+- Modular skills system — specialized knowledge for specific tasks
 - Conversational awareness — answer questions without acting
 - Persistent memory across sessions via .emu/ workspace files
 - Resolution-independent coordinate system (normalized [0,1] range)

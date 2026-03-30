@@ -18,6 +18,7 @@ const EMU_DIR      = path.join(PROJECT_ROOT, '.emu');
 const WORKSPACE    = path.join(EMU_DIR, 'workspace');
 const MEMORY       = path.join(WORKSPACE, 'memory');
 const SESSIONS     = path.join(EMU_DIR, 'sessions');
+const SKILLS       = path.join(EMU_DIR, 'skills');
 const GLOBAL       = path.join(EMU_DIR, 'global');
 const MANIFEST     = path.join(EMU_DIR, 'manifest.json');
 
@@ -37,7 +38,7 @@ function initEmu(appVersion = '0.0.0') {
   const alreadyExists = fs.existsSync(MANIFEST);
 
   // 1. Create directory tree
-  [EMU_DIR, WORKSPACE, MEMORY, SESSIONS, GLOBAL].forEach(dir => {
+  [EMU_DIR, WORKSPACE, MEMORY, SESSIONS, SKILLS, GLOBAL].forEach(dir => {
     fs.mkdirSync(dir, { recursive: true });
   });
 
@@ -155,4 +156,4 @@ function getEmuDir() {
   return EMU_DIR;
 }
 
-module.exports = { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, GLOBAL, MANIFEST };
+module.exports = { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, SKILLS, GLOBAL, MANIFEST };
