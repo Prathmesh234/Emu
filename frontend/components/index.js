@@ -5,6 +5,8 @@ const { Message } = require('./Message');
 const { ChatInput } = require('./ChatInput');
 const { Sidebar, HistoryItem } = require('./Sidebar');
 const { StepCard, DoneCard, ErrorCard } = require('./StepCard');
+const { PlanCard } = require('./PlanCard');
+const { FileCard } = require('./FileCard');
 const { Tooltip } = require('./Tooltip');
 const { Header } = require('./Header');
 const { EmptyState } = require('./EmptyState');
@@ -20,6 +22,8 @@ module.exports = {
     StepCard,
     DoneCard,
     ErrorCard,
+    PlanCard,
+    FileCard,
     Tooltip,
     Header,
     EmptyState,

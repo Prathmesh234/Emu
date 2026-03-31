@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, ErrorCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, Header, EmptyState, StatusIndicator } = require('../components');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
 const store = require('../state/store');
@@ -242,8 +242,15 @@ async function sendMessage() {
         // Fall through to send logic below (isGenerating is now false)
     }
 
-    const finalText = chatInput.textarea.value.trim();
+    let finalText = chatInput.textarea.value.trim();
     if (!finalText) return;
+
+    // If user is refining a plan, prefix the message
+    if (store.state.pendingPlanRefine) {
+        finalText = `User wants to refine the plan: ${finalText}`;
+        store.state.pendingPlanRefine = false;
+        chatInput.textarea.placeholder = 'Ask anything...';
+    }
 
     const chat = store.getCurrentChat();
     if (!chat) return;
@@ -584,6 +591,63 @@ async function handleWsMessage(data) {
             console.log('[ws] received stopped from backend');
             syncGeneratingUI(false);
             break;
+
+        case 'tool_event': {
+            if (msgGenId !== _generationId) break;
+            removeStatus();
+
+            if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
+                let container = state.stepContainer;
+                if (container && !container.parentNode) {
+                    state.currentAssistantEl.appendChild(container);
+                }
+
+                if (data.event === 'plan_updated') {
+                    const planCard = PlanCard(data.content);
+
+                    planCard.acceptBtn.addEventListener('click', () => {
+                        planCard.acceptBtn.disabled = true;
+                        planCard.refineBtn.disabled = true;
+                        planCard.acceptBtn.classList.add('chosen');
+                    }, { once: true });
+
+                    planCard.refineBtn.addEventListener('click', async () => {
+                        planCard.acceptBtn.disabled = true;
+                        planCard.refineBtn.disabled = true;
+                        planCard.refineBtn.classList.add('chosen');
+
+                        // Stop the agent so user can provide refinement
+                        store.setStopped(true);
+                        _generationId++;
+                        try { await api.stopAgent(store.state.sessionId); } catch (_) {}
+                        syncGeneratingUI(false);
+
+                        // Flag so next message gets plan-refine prefix
+                        store.state.pendingPlanRefine = true;
+                        chatInput.textarea.placeholder = 'Describe how to refine the plan...';
+                        chatInput.textarea.focus();
+                    }, { once: true });
+
+                    if (container) {
+                        container.appendChild(planCard.element);
+                    } else {
+                        state.currentAssistantEl.appendChild(planCard.element);
+                    }
+                } else if (data.event === 'file_written') {
+                    const fileCard = FileCard(data.filename, data.action);
+                    if (container) {
+                        container.appendChild(fileCard.element);
+                    } else {
+                        state.currentAssistantEl.appendChild(fileCard.element);
+                    }
+                }
+            }
+            scrollToBottom();
+            break;
+        }
 
         case 'error':
             removeStatus();

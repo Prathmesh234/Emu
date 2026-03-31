@@ -6,9 +6,9 @@
     <title>Emu Desktop Border</title>
     <style>
         body, html {
-            margin: 0; 
+            margin: 0;
             padding: 0;
-            width: 100%; 
+            width: 100%;
             height: 100%;
             background: transparent;
             overflow: hidden;
@@ -20,28 +20,26 @@
             pointer-events: none;
             box-sizing: border-box;
 
-            /* "Increase thickness" and off-white/beige tone */
-            border: 10px solid rgba(255, 250, 240, 0.95);
+            border: 4px solid rgba(255, 250, 240, 0.75);
+            border-radius: 2px;
 
-            animation: borderPulse 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            animation: borderPulse 3s ease-in-out infinite;
         }
 
         @keyframes borderPulse {
             0%, 100% {
-                opacity: 0.7;
-                transform: scale(1);
-                /* "fade it in as it comes closer to the ui" - deep inset shadows */
-                box-shadow: 
-                    inset 0 0 40px 10px rgba(255, 250, 240, 0.5), 
-                    inset 0 0 100px 20px rgba(255, 250, 240, 0.2);
+                opacity: 0.5;
+                border-color: rgba(255, 250, 240, 0.65);
+                box-shadow:
+                    inset 0 0 20px 4px rgba(255, 250, 240, 0.25),
+                    inset 0 0 60px 10px rgba(255, 250, 240, 0.08);
             }
             50% {
-                opacity: 1;
-                transform: scale(0.993);
-                /* Intense, deep glow during the pulse */
-                box-shadow: 
-                    inset 0 0 60px 20px rgba(255, 250, 240, 0.7), 
-                    inset 0 0 150px 40px rgba(255, 250, 240, 0.3);
+                opacity: 0.85;
+                border-color: rgba(255, 250, 240, 0.9);
+                box-shadow:
+                    inset 0 0 35px 8px rgba(255, 250, 240, 0.4),
+                    inset 0 0 90px 18px rgba(255, 250, 240, 0.15);
             }
         }
     </style>
