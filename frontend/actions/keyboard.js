@@ -16,7 +16,7 @@ const isMac = process.platform === 'darwin';
 // Reference: cliclick -h (kp: command section)
 
 const CLICLICK_KEY_MAP = {
-    enter: 'enter', return: 'return',
+    enter: 'return', return: 'return',   // cliclick kp:enter = numpad Enter (rare on Macs); always use 'return'
     tab: 'tab',
     space: 'space',
     escape: 'esc', esc: 'esc',

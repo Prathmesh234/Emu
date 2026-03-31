@@ -12,6 +12,7 @@ class MessageRole(str, Enum):
     user      = "user"
     assistant = "assistant"
     system    = "system"
+    tool      = "tool"
 
 
 # ── Sub-models ─────────────────────────────────────────────────────────────────
@@ -41,6 +42,19 @@ class PreviousMessage(BaseModel):
     annotations: Optional[ScreenAnnotation] = Field(
         default=None,
         description="OmniParser UI element detections (only on screenshot messages)"
+    )
+    # Tool calling support
+    tool_calls:   Optional[list[dict]] = Field(
+        default=None,
+        description="OpenAI-format tool_calls (only on assistant messages with tool use)"
+    )
+    tool_call_id: Optional[str] = Field(
+        default=None,
+        description="ID of the tool call this message is a result for (only on tool role messages)"
+    )
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="Name of the tool that was called (only on tool role messages)"
     )
     timestamp:   datetime = Field(default_factory=datetime.utcnow)
 

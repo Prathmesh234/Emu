@@ -12,7 +12,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
+import json
+
 from models import (
+    Action,
+    ActionType,
     AgentRequest,
     AgentResponse,
     ActionCompleteRequest,
@@ -165,13 +169,25 @@ def handle_write_memory(session_id: str, content: str, target: str = "daily_log"
 
 def handle_use_skill(skill_name: str) -> str:
     """Handle the model's use_skill tool call — load full skill body on demand."""
-    if not skill_name:
-        return "No skill name provided. Check available skills in the <skills> block."
+    from skills import load_skills
+    available = [s.name for s in load_skills()]
+    available_str = ", ".join(available) if available else "(none)"
+
+    if not skill_name or skill_name.strip() in ("", ":", ": "):
+        return (
+            f"No valid skill name provided. "
+            f"Available skills: {available_str}. "
+            f"Call use_skill with one of these exact names."
+        )
     body = get_skill_body(skill_name)
     if body:
         return f"[SKILL: {skill_name}]\n\n{body}"
     else:
-        return f"Skill '{skill_name}' not found. Check available skills in the <skills> block."
+        return (
+            f"Skill '{skill_name}' not found. "
+            f"Available skills: {available_str}. "
+            f"Use one of these exact names."
+        )
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -217,176 +233,152 @@ async def agent_step(req: AgentRequest):
     """
     Main agent loop entry point.
 
-    Handles:
-    1. Text tasks / screenshot inputs → model call
-    2. Action validation (runtime, not prompt rules)
-    3. Agent tool dispatch (compact_context, read_plan, update_plan, write_memory)
-    4. Safety-net auto-compaction
+    Simple loop:
+      1. Add user input to context
+      2. Call model
+      3. If tool_calls → execute tools, add results to context, re-call model (repeat)
+      4. If desktop action → validate, dispatch to frontend
+      5. If done → send final message
     """
     session_id = req.session_id or str(uuid.uuid4())
     has_screenshot = bool(req.base64_screenshot)
     has_text = bool(req.user_message.strip())
 
-    # ── Add to context ──────────────────────────────────────────────────────
+    # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
         context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
 
-    agent_req = context_manager.build_request(session_id)
-
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
-    screenshot_kb = round(len(req.base64_screenshot) * 3 / 4 / 1024, 1) if has_screenshot else 0
-
-    print("\n" + "=" * 60)
-    print("[agent/step] NEW REQUEST")
-    print(f"  session_id  : {session_id}")
-    print(f"  mode        : {'screenshot' if has_screenshot else 'text'}")
-    print(f"  step_index  : {agent_req.step_index}")
+    print(f"\n{'=' * 60}")
+    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  chain={len(history)}")
     if has_text:
-        print(f"  user_message: {req.user_message}")
-    if has_screenshot:
-        print(f"  screenshot  : {screenshot_kb} KB")
-    print(f"\n  ── context chain ({len(history)} messages) ──")
-    for i, msg in enumerate(history):
-        if msg.content.startswith("data:image/"):
-            print(f"    [{i}] {msg.role.value:<10}  [SCREENSHOT]")
-        else:
-            preview = msg.content[:80].replace("\n", " ")
-            print(f"    [{i}] {msg.role.value:<10}  {preview}{'...' if len(msg.content) > 80 else ''}")
-    print("=" * 60 + "\n")
+        print(f"  message: {req.user_message[:120]}")
+    print(f"{'=' * 60}\n")
 
-    # Tell frontend we're thinking
-    await manager.send(session_id, {
-        "type": "status",
-        "message": "Processing your request..."
-    })
+    await manager.send(session_id, {"type": "status", "message": "Processing..."})
 
-    # ── Ensure inference backend is ready ───────────────────────────────────
+    # ── Ensure backend ready ─────────────────────────────────────────────────
     if not is_ready():
-        await manager.send(session_id, {
-            "type": "status",
-            "message": "Warming up inference server... (first request may take a moment)"
-        })
-
+        await manager.send(session_id, {"type": "status", "message": "Warming up..."})
     try:
         ensure_ready(timeout=300, poll_interval=5)
     except TimeoutError as e:
-        print(f"[agent/step] Container not ready: {e}")
-        await manager.send(session_id, {
-            "type": "error",
-            "message": "Inference server is not responding. Please try again in a minute.",
-        })
+        await manager.send(session_id, {"type": "error", "message": str(e)})
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-    # ── Call inference backend ──────────────────────────────────────────────
-    try:
-        response: AgentResponse = call_model(agent_req)
-    except Exception as e:
-        print(f"[agent/step] Inference call failed: {e}")
-        await manager.send(session_id, {
-            "type": "error",
-            "message": f"Inference failed: {e}",
-        })
-        return {"session_id": session_id, "status": "error", "error": str(e)}
+    # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
+    MAX_TOOL_LOOPS = 10
+    response: AgentResponse | None = None
 
-    print(f"[agent/step] Model responded in {response.inference_time_ms}ms")
-    print(f"  action     : {response.action.type.value}")
-    print(f"  done       : {response.done}")
-    print(f"  confidence : {response.confidence}")
+    for loop_i in range(MAX_TOOL_LOOPS + 1):
+        # Call model
+        try:
+            agent_req = context_manager.build_request(session_id)
+            response = call_model(agent_req)
+        except Exception as e:
+            print(f"[agent/step] Inference failed: {e}")
+            await manager.send(session_id, {"type": "error", "message": f"Inference failed: {e}"})
+            return {"session_id": session_id, "status": "error", "error": str(e)}
+
+        print(f"[agent/step] Response in {response.inference_time_ms}ms"
+              f"  tool_calls={bool(response.tool_calls)}"
+              f"  action={response.action.type.value if response.action else 'none'}"
+              f"  done={response.done}")
+
+        # ── 3. Tool calls? Execute and loop ──────────────────────────────────
+        if response.tool_calls:
+            if loop_i >= MAX_TOOL_LOOPS:
+                print(f"[agent/step] Hit max tool loops ({MAX_TOOL_LOOPS}) — forcing screenshot")
+                # Inject a stern message so the model stops looping on tools
+                context_manager.add_user_message(
+                    session_id,
+                    "[TOOL LOOP LIMIT] You called tools 10 times without taking a desktop action. "
+                    "STOP calling tools. Take a screenshot to see the screen and proceed with "
+                    "a desktop action (mouse_move, left_click, type_text, key_press, etc.)."
+                )
+                # Force a screenshot action so the frontend continues the loop
+                response.tool_calls = None
+                response.action = Action(type=ActionType.SCREENSHOT)
+                response.done = False
+                break
+
+            # Store assistant turn with tool calls (OpenAI format for context)
+            raw_tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": tc.arguments},
+                }
+                for tc in response.tool_calls
+            ]
+            context_manager.add_tool_call_turn(session_id, raw_tool_calls)
+
+            # Execute each tool and add results
+            for tc in response.tool_calls:
+                try:
+                    args = json.loads(tc.arguments) if tc.arguments else {}
+                except json.JSONDecodeError:
+                    args = {}
+
+                # Detect repeated failing tool calls (same tool, same error 3+ times)
+                result = await _execute_agent_tool(session_id, tc.name, args)
+                context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
+                print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
+
+            await manager.send(session_id, {
+                "type": "status",
+                "message": f"Tools: {', '.join(tc.name for tc in response.tool_calls)}. Continuing...",
+            })
+            continue  # re-call model with tool results
+
+        # No tool calls — we have a desktop action or done. Break out.
+        break
+
+    # ── Safety: ensure we have an action ──────────────────────────────────────
+    if not response or not response.action:
+        # Model only returned tool calls and hit the loop cap, or something weird
+        response = response or AgentResponse(
+            action=Action(type=ActionType.SCREENSHOT),
+            done=False,
+        )
+        if not response.action:
+            response.action = Action(type=ActionType.SCREENSHOT)
+            response.done = False
 
     action_type = response.action.type.value
     action_payload = response.action.model_dump(exclude_none=True)
 
-    # ── Handle agent tools (executed server-side, not sent to frontend) ────
-    agent_tool_types = {"compact_context", "read_plan", "update_plan", "write_memory", "use_skill"}
-
-    if action_type in agent_tool_types:
-        tool_result = ""
-
-        if action_type == "compact_context":
-            tool_result = await handle_compact_context(
-                session_id,
-                focus=response.action.focus or ""
-            )
-        elif action_type == "read_plan":
-            tool_result = handle_read_plan(session_id)
-        elif action_type == "update_plan":
-            tool_result = handle_update_plan(session_id, response.action.text or "")
-        elif action_type == "write_memory":
-            tool_result = handle_write_memory(
-                session_id,
-                content=response.action.text or "",
-                target=response.action.target or "daily_log",
-            )
-        elif action_type == "use_skill":
-            tool_result = handle_use_skill(
-                skill_name=response.action.skill_name or response.action.text or "",
-            )
-
-        print(f"[agent-tool] {action_type} → {tool_result[:200]}")
-
-        # Record assistant turn and inject tool result, then re-call model
-        response_json = response.model_dump_json(exclude_none=True)
-        context_manager.add_assistant_turn(session_id, response_json)
-        context_manager.add_user_message(session_id, f"[{action_type} result]\n{tool_result}")
-
-        await manager.send(session_id, {
-            "type": "status",
-            "message": f"Tool: {action_type} completed. Continuing...",
-        })
-
-        return {
-            "session_id": session_id,
-            "status": "tool_executed",
-            "action": action_payload,
-            "tool_result": tool_result,
-            "done": False,
-        }
-
-    # ── Action validation (runtime guardrails) ─────────────────────────────
+    # ── 4. Action validation ─────────────────────────────────────────────────
     is_valid, error_msg = context_manager.action_validator.validate(
         session_id, action_payload
     )
 
     if not is_valid:
         print(f"[validator] REJECTED: {error_msg}")
-        # Inject error as feedback — model learns from this
-        rejection_json = response.model_dump_json(exclude_none=True)
-        context_manager.add_assistant_turn(session_id, rejection_json)
+        context_manager.add_assistant_turn(
+            session_id,
+            response.model_dump_json(exclude_none=True),
+        )
         context_manager.add_user_message(
             session_id,
-            f"[ACTION REJECTED] {error_msg}\nChoose a different action."
+            f"[ACTION REJECTED] {error_msg}\nChoose a different action.",
         )
+        await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}"})
+        return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
 
-        await manager.send(session_id, {
-            "type": "status",
-            "message": f"Action rejected: {error_msg}",
-        })
-
-        return {
-            "session_id": session_id,
-            "status": "action_rejected",
-            "error": error_msg,
-            "done": False,
-        }
-
-    # ── Valid action — persist and route to frontend ───────────────────────
+    # ── 5. Dispatch action to frontend ───────────────────────────────────────
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
 
-    # Safety-net auto-compaction (high threshold — model should self-compact before this)
+    # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)
     if needs_compact:
-        chain_len = context_manager.chain_length(session_id)
-        token_est = context_manager.estimate_token_count(session_id)
-        print(f"[auto-compact] Safety net triggered at {chain_len} messages (~{token_est} tokens)")
+        print(f"[auto-compact] Safety net triggered at {context_manager.chain_length(session_id)} messages")
 
-    needs_confirm = (
-        response.action.type.value == "shell_exec"
-        and not response.done
-    )
+    needs_confirm = action_type == "shell_exec" and not response.done
 
     await manager.send(session_id, {
         "type":                 "step",
@@ -401,26 +393,9 @@ async def agent_step(req: AgentRequest):
         "needs_compaction":     needs_compact,
     })
 
-    # Safety-net auto-compact
+    # Run auto-compact if needed
     if needs_compact and not response.done:
-        print(f"[auto-compact] Running safety-net compaction...")
-        await manager.send(session_id, {
-            "type": "status",
-            "message": "Context getting large — auto-compacting...",
-        })
-        try:
-            compact_messages = context_manager.get_compact_messages(session_id)
-            summary = compact_model(compact_messages)
-            old_len = context_manager.chain_length(session_id)
-            context_manager.reset_with_summary(session_id, summary)
-            new_len = context_manager.chain_length(session_id)
-            print(f"[auto-compact] Done. {old_len} → {new_len} messages")
-            await manager.send(session_id, {
-                "type": "status",
-                "message": f"Auto-compacted: {old_len} → {new_len} messages.",
-            })
-        except Exception as e:
-            print(f"[auto-compact] Failed (non-fatal): {e}")
+        await _auto_compact(session_id)
 
     if response.done:
         await manager.send(session_id, {
@@ -436,6 +411,44 @@ async def agent_step(req: AgentRequest):
         "confidence": response.confidence,
         "final_message": response.final_message,
     }
+
+
+# ── Agent tool dispatcher ───────────────────────────────────────────────────
+
+async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
+    """Execute an agent tool by name and return the result string."""
+    if name == "update_plan":
+        return handle_update_plan(session_id, args.get("content", ""))
+    elif name == "read_plan":
+        return handle_read_plan(session_id)
+    elif name == "use_skill":
+        return handle_use_skill(args.get("skill_name", ""))
+    elif name == "write_memory":
+        return handle_write_memory(
+            session_id,
+            content=args.get("content", ""),
+            target=args.get("target", "daily_log"),
+        )
+    elif name == "compact_context":
+        return await handle_compact_context(session_id, focus=args.get("focus", ""))
+    else:
+        return f"Unknown tool: {name}"
+
+
+async def _auto_compact(session_id: str):
+    """Safety-net auto-compaction."""
+    print(f"[auto-compact] Running...")
+    await manager.send(session_id, {"type": "status", "message": "Auto-compacting context..."})
+    try:
+        compact_messages = context_manager.get_compact_messages(session_id)
+        summary = compact_model(compact_messages)
+        old_len = context_manager.chain_length(session_id)
+        context_manager.reset_with_summary(session_id, summary)
+        new_len = context_manager.chain_length(session_id)
+        print(f"[auto-compact] Done. {old_len} → {new_len} messages")
+        await manager.send(session_id, {"type": "status", "message": f"Compacted: {old_len} → {new_len}"})
+    except Exception as e:
+        print(f"[auto-compact] Failed (non-fatal): {e}")
 
 
 @app.post("/action/complete")

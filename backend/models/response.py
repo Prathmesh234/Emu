@@ -5,30 +5,38 @@ from pydantic import BaseModel, Field
 from .actions import Action
 
 
+class ToolCallInfo(BaseModel):
+    """A single tool call returned by the model (OpenAI function calling format)."""
+    id:        str = Field(..., description="Unique ID for this tool call")
+    name:      str = Field(..., description="Name of the function to call")
+    arguments: str = Field(..., description="JSON-encoded arguments string")
+
+
 class AgentResponse(BaseModel):
     """
     Structured response returned by the VLM after processing a single agent step.
 
-    action           : The concrete action to execute on the desktop.
-    done             : True when the model considers the task complete.
-                       The agent loop should stop and report to the user.
-    final_message    : Human-readable summary of what was accomplished.
-                       Only populated when done=True.
-    confidence       : Model's self-reported confidence in the chosen action
-                       (0.0–1.0). Used to trigger fallback / confirmation steps
-                       when below a threshold.
-    inference_time_ms: Wall-clock time the model took for this step (ms).
-                       Useful for performance monitoring and timeout logic.
-    model_name       : The identifier of the model that produced this response.
-                       Enables multi-model setups where different models handle
-                       different step types.
+    Two response modes:
+      1. Tool calls — model wants to call agent tools (plan, memory, skills, etc.)
+         tool_calls is populated, action is None.
+      2. Desktop action — model wants to act on the screen (click, type, etc.)
+         action is populated, tool_calls is None.
     """
 
-    # Action
-    action:    Action = Field(..., description="The action to execute on the desktop")
+    # Desktop action (mutually exclusive with tool_calls)
+    action: Optional[Action] = Field(
+        default=None,
+        description="Desktop action to execute (None when tool_calls are present)"
+    )
+
+    # Agent tool calls (mutually exclusive with action)
+    tool_calls: Optional[list[ToolCallInfo]] = Field(
+        default=None,
+        description="Agent tool calls to execute server-side (None when action is present)"
+    )
 
     # Completion
-    done:          bool            = Field(..., description="True when the task is complete")
+    done:          bool            = Field(default=False, description="True when the task is complete")
     final_message: Optional[str]   = Field(
         default=None,
         description="Human-readable completion summary (populated when done=True)"
@@ -37,7 +45,7 @@ class AgentResponse(BaseModel):
     # Reasoning / Chain-of-thought
     reasoning_content: Optional[str] = Field(
         default=None,
-        description="Model's internal reasoning / chain-of-thought text (from reasoning_content field)"
+        description="Model's internal reasoning / chain-of-thought text"
     )
 
     # Quality signals
@@ -55,18 +63,3 @@ class AgentResponse(BaseModel):
         default="",
         description="Identifier of the model that produced this response"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "action": {
-                    "type": "left_click",
-                    "coordinates": {"x": 24, "y": 1056}
-                },
-                "done": False,
-                "final_message": None,
-                "confidence": 0.95,
-                "inference_time_ms": 312,
-                "model_name": "llava-1.5-13b-hf"
-            }
-        }

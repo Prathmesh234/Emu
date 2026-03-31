@@ -10,7 +10,7 @@ from .request import (
     ScreenshotRequest,
     StopRequest,
 )
-from .response import AgentResponse
+from .response import AgentResponse, ToolCallInfo
 
 __all__ = [
     # actions
@@ -29,4 +29,5 @@ __all__ = [
     "StopRequest",
     # response
     "AgentResponse",
+    "ToolCallInfo",
 ]

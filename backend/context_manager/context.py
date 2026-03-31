@@ -258,6 +258,27 @@ class ContextManager:
             PreviousMessage(role=MessageRole.assistant, content=response_json)
         )
 
+    def add_tool_call_turn(self, session_id: str, tool_calls: list[dict], content: str = "") -> None:
+        """Record an assistant message that contains tool calls (no desktop action)."""
+        self._get(session_id).append(
+            PreviousMessage(
+                role=MessageRole.assistant,
+                content=content or "",
+                tool_calls=tool_calls,
+            )
+        )
+
+    def add_tool_result_turn(self, session_id: str, tool_call_id: str, tool_name: str, result: str) -> None:
+        """Record the result of a tool call."""
+        self._get(session_id).append(
+            PreviousMessage(
+                role=MessageRole.tool,
+                content=result,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+            )
+        )
+
     # Placeholder that replaces old screenshots
     SCREENSHOT_PLACEHOLDER = "[A screenshot was taken here and reviewed by you]"
 
@@ -411,9 +432,22 @@ class ContextManager:
                 continue
             elif m.role == MessageRole.assistant:
                 last_was_screenshot_placeholder = False
-                trimmed = self._trim_assistant_for_compact(m.content)
+                if m.tool_calls:
+                    # Summarize tool calls for compaction
+                    names = [tc.get("function", {}).get("name", "?") for tc in m.tool_calls]
+                    messages.append(
+                        PreviousMessage(role=m.role, content=f"TOOL_CALLS: {', '.join(names)}", timestamp=m.timestamp)
+                    )
+                else:
+                    trimmed = self._trim_assistant_for_compact(m.content)
+                    messages.append(
+                        PreviousMessage(role=m.role, content=trimmed, timestamp=m.timestamp)
+                    )
+            elif m.role == MessageRole.tool:
+                # Compact tool results
+                result_preview = m.content[:200] + "..." if len(m.content) > 200 else m.content
                 messages.append(
-                    PreviousMessage(role=m.role, content=trimmed, timestamp=m.timestamp)
+                    PreviousMessage(role=MessageRole.user, content=f"TOOL_RESULT: {result_preview}", timestamp=m.timestamp)
                 )
             else:
                 last_was_screenshot_placeholder = False

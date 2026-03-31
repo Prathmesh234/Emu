@@ -15,7 +15,7 @@ PLAN_DIRECTIVE = """\
 
 Before you touch the keyboard, mouse, or shell — stop and think.
 
-You MUST plan first. Use the update_plan action to write your plan to plan.md.
+You MUST plan first. Call the update_plan tool to write your plan to plan.md.
 This is not optional. No desktop actions until you have a plan.
 
 Think through this step by step:
@@ -26,7 +26,7 @@ Think through this step by step:
 4. **Choose tools** — For each step: keyboard, mouse, shell, or a combination?
 5. **Define done** — How will I know the task is complete? What does success look like?
 
-Write your plan using update_plan. Format:
+Write your plan by calling update_plan(content=...). Format:
 
 ```
 ## Goal

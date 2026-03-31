@@ -1,39 +1,15 @@
 """
 client.py — OpenAI-compatible endpoint client (vLLM, SGLang, Ollama, etc.)
 
-For self-hosted GPU inference. Connects to any server that implements the
-OpenAI /v1/chat/completions API. Uses Chat Completions (not Responses API)
-since that's the standard implemented by open-source serving frameworks.
+For self-hosted GPU inference. Connects to any server implementing the
+OpenAI /v1/chat/completions API. Sends agent tools via native function
+calling when supported; falls back to JSON text parsing otherwise.
 
-Tested with:
-  - vLLM (https://docs.vllm.ai/en/stable/serving/openai_compatible_server/)
-    Start: vllm serve <model> --port 8000
-    Set:   OPENAI_BASE_URL=http://localhost:8000/v1
-
-  - SGLang (https://docs.sglang.io/basic_usage/openai_api_completions.html)
-    Start: sglang serve <model> --port 30000
-    Set:   OPENAI_BASE_URL=http://localhost:30000/v1
-
-  - Ollama (https://github.com/ollama/ollama/blob/main/docs/openai.md)
-    Start: ollama serve
-    Set:   OPENAI_BASE_URL=http://localhost:11434/v1
-
-Both vLLM and SGLang implement /v1/chat/completions, /v1/completions,
-and /v1/models. They auto-apply HuggingFace chat templates and support
-vision models with base64 image input via the image_url content type.
-
-vLLM also supports tool calling (--tool-call-parser) and reasoning
-content (--enable-reasoning) for compatible models.
-
-Drop-in replacement for other providers — same public interface:
-
-    call_model(agent_req: AgentRequest) -> AgentResponse
-    is_ready() -> bool
-    ensure_ready(**kwargs) -> None
+Tested with: vLLM, SGLang, Ollama
 
 Environment:
     OPENAI_BASE_URL     — required (e.g. http://localhost:8000/v1)
-    OPENAI_API_KEY      — optional (set to "none" or "sk-dummy" for local servers)
+    OPENAI_API_KEY      — optional (set to "none" or "sk-dummy" for local)
     OPENAI_COMPAT_MODEL — optional (default: auto-detected from /v1/models)
 """
 
@@ -45,8 +21,8 @@ import time
 import requests
 from openai import OpenAI
 
-from models import Action, AgentRequest, AgentResponse, MessageRole
-from prompts import SYSTEM_PROMPT
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from providers.agent_tools import AGENT_TOOLS_OPENAI
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -64,24 +40,41 @@ client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
 
 _ready = False
 _resolved_model = MODEL_NAME
+_tools_supported = True  # optimistic; set to False on first failure
 
 
-# ── Public API (matches provider interface) ──────────────────────────────────
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def call_model(agent_req: AgentRequest) -> AgentResponse:
-    global _resolved_model
+    global _resolved_model, _tools_supported
     if not _resolved_model:
         _resolved_model = _detect_model()
 
     system_prompt, messages = _build_messages(agent_req)
 
-    start = time.time()
-    resp = client.chat.completions.create(
+    kwargs = dict(
         model=_resolved_model,
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
         messages=[{"role": "system", "content": system_prompt}] + messages,
     )
+
+    # Send tools if backend supports them
+    if _tools_supported:
+        kwargs["tools"] = AGENT_TOOLS_OPENAI
+
+    start = time.time()
+    try:
+        resp = client.chat.completions.create(**kwargs)
+    except Exception as e:
+        # If tools caused the error, retry without them
+        if _tools_supported and "tool" in str(e).lower():
+            print(f"[openai_compat] tools not supported, disabling: {e}")
+            _tools_supported = False
+            kwargs.pop("tools", None)
+            resp = client.chat.completions.create(**kwargs)
+        else:
+            raise
     elapsed_ms = int((time.time() - start) * 1000)
 
     return _parse_response(resp, elapsed_ms)
@@ -119,7 +112,7 @@ def ensure_ready(timeout: int = 300, poll_interval: int = 5, **kwargs) -> None:
                 print(f"[openai_compat] Using model: {_resolved_model}")
                 return
 
-            print(f"[openai_compat] attempt {attempt}: server up but no models loaded, retrying...")
+            print(f"[openai_compat] attempt {attempt}: server up but no models, retrying...")
 
         except requests.exceptions.ConnectionError:
             print(f"[openai_compat] attempt {attempt}: connection refused, retrying in {poll_interval}s...")
@@ -158,21 +151,33 @@ def _detect_model() -> str:
 # ── Message builder ──────────────────────────────────────────────────────────
 
 def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, messages) in OpenAI Chat Completions format.
-
-    Uses Chat Completions (not Responses API) since vLLM, SGLang, and
-    Ollama all implement /v1/chat/completions. Image content is passed
-    as type: "image_url" with a data URI, which both vLLM and SGLang
-    support for vision models.
-    """
+    """Build (system_prompt, messages) in OpenAI Chat Completions format."""
     system_prompt = ""
     raw: list[dict] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
             system_prompt = pm.content
+
         elif pm.role == MessageRole.assistant:
-            raw.append({"role": "assistant", "content": pm.content})
+            msg = {"role": "assistant"}
+            if pm.tool_calls:
+                msg["tool_calls"] = pm.tool_calls
+                msg["content"] = pm.content if pm.content else None
+            else:
+                msg["content"] = pm.content
+            raw.append(msg)
+
+        elif pm.role == MessageRole.tool:
+            msg = {
+                "role": "tool",
+                "tool_call_id": pm.tool_call_id or "",
+                "content": pm.content,
+            }
+            if pm.tool_name:
+                msg["name"] = pm.tool_name
+            raw.append(msg)
+
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
                 raw.append({
@@ -184,7 +189,7 @@ def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
             else:
                 raw.append({"role": "user", "content": pm.content})
 
-    return system_prompt or SYSTEM_PROMPT.strip(), raw
+    return system_prompt or "", raw
 
 
 # ── Response parser ──────────────────────────────────────────────────────────
@@ -194,9 +199,28 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     message = choice.message if choice else None
     content = message.content or "" if message else ""
 
-    # vLLM with --enable-reasoning surfaces reasoning_content on the message
     reasoning = getattr(message, "reasoning_content", None) if message else None
 
+    # ── Tool calls? ──────────────────────────────────────────────────────────
+    if message and message.tool_calls:
+        tool_calls = [
+            ToolCallInfo(
+                id=tc.id,
+                name=tc.function.name,
+                arguments=tc.function.arguments,
+            )
+            for tc in message.tool_calls
+        ]
+        print(f"[openai_compat] tool_calls: {[tc.name for tc in tool_calls]}")
+        return AgentResponse(
+            tool_calls=tool_calls,
+            done=False,
+            reasoning_content=reasoning,
+            inference_time_ms=elapsed_ms,
+            model_name=_resolved_model,
+        )
+
+    # ── No tool calls — parse JSON action from text ──────────────────────────
     data = _extract_json(content)
 
     return AgentResponse(
@@ -214,13 +238,11 @@ def _extract_json(content: str) -> dict:
     """Pull the JSON object out of the model's text response."""
     text = content.strip()
 
-    # Strip markdown fences
     if "```json" in text:
         text = text.split("```json", 1)[1].split("```", 1)[0].strip()
     elif "```" in text:
         text = text.split("```", 1)[1].split("```", 1)[0].strip()
 
-    # Isolate outermost { … }
     brace_start = text.find("{")
     brace_end = text.rfind("}")
     if brace_start != -1 and brace_end != -1:
@@ -231,14 +253,12 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Common VLM JSON repairs
     repaired = _repair_json(text)
     try:
         return json.loads(repaired)
     except json.JSONDecodeError:
         pass
 
-    # Plain text response — treat as conversational done, not a loop
     print(f"[openai_compat] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
     return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}
 
@@ -246,16 +266,11 @@ def _extract_json(content: str) -> dict:
 def _repair_json(text: str) -> str:
     """Best-effort repairs for common VLM JSON mistakes."""
     s = text
-    # Unquoted keys
     s = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)"(\s*:)', r'\1"\2"\3', s)
     s = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)(\s*:)', r'\1"\2"\3', s)
-    # Single quotes → double quotes
     s = s.replace("'", '"')
-    # Trailing commas
     s = re.sub(r',\s*([}\]])', r'\1', s)
-    # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
     s = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', s)
-    # Python booleans / None
     s = re.sub(r'\bTrue\b', 'true', s)
     s = re.sub(r'\bFalse\b', 'false', s)
     s = re.sub(r'\bNone\b', 'null', s)

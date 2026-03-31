@@ -160,12 +160,16 @@ you better at specific tasks. Don't guess when a skill has the answer.
 </skills_system>
 
 <agent_tools>
-You have internal tools that don't require desktop interaction:
-  update_plan  — Write or update your session plan (MANDATORY before desktop actions)
-  read_plan    — Re-read your current plan to re-orient
-  use_skill    — Load a skill's full instructions by name
-  write_memory — Save to daily_log, long_term memory, or preferences
-  compact_context — Compress your conversation history when it gets long
+You have function-calling tools that don't require desktop interaction.
+Call them like normal tool/function calls — NOT as JSON actions:
+  update_plan(content)     — Write or update your session plan (MANDATORY before desktop actions)
+  read_plan()              — Re-read your current plan to re-orient
+  use_skill(skill_name)    — Load a skill's full instructions by name
+  write_memory(content, target) — Save to daily_log, long_term memory, or preferences
+  compact_context(focus)   — Compress your conversation history when it gets long
+
+These are separate from desktop actions. Use function calls for planning/memory,
+use JSON responses for desktop actions (click, type, scroll, etc.).
 </agent_tools>
 
 {vision_block}
@@ -190,6 +194,11 @@ To click a target:
 All coordinates in [SCREEN ELEMENTS] are normalized [0,1] ratios.
 Always use the exact center values — never estimate.
 If no matching element exists, scroll to reveal it or try keyboard.
+
+Cursor note: The red-outlined arrow overlay shows cursor POSITION only.
+It always looks like an arrow regardless of the actual system cursor
+(I-beam in text fields, pointer hand on links, etc.). Judge context
+from the element under the cursor, not the cursor shape.
 </omniparser>"""
 
 _DIRECT_SCREENSHOT_BLOCK = """\
@@ -203,4 +212,9 @@ Coordinates are normalized [0,1] ratios:
 Reference points: menu bar y≈0.01, dock y≈0.97, window title y≈0.04.
 Aim for the center of elements. If clicks miss, adjust based on where
 the cursor appears in the next screenshot, or switch to keyboard/shell.
+
+Cursor note: The white arrow overlay shows cursor POSITION only.
+It always looks like an arrow regardless of the actual system cursor
+(I-beam in text fields, pointer hand on links, etc.). Judge context
+from the element under the cursor, not the cursor shape.
 </vision>"""
