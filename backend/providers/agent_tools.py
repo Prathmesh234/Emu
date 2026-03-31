@@ -149,6 +149,27 @@ AGENT_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
+            "name": "read_memory",
+            "description": (
+                "Read a memory file from the .emu workspace. "
+                "Use to recall past learnings, preferences, or daily logs. "
+                "Target: long_term (MEMORY.md), preferences (preferences.md), daily_log (today's log)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["long_term", "preferences", "daily_log"],
+                        "description": "Which memory to read (default: long_term)",
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "compact_context",
             "description": (
                 "Compress conversation history when it's getting long. "

@@ -91,8 +91,8 @@ const ACTION_MAP = {
         label: 'Scroll',
         icon:  '📜',
         ipc:   'mouse:scroll',
-        dispatch: (a) => scroll(a.direction, a.amount || 3),
-        describe: (a) => `Scroll ${a.direction} ${a.amount || 3} notches`,
+        dispatch: (a) => scroll(a.direction, a.amount || 5),
+        describe: (a) => `Scroll ${a.direction} ${a.amount || 5} notches`,
     },
     type_text: {
         label: 'Type Text',
@@ -124,6 +124,13 @@ const ACTION_MAP = {
         ipc:   'shell:exec',
         dispatch: (a) => shellExec(a.command),
         describe: (a) => `Run: ${(a.command || '').slice(0, 60)}`,
+    },
+    memory_read: {
+        label: 'Memory Read',
+        icon:  '📖',
+        ipc:   'memory:read',
+        dispatch: (a) => ipcRenderer.invoke('memory:read', { path: a.path }),
+        describe: (a) => `Read: ${a.path || '(no path)'}`,
     },
     done: {
         label: 'Done',

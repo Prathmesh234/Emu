@@ -60,18 +60,53 @@ def build_system_prompt(
     # Select vision block
     vision_block = _OMNIPARSER_BLOCK if use_omni_parser else _DIRECT_SCREENSHOT_BLOCK
 
+    # Static instructions (cacheable across turns — identical every call)
     prompt = _BASE_PROMPT.format(
-        date=today,
-        time=now,
-        session_id=session_id or "unknown",
         device_info=device_info or "System: macOS",
         vision_block=vision_block,
     )
+
+    # Dynamic session block (changes per session — appended after static prefix)
+    session_block = _SESSION_BLOCK.format(
+        date=today,
+        time=now,
+        session_id=session_id or "unknown",
+    )
+    prompt += session_block
 
     if workspace_context:
         prompt += "\n\n" + workspace_context
 
     return prompt
+
+
+def get_static_prompt(device_details: dict | None = None, use_omni_parser: bool = False) -> str:
+    """Return the static instruction portion only (no date/session/workspace).
+
+    Used by providers that support cache_control breakpoints (e.g. Anthropic)
+    to mark the cacheable prefix separately from the dynamic suffix.
+    """
+    device_info = ""
+    if device_details:
+        os_name = device_details.get("os_name", "macOS")
+        arch = device_details.get("arch", "")
+        sw = device_details.get("screen_width")
+        sh = device_details.get("screen_height")
+        sf = device_details.get("scale_factor")
+        parts = [f"System: {os_name}"]
+        if arch:
+            parts.append(f"({arch})")
+        if sw and sh:
+            parts.append(f"| Display: {sw}×{sh}")
+            if sf and sf != 1:
+                parts.append(f"@{sf}x")
+        device_info = " ".join(parts)
+
+    vision_block = _OMNIPARSER_BLOCK if use_omni_parser else _DIRECT_SCREENSHOT_BLOCK
+    return _BASE_PROMPT.format(
+        device_info=device_info or "System: macOS",
+        vision_block=vision_block,
+    )
 
 
 SYSTEM_PROMPT = None
@@ -106,7 +141,6 @@ _BASE_PROMPT = """\
 You are Emu, a desktop automation agent. You observe the screen
 via screenshots and execute one action per turn to complete the user's task.
 
-Today: {date} | Time: {time} | Session: {session_id}
 {device_info}
 Coordinates: normalized [0,1] range — (0,0) top-left, (1,1) bottom-right.
 </identity>
@@ -115,11 +149,7 @@ Coordinates: normalized [0,1] range — (0,0) top-left, (1,1) bottom-right.
 NO TASK YET → done + ask what they need.
 TASK DONE → done immediately with a summary of what you did.
 [CONTEXT CONTINUATION] → Compacted state snapshot. Read it. Continue from first [TODO] step.
-
-Session dir: .emu/sessions/{session_id}/
-Plan file: .emu/sessions/{session_id}/plan.md
-
-Your plan.md is your anchor. When confused, use read_plan to re-orient.
+CONFUSED OR LOST → use read_plan to re-orient.
 </context_rules>
 
 <planning>
@@ -174,7 +204,14 @@ Call them like normal tool/function calls — NOT as JSON actions:
   list_session_files()     — See what temporary files exist in your session
   use_skill(skill_name)    — Load a skill's full instructions by name
   write_memory(content, target) — Save to daily_log, long_term memory, or preferences
+  read_memory(target)      — Read long_term (MEMORY.md), preferences, or daily_log
   compact_context(focus)   — Compress your conversation history when it gets long
+
+MEMORY: At task start, read_memory(long_term) for past learnings. After a task,
+write_memory to save what you learned. Memory makes you smarter over time.
+
+SKILLS: Check <skills> in workspace context. If a skill matches the task,
+load it with use_skill BEFORE attempting the task.
 
 These are separate from desktop actions. Use function calls for planning/memory,
 use JSON responses for desktop actions (click, type, scroll, etc.).
@@ -226,3 +263,18 @@ It always looks like an arrow regardless of the actual system cursor
 (I-beam in text fields, pointer hand on links, etc.). Judge context
 from the element under the cursor, not the cursor shape.
 </vision>"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SESSION BLOCK — dynamic, appended after static prompt
+# Kept separate so the static prefix is identical across turns → cache hits
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SESSION_BLOCK = """\
+
+<session>
+Today: {date} | Time: {time} | Session: {session_id}
+Session dir: .emu/sessions/{session_id}/
+Plan: .emu/sessions/{session_id}/plan.md
+</session>
+"""

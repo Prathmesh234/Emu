@@ -33,6 +33,8 @@ from workspace import (
     write_session_file,
     read_session_file,
     list_session_files,
+    read_memory,
+    read_daily_memory,
 )
 from skills import get_skill_body
 
@@ -168,6 +170,35 @@ def handle_write_memory(session_id: str, content: str, target: str = "daily_log"
 
     except Exception as e:
         return f"Memory write failed: {e}"
+
+
+def handle_read_memory(target: str = "long_term") -> str:
+    """Handle the model's read_memory tool call."""
+    try:
+        if target == "long_term":
+            content = read_memory()
+            if content:
+                return f"[MEMORY.md]\n{content}"
+            return "MEMORY.md is empty or does not exist yet."
+        elif target == "preferences":
+            from pathlib import Path
+            _backend_dir = Path(__file__).parent
+            _project_root = _backend_dir.parent
+            prefs_path = _project_root / ".emu" / "global" / "preferences.md"
+            if prefs_path.exists():
+                content = prefs_path.read_text(encoding="utf-8").strip()
+                if content:
+                    return f"[preferences.md]\n{content}"
+            return "preferences.md is empty or does not exist yet."
+        elif target == "daily_log":
+            content = read_daily_memory()
+            if content:
+                return f"[Today's daily log]\n{content}"
+            return "No daily log for today yet."
+        else:
+            return f"Unknown memory target: {target}. Use long_term, preferences, or daily_log."
+    except Exception as e:
+        return f"Memory read failed: {e}"
 
 
 def handle_use_skill(skill_name: str) -> str:
@@ -372,7 +403,7 @@ async def agent_step(req: AgentRequest):
         await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}"})
         return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
 
-    # ── 5. Dispatch action to frontend ───────────────────────────────────────
+    # ── 5. Dispatch action to frontend ────────────────────────────────────────
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
 
@@ -441,6 +472,8 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
             content=args.get("content", ""),
             target=args.get("target", "daily_log"),
         )
+    elif name == "read_memory":
+        return handle_read_memory(target=args.get("target", "long_term"))
     elif name == "write_session_file":
         filename = args.get("filename", "")
         # Determine if this is a create or edit

@@ -22,6 +22,7 @@ from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation,
 from prompts import build_system_prompt
 from prompts.plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
+from context_manager.action_validator import ActionValidator
 
 # OmniParser toggle
 USE_OMNI_PARSER = (
@@ -45,70 +46,6 @@ AUTO_COMPACT_THRESHOLD = 55
 
 # Plan auto-injection interval (every N assistant turns)
 PLAN_INJECT_INTERVAL = 10
-
-
-class ActionValidator:
-    """
-    Runtime action validation — replaces prompt-level loop prevention rules.
-    Returns (is_valid, error_message). Invalid actions are rejected with
-    the error injected back into context so the model can learn and adapt.
-    """
-
-    def __init__(self):
-        # session_id -> list of recent action types
-        self._history: dict[str, list[str]] = {}
-
-    def validate(self, session_id: str, action: dict, screen_changed: bool = True) -> tuple[bool, str]:
-        """
-        Validate an action against runtime rules.
-        Returns (True, "") if valid, (False, error_message) if invalid.
-        """
-        history = self._history.setdefault(session_id, [])
-        action_type = action.get("type", "")
-
-        # Rule 1: No consecutive mouse_moves without interaction
-        if action_type == "mouse_move" and history and history[-1] == "mouse_move":
-            return False, (
-                "Cannot move twice without interacting. "
-                "The cursor is already positioned — click, type, or scroll."
-            )
-
-        # Rule 2: Micro-movement detection (handled by checking coords)
-        if action_type == "mouse_move":
-            coords = action.get("coordinates", {})
-            x, y = coords.get("x", 0), coords.get("y", 0)
-            if history and history[-1] == "mouse_move" and hasattr(self, '_last_coords'):
-                lx, ly = self._last_coords.get(session_id, (0, 0))
-                if abs(x - lx) < 0.01 and abs(y - ly) < 0.01:
-                    return False, (
-                        "Cursor is already at this position (within 0.01). Just click."
-                    )
-            self._last_coords = getattr(self, '_last_coords', {})
-            self._last_coords[session_id] = (x, y)
-
-        # Rule 3: Same action repeated 3+ times with no screen change
-        if len(history) >= 2 and all(h == action_type for h in history[-2:]) and not screen_changed:
-            return False, (
-                f"You've performed '{action_type}' 3 times with no visible change. "
-                f"This approach isn't working. Try a completely different strategy: "
-                f"keyboard shortcut, shell_exec, or a different element."
-            )
-
-        # Rule 4: Minimum scroll amount
-        if action_type == "scroll":
-            amount = action.get("amount", 0)
-            if amount and amount < 3:
-                return False, "Minimum scroll amount is 3. Use amount >= 3."
-
-        # Record and trim history
-        history.append(action_type)
-        if len(history) > 10:
-            history[:] = history[-10:]
-
-        return True, ""
-
-    def clear(self, session_id: str):
-        self._history.pop(session_id, None)
 
 
 class ContextManager:

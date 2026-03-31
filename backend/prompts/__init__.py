@@ -1,4 +1,4 @@
-from .system_prompt import SYSTEM_PROMPT, build_system_prompt
+from .system_prompt import SYSTEM_PROMPT, build_system_prompt, get_static_prompt
 from .compact_prompt import COMPACT_SYSTEM_PROMPT, CONTINUATION_DIRECTIVE
 from .bootstrap_prompt import build_bootstrap_prompt
 from .plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
@@ -6,6 +6,7 @@ from .plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 __all__ = [
     "SYSTEM_PROMPT",
     "build_system_prompt",
+    "get_static_prompt",
     "COMPACT_SYSTEM_PROMPT",
     "CONTINUATION_DIRECTIVE",
     "build_bootstrap_prompt",

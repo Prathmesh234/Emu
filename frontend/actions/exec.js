@@ -11,6 +11,8 @@
 
 const { ipcRenderer } = require('electron');
 const psProcess = require('../process/psProcess');
+const fs = require('fs');
+const path = require('path');
 
 // Protected files that the agent must NEVER modify.
 // Read access is fine — only write/modify operations are blocked.
@@ -104,6 +106,27 @@ function register(ipcMain) {
             return { success: true, output };
         } catch (err) {
             console.error(`[exec] shell:exec FAILED:`, err.message);
+            return { success: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('memory:read', async (_event, { path: filePath }) => {
+        console.log(`[memory:read] reading: ${filePath}`);
+        try {
+            // Resolve relative to cwd (project root)
+            const resolved = path.resolve(process.cwd(), filePath);
+            // Security: only allow reading from .emu/ directory
+            const emuDir = path.resolve(process.cwd(), '.emu');
+            if (!resolved.startsWith(emuDir)) {
+                const msg = 'BLOCKED: memory_read only allows reading files under .emu/';
+                console.warn(`[memory:read] ${msg}`);
+                return { success: false, error: msg };
+            }
+            const content = fs.readFileSync(resolved, 'utf8');
+            console.log(`[memory:read] OK (${content.length} chars)`);
+            return { success: true, output: content };
+        } catch (err) {
+            console.error(`[memory:read] FAILED:`, err.message);
             return { success: false, error: err.message };
         }
     });

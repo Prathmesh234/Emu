@@ -23,6 +23,7 @@ class ActionType(str, Enum):
     READ_PLAN       = "read_plan"
     UPDATE_PLAN     = "update_plan"
     WRITE_MEMORY       = "write_memory"
+    READ_MEMORY        = "read_memory"
     USE_SKILL          = "use_skill"
     WRITE_SESSION_FILE = "write_session_file"
     READ_SESSION_FILE  = "read_session_file"

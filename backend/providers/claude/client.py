@@ -31,13 +31,13 @@ ANTHROPIC_TOOLS = tools_for_anthropic()
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def call_model(agent_req: AgentRequest) -> AgentResponse:
-    system_prompt, messages = _build_messages(agent_req)
+    system_blocks, messages = _build_messages(agent_req)
 
     start = time.time()
     resp = client.messages.create(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
-        system=system_prompt,
+        system=system_blocks,
         tools=ANTHROPIC_TOOLS,
         messages=messages,
     )
@@ -56,14 +56,19 @@ def ensure_ready(**kwargs) -> None:
 
 # ── Message builder ──────────────────────────────────────────────────────────
 
-def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, messages) in Anthropic format."""
-    system_prompt = ""
+def _build_messages(req: AgentRequest) -> tuple[list[dict], list[dict]]:
+    """Build (system_blocks, messages) in Anthropic format.
+
+    Splits the system prompt at the <session> tag so the large static prefix
+    gets cache_control and stays cached across turns, while the small
+    dynamic session/workspace block changes freely.
+    """
+    system_text = ""
     raw: list[dict] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
-            system_prompt = pm.content
+            system_text = pm.content
 
         elif pm.role == MessageRole.assistant:
             if pm.tool_calls:
@@ -109,7 +114,33 @@ def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
             else:
                 raw.append({"role": "user", "content": pm.content})
 
-    return system_prompt or "", _merge_consecutive(raw)
+    if not system_text:
+        system_text = ""
+
+    # Split at <session> to separate static (cacheable) from dynamic
+    session_marker = "<session>"
+    if session_marker in system_text:
+        static_part, dynamic_part = system_text.split(session_marker, 1)
+        system_blocks = [
+            {
+                "type": "text",
+                "text": static_part.rstrip(),
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": session_marker + dynamic_part,
+            },
+        ]
+    else:
+        # Fallback: no session marker — cache the whole thing
+        system_blocks = [{
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }] if system_text else []
+
+    return system_blocks, _merge_consecutive(raw)
 
 
 def _merge_consecutive(messages: list[dict]) -> list[dict]:
