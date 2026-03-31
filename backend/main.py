@@ -421,7 +421,16 @@ async def agent_step(req: AgentRequest):
 async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
     """Execute an agent tool by name and return the result string."""
     if name == "update_plan":
-        return handle_update_plan(session_id, args.get("content", ""))
+        plan_content = args.get("content", "")
+        result = handle_update_plan(session_id, plan_content)
+        # Notify frontend with plan card
+        if plan_content:
+            await manager.send(session_id, {
+                "type": "tool_event",
+                "event": "plan_updated",
+                "content": plan_content,
+            })
+        return result
     elif name == "read_plan":
         return handle_read_plan(session_id)
     elif name == "use_skill":
@@ -433,7 +442,22 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
             target=args.get("target", "daily_log"),
         )
     elif name == "write_session_file":
-        return write_session_file(session_id, args.get("filename", ""), args.get("content", ""))
+        filename = args.get("filename", "")
+        # Determine if this is a create or edit
+        existing = read_session_file(session_id, filename) is not None
+        result = write_session_file(session_id, filename, args.get("content", ""))
+        # Notify frontend with file card
+        if "written" in result:
+            sanitized = filename.strip().replace("/", "").replace("\\", "")
+            if not sanitized.endswith(".md"):
+                sanitized += ".md"
+            await manager.send(session_id, {
+                "type": "tool_event",
+                "event": "file_written",
+                "filename": sanitized,
+                "action": "edited" if existing else "created",
+            })
+        return result
     elif name == "read_session_file":
         result = read_session_file(session_id, args.get("filename", ""))
         return result if result is not None else f"File '{args.get('filename')}' not found."
