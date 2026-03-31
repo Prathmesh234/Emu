@@ -212,6 +212,52 @@ def append_session_notes(session_id: str, note: str) -> Path:
     return notes_path
 
 
+def write_session_file(session_id: str, filename: str, content: str) -> str:
+    """Create or overwrite a .md file in the session directory.
+
+    Returns a success message or error string.
+    """
+    if not filename or not filename.strip():
+        return "No filename provided."
+
+    # Sanitize: strip path separators, enforce .md extension
+    name = filename.strip().replace("/", "").replace("\\", "")
+    if not name.endswith(".md"):
+        name = name + ".md"
+
+    # Block overwriting plan.md through this tool
+    if name == "plan.md":
+        return "Cannot write plan.md — use update_plan instead."
+
+    if not content:
+        return "No content provided."
+
+    session_dir = ensure_session_dir(session_id)
+    filepath = session_dir / name
+    filepath.write_text(content, encoding="utf-8")
+    return f"File '{name}' written ({len(content)} chars)."
+
+
+def read_session_file(session_id: str, filename: str) -> Optional[str]:
+    """Read a .md file from the session directory. Returns content or None."""
+    if not filename or not filename.strip():
+        return None
+
+    name = filename.strip().replace("/", "").replace("\\", "")
+    if not name.endswith(".md"):
+        name = name + ".md"
+
+    return _read_file(_SESSIONS_DIR / session_id / name)
+
+
+def list_session_files(session_id: str) -> list[str]:
+    """List all .md files in a session directory."""
+    session_dir = _SESSIONS_DIR / session_id
+    if not session_dir.is_dir():
+        return []
+    return sorted(f.name for f in session_dir.glob("*.md"))
+
+
 # ── Manifest / Device Details ────────────────────────────────────────────────
 
 def read_manifest() -> Optional[dict]:

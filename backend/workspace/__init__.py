@@ -19,6 +19,9 @@ from .reader import (
     read_session_plan,
     write_session_plan,
     append_session_notes,
+    write_session_file,
+    read_session_file,
+    list_session_files,
 )
 
 __all__ = [
@@ -36,4 +39,7 @@ __all__ = [
     "read_session_plan",
     "write_session_plan",
     "append_session_notes",
+    "write_session_file",
+    "read_session_file",
+    "list_session_files",
 ]

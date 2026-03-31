@@ -22,9 +22,11 @@ class ActionType(str, Enum):
     COMPACT_CONTEXT = "compact_context"
     READ_PLAN       = "read_plan"
     UPDATE_PLAN     = "update_plan"
-    WRITE_MEMORY    = "write_memory"
-    USE_SKILL       = "use_skill"
-
+    WRITE_MEMORY       = "write_memory"
+    USE_SKILL          = "use_skill"
+    WRITE_SESSION_FILE = "write_session_file"
+    READ_SESSION_FILE  = "read_session_file"
+    LIST_SESSION_FILES = "list_session_files"
 
 class Coordinates(BaseModel):
     """Normalized screen coordinates in [0, 1] range (resolution-independent)."""

@@ -38,6 +38,7 @@ function scrollToBottom() {
 
 function syncGeneratingUI(generating) {
     store.setGenerating(generating);
+    ipcRenderer.send('set-generating', generating);
     if (generating) {
         chatInput.setMode('stop');
         chatInput.setTooltip('Click to stop the agent');

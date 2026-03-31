@@ -11,12 +11,16 @@ periodically to keep the agent anchored.
 
 
 PLAN_DIRECTIVE = """\
-[PLANNING REQUIRED]
+[PLANNING ASSESSMENT]
 
 Before you touch the keyboard, mouse, or shell — stop and think.
 
+Is this a simple, 1-2 step task (e.g., clicking a single button or typing a short query)? 
+If YES: You may skip creating a written plan and proceed immediately with your action.
+
+If NO (the task takes 3 or more steps):
 You MUST plan first. Call the update_plan tool to write your plan to plan.md.
-This is not optional. No desktop actions until you have a plan.
+This is not optional for complex tasks. No desktop actions until you have a plan.
 
 Think through this step by step:
 
@@ -55,10 +59,10 @@ Periodically re-read your plan to stay on track.
 PLAN_REMINDER = """\
 [PLAN CHECK]
 
-Pause. Before your next action, quickly check:
-- Are you still following your plan?
+If you created a plan for this task, pause and quickly check:
+- Are you still following it?
 - Have you drifted from the original task?
 - Should you update your plan based on what you've learned?
 
-If you're on track, continue. If not, use read_plan or update_plan to re-orient.
+If you're on track (or if this is a simple task without a plan), continue. If not, use read_plan or update_plan to re-orient.
 """

@@ -71,6 +71,60 @@ AGENT_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
+            "name": "write_session_file",
+            "description": (
+                "Write or overwrite a temporary .md file in the current session. "
+                "Use this heavily to store intermediate research, notes, scraped text, "
+                "or data you need to remember across steps. Just specify a filename (e.g. 'notes.md')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to create/overwrite (e.g. 'research_draft.md')"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The markdown content to write to the file"
+                    }
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_session_file",
+            "description": (
+                "Read the content of a temporary .md file you wrote earlier in this session."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to read"
+                    }
+                },
+                "required": ["filename"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_session_files",
+            "description": (
+                "List all files currently saved in your session workspace."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_memory",
             "description": (
                 "Save observations, decisions, or user preferences to persistent memory."

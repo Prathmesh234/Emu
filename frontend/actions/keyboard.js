@@ -142,13 +142,15 @@ async function _macKeyPress(key, modifiers = []) {
     const lower = key.toLowerCase();
 
     if (modifiers.length === 0) {
-        // No modifiers — use cliclick
-        const cliclickKey = CLICLICK_KEY_MAP[lower];
-        if (cliclickKey) {
-            // Special key (enter, tab, arrows, etc.) — use kp:
-            await psProcess.run(`cliclick kp:${cliclickKey}`);
+        // No modifiers — try osascript first for special keys (more reliable than cliclick kp:)
+        const keyCode = MAC_KEY_CODES[lower];
+        if (keyCode !== undefined) {
+            // Special key or known key — use osascript System Events (accessibility API)
+            // This is far more reliable than cliclick kp: which some apps ignore
+            const script = `tell application "System Events" to key code ${keyCode}`;
+            await psProcess.run(`osascript -e '${script}'`);
         } else if (key.length === 1) {
-            // Single character (letter, number, symbol) — use t: to type it
+            // Single character (letter, number, symbol) — use cliclick t: to type it
             const escaped = key === "'" ? "\\'" : key;
             await psProcess.run(`cliclick t:'${escaped}'`);
         } else {

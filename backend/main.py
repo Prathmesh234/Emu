@@ -30,6 +30,9 @@ from workspace import (
     write_session_plan,
     read_session_plan,
     append_session_notes,
+    write_session_file,
+    read_session_file,
+    list_session_files,
 )
 from skills import get_skill_body
 
@@ -429,6 +432,16 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
             content=args.get("content", ""),
             target=args.get("target", "daily_log"),
         )
+    elif name == "write_session_file":
+        return write_session_file(session_id, args.get("filename", ""), args.get("content", ""))
+    elif name == "read_session_file":
+        result = read_session_file(session_id, args.get("filename", ""))
+        return result if result is not None else f"File '{args.get('filename')}' not found."
+    elif name == "list_session_files":
+        files = list_session_files(session_id)
+        if not files:
+            return "No files in current session. (plan.md and notes.md are considered system files)"
+        return "Session files: " + ", ".join(files)
     elif name == "compact_context":
         return await handle_compact_context(session_id, focus=args.get("focus", ""))
     else:
