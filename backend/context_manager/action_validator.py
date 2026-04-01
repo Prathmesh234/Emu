@@ -74,6 +74,10 @@ class ActionValidator:
             if amount and amount < 5:
                 return False, "Minimum scroll amount is 5. Use amount >= 5."
 
+        # Rule 5: Reject unknown/plain text actions
+        if action_type == "unknown":
+            return False, "Unknown tool call or invalid JSON format. Please choose from the tools available to you."
+
         # Record and trim history
         history.append(action_type)
         if len(history) > 10:

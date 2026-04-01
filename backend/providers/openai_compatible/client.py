@@ -259,8 +259,8 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    print(f"[openai_compat] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
-    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}
+    print(f"[openai_compat] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
+    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}
 
 
 def _repair_json(text: str) -> str:

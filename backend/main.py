@@ -513,7 +513,13 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
     elif name == "compact_context":
         return await handle_compact_context(session_id, focus=args.get("focus", ""))
     else:
-        return f"Unknown tool: {name}"
+        args_str = json.dumps(args, ensure_ascii=False)
+        return (
+            f"ERROR: Unknown function tool '{name}' called with arguments: {args_str}\n\n"
+            f"If '{name}' is a desktop action (like shell_exec or mouse_move), "
+            f"you MUST return it as a plain JSON text response (e.g. {{\"action\": {{\"type\": \"{name}\", ...}}}}), "
+            f"NOT as a function tool call. Please try again using the proper format."
+        )
 
 
 async def _auto_compact(session_id: str):

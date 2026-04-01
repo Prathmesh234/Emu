@@ -18,6 +18,7 @@ class ActionType(str, Enum):
     SHELL_EXEC     = "shell_exec"
     WAIT           = "wait"
     DONE           = "done"
+    UNKNOWN        = "unknown"
     # Agent tools — model-driven context management
     COMPACT_CONTEXT = "compact_context"
     READ_PLAN       = "read_plan"
