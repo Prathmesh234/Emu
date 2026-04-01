@@ -215,16 +215,33 @@ function register(ipcMain, { screen }) {
             const source = sources[0];
             const nativeImage = source.thumbnail;
 
+            let finalImage = nativeImage;
+
             if (nativeImage.isEmpty()) {
-                throw new Error('desktopCapturer returned empty image — Screen Recording permission may not be granted');
+                console.warn('[screenshot] desktopCapturer returned empty image (possibly due to Hardware Acceleration/DRM). Falling back to native macOS screencapture...');
+                const os = require('os');
+                const cp = require('child_process');
+                const tmpPath = path.join(os.tmpdir(), `emu_fallback_${Date.now()}.png`);
+                
+                try {
+                    // Try to capture using native macOS tool (-x mutes the camera shutter sound)
+                    cp.execSync(`screencapture -x "${tmpPath}"`);
+                    finalImage = nativeImageModule.createFromPath(tmpPath);
+                    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); // Cleanup
+                    
+                    if (finalImage.isEmpty()) {
+                        throw new Error('Fallback native screencapture also returned an empty image');
+                    }
+                } catch (fallbackErr) {
+                    throw new Error(`desktopCapturer failed (empty image) and screencapture fallback failed: ${fallbackErr.message}`);
+                }
             }
 
             // Resize to max 1280px width to keep under Claude's size limit
-            const size = nativeImage.getSize();
-            let finalImage = nativeImage;
+            const size = finalImage.getSize();
             if (size.width > 1280) {
                 const newHeight = Math.round((1280 / size.width) * size.height);
-                finalImage = nativeImage.resize({ width: 1280, height: newHeight, quality: 'good' });
+                finalImage = finalImage.resize({ width: 1280, height: newHeight, quality: 'good' });
             }
 
             // Overlay a cursor indicator so the model can see pointer position

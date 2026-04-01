@@ -1,4 +1,4 @@
-# Emulation Agent — Documentation
+# Emulation Agent (v0.1) — Documentation
 
 > Technical reference for architecture, design decisions, performance findings, and development patterns.
 
@@ -11,7 +11,7 @@
 3. [Project Structure](#3-project-structure)
 4. [Architecture](#4-architecture)
 5. [IPC Action Pattern](#5-ipc-action-pattern)
-6. [Persistent PowerShell Process](#6-persistent-powershell-process)
+6. [Persistent Shell Process](#6-persistent-shell-process)
 7. [Performance Findings](#7-performance-findings)
 8. [Backend](#8-backend)
 9. [Frontend](#9-frontend)
@@ -38,8 +38,8 @@ A desktop application that uses computer vision and LLM reasoning to emulate hum
 | Backend | Python (FastAPI) | REST server, log + persistence layer |
 | Package manager | `uv` | **All** Python packages must use `uv`. No pip/poetry/conda. |
 | Primary model | OpenAI API (GPT-4o) | Vision + reasoning — not yet integrated |
-| Screen capture | Electron `desktopCapturer` | Windows-native, avoids WSL X display issue |
-| Mouse/keyboard | PowerShell + Win32 `user32.dll` | Single persistent process, managed by Node |
+| Screen capture | Electron `desktopCapturer` | Avoids X display limit in backend by running capture in Node |
+| Mouse/keyboard | `cliclick` / `xdotool` | Single persistent bash/zsh process, managed by Node |
 | IPC | Electron `ipcMain` / `ipcRenderer` | `invoke`/`handle` async pattern |
 | WebSocket (planned) | FastAPI WebSocket | For real-time agent → frontend command streaming |
 
@@ -60,7 +60,7 @@ emulation-agent/
 │   ├── styles.css                   # App styles
 │   │
 │   ├── process/
-│   │   └── psProcess.js             # Persistent PowerShell process manager
+│   │   └── psProcess.js             # Persistent Shell process manager (bash/zsh)
 │   │
 │   ├── actions/
 │   │   ├── index.js                 # Barrel: exports all actions + registerAll()
@@ -104,7 +104,7 @@ emulation-agent/
 │                                   │               │
 │                        ┌──────────▼─────────────┐ │
 │                        │  psProcess.js          │ │
-│                        │  (persistent pwsh)     │ │
+│                        │  (persistent shell)    │ │
 │                        │  stdin/stdout pipe     │ │
 │                        └────────────────────────┘ │
 └────────────────────────────┬─────────────────────┘
@@ -135,10 +135,10 @@ ipcRenderer.invoke('mouse:left-click', { x, y })
 ipcMain.handle in leftClick.js
         │
         ▼
-psProcess.run('[W.U32]::mouse_event(...)')   ← stdin pipe, ~3ms
+psProcess.run('cliclick c:.')   ← stdin pipe, ~3ms
         │
         ▼
-Win32 user32.dll fires the click on the OS
+cliclick fires the click on the OS
         │
         ├──► fetch POST /click/left/...  (fire-and-forget log to backend)
         │
@@ -199,36 +199,31 @@ registerAll(ipcMain, { BACKEND_URL, desktopCapturer, screen, getMainWindow: () =
 
 ---
 
-## 6. Persistent PowerShell Process
+## 6. Persistent Shell Process
 
 **File:** `frontend/process/psProcess.js`
 
 ### Why
 
-Every `spawnSync('powershell', ...)` or `execSync('powershell ...')` call pays the full Windows process creation cost:
+Every `spawnSync` or `execSync` call pays the full process creation cost:
 
 | Phase | Time |
 |---|---|
-| `CreateProcess()` kernel call | ~50ms |
-| PowerShell runtime init (CLR load) | ~200–400ms |
-| `Add-Type` (JIT compile C# P/Invoke) | ~100–200ms |
-| **Total per action** | **~350–650ms** |
+| `CreateProcess()` / `fork()` | ~50ms |
+| shell startup parsing | ~100–200ms |
+| **Total per action** | **~150–250ms** |
 
-`Add-Type` is re-paid on every spawn because each new process has a blank runspace. For an agent loop running 20–50 steps, this is ~15 seconds of pure overhead.
+For an agent loop running 20–50 steps, this is several seconds of pure overhead.
 
 ### Solution
 
-One `powershell -NonInteractive -Command -` process started at app launch, kept alive for the duration of the session. Commands are piped via stdin; output is read from stdout using a sentinel string `##PS_DONE##` to detect completion.
+One `/bin/bash` or `/bin/zsh` process started at app launch, kept alive for the duration of the session. Commands are piped via stdin (base64-encoded to avoid syntax errors); output is read from stdout using a sentinel string `##PS_DONE##` to detect completion.
 
 ```
 App start → psProcess.start()
                 │
                 ▼
-         spawn('powershell', ['-Command', '-'])
-                │
-         Pre-load assemblies once:
-         Add-Type System.Windows.Forms
-         Add-Type user32.dll mouse_event
+         spawn('zsh' or 'bash', ['-f' or '--norc'])
                 │
          Ready. Per-action cost: ~2–8ms (stdin write + stdout read)
 ```
@@ -273,7 +268,7 @@ app.on('will-quit', () => {
 | `mouse:right-click` | ~450ms | ~2–5ms |
 | `mouse:double-click` | ~500ms | ~55–65ms* |
 
-\* Double-click is intentionally ~55ms minimum due to `Start-Sleep -Milliseconds 50` between the two click pairs — required to stay within Windows' double-click time window. This is OS-inherent, not process overhead.
+\* Double-click has specialized handling to stay within the OS double-click time window. This is OS-inherent, not process overhead.
 
 ### Agent loop impact
 
@@ -284,19 +279,9 @@ app.on('will-quit', () => {
 
 ### Why the old double-click didn't work
 
-Each `spawnSync` for click-down and click-up in separate processes took 350–650ms each. Windows' double-click recognition window is ~500ms (configurable in Control Panel). With two separate spawns:
+The OS sees two isolated clicks, not a double-click. It interprets the first click as "select" and the second as "rename" on desktop icons.
 
-```
-spawn1 start → 400ms → click DOWN → click UP → spawn1 done
-                                                      │
-                                              ~400ms later
-                                                      │
-spawn2 start → 400ms → click DOWN → click UP → spawn2 done
-```
-
-Windows sees two isolated clicks, not a double-click. It interprets the first click as "select" and the second as "rename" on desktop icons.
-
-**Fix:** Both click pairs in one `psProcess.run()` call with `Start-Sleep -Milliseconds 50` between them — all inside the already-running process, so no spawn gap.
+**Fix:** Both click pairs in one `psProcess.run()` call with `cliclick` to click natively without process spawning gaps.
 
 ---
 
@@ -305,7 +290,7 @@ Windows sees two isolated clicks, not a double-click. It interprets the first cl
 **File:** `backend/main.py`  
 **Start:** `uv run uvicorn main:app --reload --port 8000` (run from `backend/` in WSL)
 
-The backend is currently a **log and persistence layer only**. All OS actions (mouse, keyboard) run on the Electron/Windows side. The backend receives action data for:
+The backend is currently a **log and persistence layer only**. All OS actions (mouse, keyboard) run on the Electron side. The backend receives action data for:
 - Saving screenshots to disk
 - Logging action events (for future agent memory/replay)
 
@@ -335,7 +320,7 @@ emulation_screen_shots/screenshot_YYYYMMDD_HHMMSS_fff.png
 
 ### Why not capture screenshots in the backend
 
-`mss` and `pyautogui` both require an X display (`DISPLAY` env var, `.Xauthority`). This is fatal in WSL, which has no X server by default. Screenshots are captured entirely in Electron (Windows-native) and sent to the backend as base64.
+`mss` and `pyautogui` both require a standard display to be active. Screenshots are captured entirely in Electron and sent to the backend as base64.
 
 ### Dependencies (`pyproject.toml`)
 
@@ -370,7 +355,7 @@ Minimal by design. Only responsibilities:
 
 ### `frontend/process/psProcess.js`
 
-See [Section 6](#6-persistent-powershell-process).
+See [Section 6](#6-persistent-shell-process).
 
 ### `frontend/actions/`
 
@@ -389,7 +374,7 @@ See [Section 5](#5-ipc-action-pattern) and [Section 10](#10-action-reference).
 ### `navigate` (mouse move)
 - **IPC channel:** `mouse:move`
 - **Renderer fn:** `navigateMouse(x, y)`
-- **What it does:** Sets `System.Windows.Forms.Cursor::Position` via `psProcess.run()`
+- **What it does:** Sets mouse cursor position via `psProcess.run()`
 - **Returns:** `{ success, x, y }`
 
 ### `leftClick`
@@ -433,15 +418,15 @@ See [Section 5](#5-ipc-action-pattern) and [Section 10](#10-action-reference).
 
 ### Decision: All OS actions in Electron, not Python backend
 
-`pyautogui` and `mss` both require a display server. In WSL (where the Python backend runs) there is no X display — both packages crash on import. Moving all mouse/keyboard/screenshot actions to the Electron main process (Windows-native) eliminates this entirely.
+Moving all mouse/keyboard/screenshot actions to the Electron main process eliminates Python library environment setup issues entirely.
 
 ### Decision: `desktopCapturer` over `mss`
 
-`mss` in WSL cannot see the Windows desktop. `desktopCapturer` is Electron's built-in API, runs in the Windows process, captures any screen with proper HiDPI/scaling awareness, and returns a `NativeImage` directly.
+`desktopCapturer` is Electron's built-in API, captures any screen with proper HiDPI/scaling awareness, and returns a `NativeImage` directly.
 
-### Decision: Single persistent PowerShell process
+### Decision: Single persistent shell process
 
-See [Section 6](#6-persistent-powershell-process) and [Section 7](#7-performance-findings) for the full analysis. TL;DR: spawn overhead per action was 350–650ms; persistent process drops it to 2–8ms.
+See [Section 6](#6-persistent-shell-process) and [Section 7](#7-performance-findings) for the full analysis. TL;DR: spawn overhead per action was high; persistent process drops it to 2–8ms.
 
 ### Decision: IPC co-located with action files
 
@@ -449,7 +434,7 @@ Initially IPC handlers lived in a separate `ipc/` folder. This was refactored so
 
 ### Problem: Double-click not registering
 
-**Root cause:** Two separate `spawnSync` calls each took ~400ms. Windows' double-click window is ~500ms. The gap between spawns (~400ms) left no room for Windows to recognise the pair as a double-click — it saw two isolated single-clicks and interpreted them as select + rename.
+**Root cause:** Two separate `spawnSync` calls took too long, missing the OS double-click time window. The gap left no room for the OS to recognise the pair as a double-click.
 
 **Fix:** Both click pairs in one `psProcess.run()` call. Since the process is already running, both clicks fire within a single stdin write, separated only by `Start-Sleep -Milliseconds 50`.
 
@@ -464,9 +449,8 @@ After the IPC refactor, `main.js` had leftover inline IPC handlers and a second 
 ### Prerequisites
 
 - Node.js + npm
-- Python 3.11+ with `uv` installed
-- Windows (mouse actions use Win32 APIs)
-- WSL (for Python backend)
+- Python 3.12+ with `uv` installed
+- macOS or Linux (actions use `cliclick` or `xdotool`)
 
 ### Backend
 
@@ -479,7 +463,7 @@ uv run uvicorn main:app --reload --port 8000
 ### Frontend (Electron)
 
 ```bash
-# In Windows terminal, from project root:
+# In a separate terminal, from project root:
 npm start
 
 # Dev mode (opens DevTools):
@@ -501,9 +485,9 @@ BACKEND_PORT=8000        # Default, hardcoded in main.js as BACKEND_URL
 |---|---|
 | **LLM integration** | Replace keyword matching in `respond()` with OpenAI API call, pass screenshot base64 + chat history |
 | **WebSocket streaming** | FastAPI `/ws` endpoint for real-time agent → frontend command streaming; frontend WS client dispatches to action functions |
-| **`typeText` action** | `[System.Windows.Forms.SendKeys]::SendWait()` via `psProcess.run()` |
-| **`scroll` action** | `mouse_event(0x0800, ...)` with wheel delta via `psProcess.run()` |
-| **`hotkey` action** | `[System.Windows.Forms.SendKeys]::SendWait()` with key combos |
+| **`typeText` action** | `type` command via `psProcess.run()` |
+| **`scroll` action** | scroll commands via `psProcess.run()` |
+| **`hotkey` action** | key combo triggers via `psProcess.run()` |
 | **`drag` action** | Move + LEFT_DOWN + move + LEFT_UP sequence |
 | **Agent orchestrator** | Planning LLM call → step list → execution loop with post-action screenshot verification |
 | **Multi-monitor support** | Coordinate normalisation across displays |

@@ -1,4 +1,4 @@
-# Emu Agent
+# Emu Agent (v0.1)
 
 A desktop automation agent that uses computer vision + LLM reasoning to control any desktop UI. Describe a task in plain language — Emu observes your screen, plans steps, and executes them via simulated mouse, keyboard, and shell input.
 
@@ -41,10 +41,11 @@ Set your API key before running (or Emu falls back to Modal GPU):
 
 ```bash
 # Create backend/.env or export in your shell — pick ONE:
-export ANTHROPIC_API_KEY=sk-ant-...       # Claude (recommended)
-export OPENAI_API_KEY=sk-...              # OpenAI
-export GOOGLE_API_KEY=AIza...             # Google Gemini
-export EMU_PROVIDER=modal                 # Modal GPU (no key needed)
+export ANTHROPIC_API_KEY=your-api-key       # Claude (recommended)
+export OPENAI_API_KEY=your-api-key          # OpenAI
+export GOOGLE_API_KEY=your-api-key          # Google Gemini
+export OPENROUTER_API_KEY=your-api-key      # OpenRouter (200+ models)
+export EMU_PROVIDER=modal                   # Modal GPU (no key needed)
 ```
 
 `backend.sh` handles everything: Python venv, dependency install, optional Modal deployment, and server startup.

@@ -1,4 +1,4 @@
-# Emu — Setup Guide
+# Emu (v0.1) — Setup Guide
 
 Everything you need to get Emu running, from zero to working desktop agent.
 

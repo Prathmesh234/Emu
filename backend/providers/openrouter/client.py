@@ -26,6 +26,7 @@ from providers.agent_tools import AGENT_TOOLS_OPENAI
 
 API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 MODEL_NAME = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
+PROVIDER_NAME = os.environ.get("OPENROUTER_PROVIDER_NAME", "")
 BASE_URL = "https://openrouter.ai/api/v1"
 MAX_TOKENS = 1024
 TEMPERATURE = 0.6
@@ -40,14 +41,24 @@ client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
 def call_model(agent_req: AgentRequest) -> AgentResponse:
     system_prompt, messages = _build_messages(agent_req)
 
+    kwargs = {
+        "model": MODEL_NAME,
+        "max_tokens": MAX_TOKENS,
+        "temperature": TEMPERATURE,
+        "tools": AGENT_TOOLS_OPENAI,
+        "messages": [{"role": "system", "content": system_prompt}] + messages,
+    }
+
+    if PROVIDER_NAME:
+        kwargs["extra_body"] = {
+            "provider": {
+                "order": [PROVIDER_NAME],
+                "allow_fallbacks": False
+            }
+        }
+
     start = time.time()
-    resp = client.chat.completions.create(
-        model=MODEL_NAME,
-        max_tokens=MAX_TOKENS,
-        temperature=TEMPERATURE,
-        tools=AGENT_TOOLS_OPENAI,
-        messages=[{"role": "system", "content": system_prompt}] + messages,
-    )
+    resp = client.chat.completions.create(**kwargs)
     elapsed_ms = int((time.time() - start) * 1000)
 
     return _parse_response(resp, elapsed_ms)

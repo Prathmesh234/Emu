@@ -314,6 +314,21 @@ async def agent_step(req: AgentRequest):
             agent_req = context_manager.build_request(session_id)
             response = call_model(agent_req)
         except Exception as e:
+            from pydantic import ValidationError
+            if isinstance(e, ValidationError):
+                print(f"[agent/step] Pydantic Validation failed: {e}")
+                # Inject the exact error into the context so the model can fix its own JSON schema violation
+                context_manager.add_user_message(
+                    session_id,
+                    f"[SCHEMA VALIDATION FAILED] The JSON you returned was invalid or violated the schema limits:\n{e}\n\nPlease fix your formatting and try again."
+                )
+                await manager.send(session_id, {"type": "status", "message": "Pydantic schema validation error, returning to model to fix..."})
+                
+                if loop_i >= MAX_TOOL_LOOPS:
+                    return {"session_id": session_id, "status": "action_rejected", "error": str(e), "done": False}
+                    
+                continue  # Re-call the model internally
+
             print(f"[agent/step] Inference failed: {e}")
             await manager.send(session_id, {"type": "error", "message": f"Inference failed: {e}"})
             return {"session_id": session_id, "status": "error", "error": str(e)}
@@ -385,16 +400,45 @@ async def agent_step(req: AgentRequest):
             })
             continue  # re-call model with tool results
 
-        # No tool calls — we have a desktop action or done. Break out.
-        break
+        # No tool calls — we have a desktop action or done.
+        
+        # ── Safety: ensure we have an action ──────────────────────────────────────
+        if not response.action:
+            response.action = Action(type=ActionType.SCREENSHOT)
+            response.done = False
 
-    # ── Safety: ensure we have an action ──────────────────────────────────────
-    if not response or not response.action:
-        # Model only returned tool calls and hit the loop cap, or something weird
-        response = response or AgentResponse(
-            action=Action(type=ActionType.SCREENSHOT),
-            done=False,
+        action_type = response.action.type.value
+        action_payload = response.action.model_dump(exclude_none=True)
+
+        # ── 4. Action validation ─────────────────────────────────────────────────
+        is_valid, error_msg = context_manager.action_validator.validate(
+            session_id, action_payload
         )
+
+        if not is_valid:
+            print(f"[validator] REJECTED: {error_msg}")
+            context_manager.add_assistant_turn(
+                session_id,
+                response.model_dump_json(exclude_none=True),
+            )
+            context_manager.add_user_message(
+                session_id,
+                f"[ACTION REJECTED] {error_msg}\nChoose a different action.",
+            )
+            await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}. Retrying..."})
+            
+            # If we hit the loop limit, don't loop again to avoid infinite hangs
+            if loop_i >= MAX_TOOL_LOOPS:
+                await manager.send(session_id, {"type": "error", "message": f"Validation failed {MAX_TOOL_LOOPS} times. Aborting."})
+                return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
+                
+            continue  # Re-call the model internally
+
+        break  # Valid desktop action or done, dispatch to frontend
+
+    # ── 5. Dispatch action to frontend ────────────────────────────────────────
+    if not response or not response.action:
+        response = response or AgentResponse(action=Action(type=ActionType.SCREENSHOT), done=False)
         if not response.action:
             response.action = Action(type=ActionType.SCREENSHOT)
             response.done = False
@@ -402,25 +446,6 @@ async def agent_step(req: AgentRequest):
     action_type = response.action.type.value
     action_payload = response.action.model_dump(exclude_none=True)
 
-    # ── 4. Action validation ─────────────────────────────────────────────────
-    is_valid, error_msg = context_manager.action_validator.validate(
-        session_id, action_payload
-    )
-
-    if not is_valid:
-        print(f"[validator] REJECTED: {error_msg}")
-        context_manager.add_assistant_turn(
-            session_id,
-            response.model_dump_json(exclude_none=True),
-        )
-        context_manager.add_user_message(
-            session_id,
-            f"[ACTION REJECTED] {error_msg}\nChoose a different action.",
-        )
-        await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}"})
-        return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
-
-    # ── 5. Dispatch action to frontend ────────────────────────────────────────
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
 
