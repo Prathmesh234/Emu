@@ -1,5 +1,7 @@
 // PlanCard component — displays a plan with Accept/Refine buttons
 
+const { renderMarkdown } = require('./markdown');
+
 function PlanCard(content) {
     const card = document.createElement('div');
     card.className = 'step-card plan-card';
@@ -18,7 +20,7 @@ function PlanCard(content) {
     // Plan content
     const contentEl = document.createElement('div');
     contentEl.className = 'plan-card-content';
-    contentEl.textContent = content;
+    renderMarkdown(contentEl, content);
     card.appendChild(contentEl);
 
     // Accept/Refine buttons

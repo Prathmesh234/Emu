@@ -5,6 +5,7 @@
 
 const { ipcRenderer } = require('electron');
 const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
 const store = require('../state/store');
@@ -307,7 +308,7 @@ async function respond(chat, base64Screenshot = null) {
 
     store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
     const contentEl = addMessage('assistant', '', chat.messages.length - 1);
-    contentEl.innerHTML = '<span class="typing"></span>';
+    contentEl.appendChild(createEmuRunner());
 
     // Create a step container for sequential step cards
     const stepContainer = document.createElement('div');
@@ -592,6 +593,63 @@ async function handleWsMessage(data) {
             syncGeneratingUI(false);
             break;
 
+        case 'plan_review': {
+            if (msgGenId !== _generationId) break;
+            removeStatus();
+
+            if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
+                let container = state.stepContainer;
+                if (container && !container.parentNode) {
+                    state.currentAssistantEl.appendChild(container);
+                }
+
+                const planCard = PlanCard(data.content);
+
+                planCard.acceptBtn.addEventListener('click', async () => {
+                    planCard.acceptBtn.disabled = true;
+                    planCard.refineBtn.disabled = true;
+                    planCard.acceptBtn.classList.add('chosen');
+
+                    // User accepted — inject approval into context and resume
+                    showStatus('Plan accepted — starting execution...');
+                    try {
+                        await api.postStep({
+                            sessionId: store.state.sessionId,
+                            userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
+                            base64Screenshot: '',
+                        });
+                    } catch (err) {
+                        console.error('[plan_review] accept failed:', err);
+                        removeStatus();
+                        syncGeneratingUI(false);
+                    }
+                }, { once: true });
+
+                planCard.refineBtn.addEventListener('click', async () => {
+                    planCard.acceptBtn.disabled = true;
+                    planCard.refineBtn.disabled = true;
+                    planCard.refineBtn.classList.add('chosen');
+
+                    // Pause — let user type refinement
+                    syncGeneratingUI(false);
+                    store.state.pendingPlanRefine = true;
+                    chatInput.textarea.placeholder = 'Describe how to refine the plan...';
+                    chatInput.textarea.focus();
+                }, { once: true });
+
+                if (container) {
+                    container.appendChild(planCard.element);
+                } else {
+                    state.currentAssistantEl.appendChild(planCard.element);
+                }
+            }
+            scrollToBottom();
+            break;
+        }
+
         case 'tool_event': {
             if (msgGenId !== _generationId) break;
             removeStatus();
@@ -605,38 +663,7 @@ async function handleWsMessage(data) {
                     state.currentAssistantEl.appendChild(container);
                 }
 
-                if (data.event === 'plan_updated') {
-                    const planCard = PlanCard(data.content);
-
-                    planCard.acceptBtn.addEventListener('click', () => {
-                        planCard.acceptBtn.disabled = true;
-                        planCard.refineBtn.disabled = true;
-                        planCard.acceptBtn.classList.add('chosen');
-                    }, { once: true });
-
-                    planCard.refineBtn.addEventListener('click', async () => {
-                        planCard.acceptBtn.disabled = true;
-                        planCard.refineBtn.disabled = true;
-                        planCard.refineBtn.classList.add('chosen');
-
-                        // Stop the agent so user can provide refinement
-                        store.setStopped(true);
-                        _generationId++;
-                        try { await api.stopAgent(store.state.sessionId); } catch (_) {}
-                        syncGeneratingUI(false);
-
-                        // Flag so next message gets plan-refine prefix
-                        store.state.pendingPlanRefine = true;
-                        chatInput.textarea.placeholder = 'Describe how to refine the plan...';
-                        chatInput.textarea.focus();
-                    }, { once: true });
-
-                    if (container) {
-                        container.appendChild(planCard.element);
-                    } else {
-                        state.currentAssistantEl.appendChild(planCard.element);
-                    }
-                } else if (data.event === 'file_written') {
+                if (data.event === 'file_written') {
                     const fileCard = FileCard(data.filename, data.action);
                     if (container) {
                         container.appendChild(fileCard.element);

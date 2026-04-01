@@ -13,46 +13,27 @@ periodically to keep the agent anchored.
 PLAN_DIRECTIVE = """\
 [PLANNING ASSESSMENT]
 
-Before you touch the keyboard, mouse, or shell — stop and think.
+Before acting, assess the task complexity:
 
-Is this a simple, 1-2 step task (e.g., clicking a single button or typing a short query)? 
-If YES: You may skip creating a written plan and proceed immediately with your action.
+**Simple task** (1-2 steps, e.g. click a button, type a query): Skip planning. Proceed directly with a screenshot and action.
 
-If NO (the task takes 3 or more steps):
-You MUST plan first. Call the update_plan tool to write your plan to plan.md.
-This is not optional for complex tasks. No desktop actions until you have a plan.
-
-Think through this step by step:
-
-1. **Understand** — What exactly is the user asking? Restate it in your own words.
-2. **Break down** — What are the concrete steps to get there? Number them.
-3. **Identify risks** — What could go wrong? What assumptions am I making?
-4. **Choose tools** — For each step: keyboard, mouse, shell, or a combination?
-5. **Define done** — How will I know the task is complete? What does success look like?
-
-Write your plan by calling update_plan(content=...). Format:
+**Complex task** (3+ steps): You MUST plan first. Call update_plan(content=...) with this format:
 
 ```
 ## Goal
-<one-line restatement of the task>
+<one-line restatement>
 
 ## Steps
-1. [ ] Step one — (tool: keyboard/mouse/shell) — expected outcome
+1. [ ] Step one — expected outcome
 2. [ ] Step two — ...
-...
-
-## Risks
-- Risk or assumption worth noting
 
 ## Done when
-- <concrete success criteria>
+- <success criteria>
 ```
 
-After writing the plan, take a screenshot to orient yourself, then begin from step 1.
+IMPORTANT: After calling update_plan, STOP. Do not take any desktop actions. The user will review your plan and either approve or request changes. Wait for their response before proceeding.
 
-Mark steps as [x] in your plan as you complete them. If your approach isn't
-working after 2 attempts on a step, update the plan with a new strategy.
-Periodically re-read your plan to stay on track.
+During execution, mark steps [x] as you complete them. If stuck after 2 attempts on a step, update the plan.
 """
 
 

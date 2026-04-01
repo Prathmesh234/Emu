@@ -306,6 +306,7 @@ async def agent_step(req: AgentRequest):
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     MAX_TOOL_LOOPS = 10
     response: AgentResponse | None = None
+    plan_pending_review: str | None = None  # set when update_plan is called
 
     for loop_i in range(MAX_TOOL_LOOPS + 1):
         # Call model
@@ -326,14 +327,12 @@ async def agent_step(req: AgentRequest):
         if response.tool_calls:
             if loop_i >= MAX_TOOL_LOOPS:
                 print(f"[agent/step] Hit max tool loops ({MAX_TOOL_LOOPS}) — forcing screenshot")
-                # Inject a stern message so the model stops looping on tools
                 context_manager.add_user_message(
                     session_id,
                     "[TOOL LOOP LIMIT] You called tools 10 times without taking a desktop action. "
                     "STOP calling tools. Take a screenshot to see the screen and proceed with "
                     "a desktop action (mouse_move, left_click, type_text, key_press, etc.)."
                 )
-                # Force a screenshot action so the frontend continues the loop
                 response.tool_calls = None
                 response.action = Action(type=ActionType.SCREENSHOT)
                 response.done = False
@@ -357,10 +356,28 @@ async def agent_step(req: AgentRequest):
                 except json.JSONDecodeError:
                     args = {}
 
-                # Detect repeated failing tool calls (same tool, same error 3+ times)
                 result = await _execute_agent_tool(session_id, tc.name, args)
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
+
+                # If update_plan was called, capture the plan content for review
+                if tc.name == "update_plan":
+                    plan_content = args.get("content", "")
+                    if plan_content:
+                        plan_pending_review = plan_content
+
+            # ── Plan review gate: pause loop and wait for user approval ──────
+            if plan_pending_review:
+                print(f"[plan-review] Plan created — pausing for user approval")
+                await manager.send(session_id, {
+                    "type": "plan_review",
+                    "content": plan_pending_review,
+                })
+                return {
+                    "session_id": session_id,
+                    "status": "plan_pending",
+                    "done": False,
+                }
 
             await manager.send(session_id, {
                 "type": "status",
@@ -454,13 +471,7 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
     if name == "update_plan":
         plan_content = args.get("content", "")
         result = handle_update_plan(session_id, plan_content)
-        # Notify frontend with plan card
-        if plan_content:
-            await manager.send(session_id, {
-                "type": "tool_event",
-                "event": "plan_updated",
-                "content": plan_content,
-            })
+        # Plan review is handled by the agent loop gate — no tool_event needed
         return result
     elif name == "read_plan":
         return handle_read_plan(session_id)
