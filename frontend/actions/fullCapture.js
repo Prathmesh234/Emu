@@ -2,13 +2,7 @@
 // Moves the window off-screen, captures via desktopCapturer, restores window.
 // Used only when the user explicitly requests a clean capture.
 
-const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
-
-let desktopCapturer = null;
-
-const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_screen_shots');
+const { ipcRenderer } = require('electron');\n\nlet desktopCapturer = null;
 
 async function fullCapture() {
     return await ipcRenderer.invoke('screenshot:fullCapture');
@@ -16,7 +10,6 @@ async function fullCapture() {
 
 function register(ipcMain, { screen, getMainWindow }) {
     desktopCapturer = require('electron').desktopCapturer;
-    if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
     ipcMain.handle('screenshot:fullCapture', async () => {
         try {
@@ -67,16 +60,9 @@ function register(ipcMain, { screen, getMainWindow }) {
                 const jpegBuffer = finalImage.toJPEG(80);
                 const base64 = jpegBuffer.toString('base64');
 
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const filename = `fullcapture_${timestamp}.jpg`;
-                const filepath = path.join(SCREENSHOTS_DIR, filename);
-                fs.writeFileSync(filepath, jpegBuffer);
-
                 console.log(`[fullCapture] captured ${finalSize.width}×${finalSize.height} (screen: ${screenWidth}×${screenHeight})`);
                 result = {
                     success: true,
-                    filename,
-                    path: filepath,
                     screenWidth,
                     screenHeight,
                     base64,

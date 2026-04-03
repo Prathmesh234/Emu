@@ -33,8 +33,6 @@ const CURSOR_ARROW = [
     { x: 14, y: 15 },
 ];
 
-const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_screen_shots');
-
 // Screen dimensions for denormalizing [0,1] coordinates → absolute pixels
 let _screenWidth = 1920;
 let _screenHeight = 1080;
@@ -184,7 +182,6 @@ function register(ipcMain, { screen }) {
     desktopCapturer = require('electron').desktopCapturer;
     nativeImageModule = require('electron').nativeImage;
     console.log(`[screenshot] register: desktopCapturer available = ${!!desktopCapturer}`);
-    if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
     ipcMain.handle('screenshot:capture', async () => {
         try {
@@ -253,18 +250,10 @@ function register(ipcMain, { screen }) {
             const jpegBuffer = finalImage.toJPEG(80);
             const base64 = jpegBuffer.toString('base64');
 
-            // Save to disk for debugging
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `screenshot_${timestamp}.jpg`;
-            const filepath = path.join(SCREENSHOTS_DIR, filename);
-            fs.writeFileSync(filepath, jpegBuffer);
-
             console.log(`[screenshot] captured ${finalSize.width}×${finalSize.height} (screen: ${screenWidth}×${screenHeight}, scale: ${scaleFactor}x) → ${Math.round(base64.length / 1024)} KB`);
 
             return {
                 success: true,
-                filename,
-                path: filepath,
                 screenWidth,
                 screenHeight,
                 imageWidth: finalSize.width,

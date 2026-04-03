@@ -30,10 +30,6 @@ USE_OMNI_PARSER = (
     or os.environ.get("USE_OMNI_PARSER", "").lower() in ("1", "true", "yes")
 )
 
-# Directory where screenshots are saved
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-SCREENSHOTS_DIR = _BACKEND_DIR / "emulation_screen_shots"
-
 # Prefix used to identify screenshot messages in history
 SCREENSHOT_PREFIX = "data:image/"
 
@@ -141,15 +137,6 @@ class ContextManager:
 
                 if result.annotated_image_base64:
                     base64_screenshot = f"data:image/png;base64,{result.annotated_image_base64}"
-                    try:
-                        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                        annotated_path = SCREENSHOTS_DIR / f"screenshot_{timestamp}_annotated.png"
-                        annotated_bytes = base64.b64decode(result.annotated_image_base64)
-                        annotated_path.write_bytes(annotated_bytes)
-                        print(f"[omniparser] saved annotated screenshot → {annotated_path.name}")
-                    except Exception as save_err:
-                        print(f"[omniparser] failed to save annotated screenshot: {save_err}")
 
                 elements = [
                     ScreenElement(

@@ -1,16 +1,10 @@
-import base64
-import io
-import os
 import uuid
-from datetime import datetime
-from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
 
 import json
 
@@ -21,22 +15,12 @@ from models import (
     AgentResponse,
     ActionCompleteRequest,
     CompactRequest,
-    ScreenshotRequest,
     StopRequest,
 )
 from context_manager import ContextManager
-from workspace import (
-    ensure_session_dir,
-    write_session_plan,
-    read_session_plan,
-    append_session_notes,
-    write_session_file,
-    read_session_file,
-    list_session_files,
-    read_memory,
-    read_daily_memory,
-)
-from skills import get_skill_body
+from workspace import ensure_session_dir
+from utilities import ConnectionManager, log_entry, log_and_send
+from tools import execute_agent_tool, auto_compact
 
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
@@ -49,9 +33,6 @@ print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direc
 
 app = FastAPI(title="Emulation Agent API")
 
-SCREENSHOTS_DIR = Path(__file__).parent / "emulation_screen_shots"
-SCREENSHOTS_DIR.mkdir(exist_ok=True)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,146 +41,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ── WebSocket connection manager ─────────────────────────────────────────────
-
-class ConnectionManager:
-    def __init__(self):
-        self._sockets: dict[str, WebSocket] = {}
-
-    async def connect(self, session_id: str, ws: WebSocket):
-        await ws.accept()
-        self._sockets[session_id] = ws
-        print(f"[ws] connected  session={session_id}")
-
-    def disconnect(self, session_id: str):
-        self._sockets.pop(session_id, None)
-        print(f"[ws] disconnected session={session_id}")
-
-    async def send(self, session_id: str, message: dict):
-        ws = self._sockets.get(session_id)
-        if ws:
-            await ws.send_json(message)
-
 manager = ConnectionManager()
 context_manager = ContextManager()
-
-
-# ── Simple session conversation logger ───────────────────────────────────────
-
-def _log(session_id: str, entry: str) -> None:
-    """Append a timestamped line to .emu/sessions/<id>/logs/conversation.log"""
-    from workspace import get_sessions_dir
-    log_dir = get_sessions_dir() / session_id / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%H:%M:%S")
-    with open(log_dir / "conversation.log", "a", encoding="utf-8") as f:
-        f.write(f"[{ts}] {entry}\n")
-
-
-async def _log_and_send(session_id: str, entry: str) -> None:
-    """Log + push to frontend via websocket."""
-    _log(session_id, entry)
-    await manager.send(session_id, {"type": "log", "message": entry})
-
-
-# ── Agent tool handlers ──────────────────────────────────────────────────────
-
-async def handle_compact_context(session_id: str, focus: str = "") -> str:
-    """Handle the model's compact_context tool call."""
-    chain_len = context_manager.chain_length(session_id)
-    if chain_len <= 4:
-        return "Context is already short — no compaction needed."
-
-    await manager.send(session_id, {
-        "type": "status",
-        "message": "Compacting context as requested...",
-    })
-
-    try:
-        compact_messages = context_manager.get_compact_messages(session_id)
-        summary = compact_model(compact_messages)
-        old_len = chain_len
-        context_manager.reset_with_summary(session_id, summary)
-        new_len = context_manager.chain_length(session_id)
-        msg = f"Context compacted: {old_len} → {new_len} messages."
-        if focus:
-            msg += f" Focused on: {focus}"
-        print(f"[compact] Model-initiated. {old_len} → {new_len} messages")
-        await manager.send(session_id, {"type": "status", "message": msg})
-        return msg
-    except Exception as e:
-        print(f"[compact] Failed: {e}")
-        return f"Compaction failed: {e}. Continue without it."
-
-
-def handle_read_plan(session_id: str) -> str:
-    """Handle the model's read_plan tool call."""
-    plan = read_session_plan(session_id)
-    if plan:
-        return f"[YOUR PLAN]\n{plan}"
-    else:
-        return "No plan.md found for this session. You may need to create one."
-
-
-def handle_update_plan(session_id: str, content: str) -> str:
-    """Handle the model's update_plan tool call."""
-    if not content:
-        return "No content provided for plan update."
-    write_session_plan(session_id, content)
-    return "Plan updated successfully."
-
-
-def handle_read_memory(target: str = "long_term") -> str:
-    """Handle the model's read_memory tool call."""
-    try:
-        if target == "long_term":
-            content = read_memory()
-            if content:
-                return f"[MEMORY.md]\n{content}"
-            return "MEMORY.md is empty or does not exist yet."
-        elif target == "preferences":
-            from pathlib import Path
-            _backend_dir = Path(__file__).parent
-            _project_root = _backend_dir.parent
-            prefs_path = _project_root / ".emu" / "global" / "preferences.md"
-            if prefs_path.exists():
-                content = prefs_path.read_text(encoding="utf-8").strip()
-                if content:
-                    return f"[preferences.md]\n{content}"
-            return "preferences.md is empty or does not exist yet."
-        elif target == "daily_log":
-            content = read_daily_memory()
-            if content:
-                return f"[Today's daily log]\n{content}"
-            return "No daily log for today yet."
-        else:
-            return f"Unknown memory target: {target}. Use long_term, preferences, or daily_log."
-    except Exception as e:
-        return f"Memory read failed: {e}"
-
-
-def handle_use_skill(skill_name: str) -> str:
-    """Handle the model's use_skill tool call — load full skill body on demand."""
-    from skills import load_skills
-    available = [s.name for s in load_skills()]
-    available_str = ", ".join(available) if available else "(none)"
-
-    if not skill_name or skill_name.strip() in ("", ":", ": "):
-        return (
-            f"No valid skill name provided. "
-            f"Available skills: {available_str}. "
-            f"Call use_skill with one of these exact names."
-        )
-    body = get_skill_body(skill_name)
-    if body:
-        return f"[SKILL: {skill_name}]\n\n{body}"
-    else:
-        return (
-            f"Skill '{skill_name}' not found. "
-            f"Available skills: {available_str}. "
-            f"Use one of these exact names."
-        )
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -207,22 +50,6 @@ def handle_use_skill(skill_name: str) -> str:
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
-
-
-@app.post("/screenshot")
-async def receive_screenshot(req: ScreenshotRequest):
-    """Accept a base64 PNG from Electron, decode and save to disk."""
-    try:
-        img_bytes = base64.b64decode(req.image)
-        img = Image.open(io.BytesIO(img_bytes))
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"screenshot_{ts}.png"
-        filepath = SCREENSHOTS_DIR / filename
-        img.save(filepath, format="PNG")
-        print(f"[screenshot] saved {filename} ({img.width}×{img.height})")
-        return {"success": True, "filename": filename, "width": img.width, "height": img.height}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @app.post("/agent/session")
@@ -259,10 +86,10 @@ async def agent_step(req: AgentRequest):
     # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
         context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
-        _log(session_id, "[user] <screenshot>")
+        log_entry(session_id, "[user] <screenshot>")
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
-        await _log_and_send(session_id, f"[user] {req.user_message}")
+        await log_and_send(session_id, f"[user] {req.user_message}", manager)
 
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
@@ -351,10 +178,12 @@ async def agent_step(req: AgentRequest):
                 except json.JSONDecodeError:
                     args = {}
 
-                result = await _execute_agent_tool(session_id, tc.name, args)
+                result = await execute_agent_tool(
+                    session_id, tc.name, args, manager, context_manager, compact_model,
+                )
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
-                await _log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}")
+                await log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}", manager)
 
                 # If update_plan was called, capture the plan content for review
                 if tc.name == "update_plan":
@@ -433,9 +262,9 @@ async def agent_step(req: AgentRequest):
     # Log the assistant's action/response
     reasoning_preview = (response.reasoning_content or "")[:200]
     if response.done:
-        await _log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}")
+        await log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}", manager)
     else:
-        await _log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}")
+        await log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}", manager)
 
     # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)
@@ -459,7 +288,7 @@ async def agent_step(req: AgentRequest):
 
     # Run auto-compact if needed
     if needs_compact and not response.done:
-        await _auto_compact(session_id)
+        await auto_compact(session_id, context_manager, compact_model, manager)
 
     if response.done:
         await manager.send(session_id, {
@@ -475,74 +304,6 @@ async def agent_step(req: AgentRequest):
         "confidence": response.confidence,
         "final_message": response.final_message,
     }
-
-
-# ── Agent tool dispatcher ───────────────────────────────────────────────────
-
-async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
-    """Execute an agent tool by name and return the result string."""
-    if name == "update_plan":
-        plan_content = args.get("content", "")
-        result = handle_update_plan(session_id, plan_content)
-        # Plan review is handled by the agent loop gate — no tool_event needed
-        return result
-    elif name == "read_plan":
-        return handle_read_plan(session_id)
-    elif name == "use_skill":
-        return handle_use_skill(args.get("skill_name", ""))
-    elif name == "read_memory":
-        return handle_read_memory(target=args.get("target", "long_term"))
-    elif name == "write_session_file":
-        filename = args.get("filename", "")
-        # Determine if this is a create or edit
-        existing = read_session_file(session_id, filename) is not None
-        result = write_session_file(session_id, filename, args.get("content", ""))
-        # Notify frontend with file card
-        if "written" in result:
-            sanitized = filename.strip().replace("/", "").replace("\\", "")
-            if not sanitized.endswith(".md"):
-                sanitized += ".md"
-            await manager.send(session_id, {
-                "type": "tool_event",
-                "event": "file_written",
-                "filename": sanitized,
-                "action": "edited" if existing else "created",
-            })
-        return result
-    elif name == "read_session_file":
-        result = read_session_file(session_id, args.get("filename", ""))
-        return result if result is not None else f"File '{args.get('filename')}' not found."
-    elif name == "list_session_files":
-        files = list_session_files(session_id)
-        if not files:
-            return "No files in current session. (plan.md and notes.md are considered system files)"
-        return "Session files: " + ", ".join(files)
-    elif name == "compact_context":
-        return await handle_compact_context(session_id, focus=args.get("focus", ""))
-    else:
-        args_str = json.dumps(args, ensure_ascii=False)
-        return (
-            f"ERROR: Unknown function tool '{name}' called with arguments: {args_str}\n\n"
-            f"If '{name}' is a desktop action (like shell_exec or mouse_move), "
-            f"you MUST return it as a plain JSON text response (e.g. {{\"action\": {{\"type\": \"{name}\", ...}}}}), "
-            f"NOT as a function tool call. Please try again using the proper format."
-        )
-
-
-async def _auto_compact(session_id: str):
-    """Safety-net auto-compaction."""
-    print(f"[auto-compact] Running...")
-    await manager.send(session_id, {"type": "status", "message": "Auto-compacting context..."})
-    try:
-        compact_messages = context_manager.get_compact_messages(session_id)
-        summary = compact_model(compact_messages)
-        old_len = context_manager.chain_length(session_id)
-        context_manager.reset_with_summary(session_id, summary)
-        new_len = context_manager.chain_length(session_id)
-        print(f"[auto-compact] Done. {old_len} → {new_len} messages")
-        await manager.send(session_id, {"type": "status", "message": f"Compacted: {old_len} → {new_len}"})
-    except Exception as e:
-        print(f"[auto-compact] Failed (non-fatal): {e}")
 
 
 @app.post("/action/complete")

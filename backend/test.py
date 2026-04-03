@@ -19,7 +19,7 @@ from prompts.system_prompt import SYSTEM_PROMPT
 
 # --- Configuration ---
 MODAL_URL = os.getenv("MODAL_VLM_URL", "")
-SCREENSHOT_DIR = Path(__file__).parent / "emulation_screen_shots"
+SCREENSHOT_DIR = Path(__file__).parent.parent / ".emu" / "sessions"
 
 
 def get_latest_screenshot(directory: Path) -> Path:
@@ -112,7 +112,7 @@ def main():
         "--image",
         type=str,
         default=None,
-        help="Path to screenshot image (default: latest in emulation_screen_shots/)",
+        help="Path to screenshot image",
     )
     parser.add_argument(
         "--task",
