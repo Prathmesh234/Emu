@@ -23,7 +23,6 @@ class ActionType(str, Enum):
     COMPACT_CONTEXT = "compact_context"
     READ_PLAN       = "read_plan"
     UPDATE_PLAN     = "update_plan"
-    WRITE_MEMORY       = "write_memory"
     READ_MEMORY        = "read_memory"
     USE_SKILL          = "use_skill"
     WRITE_SESSION_FILE = "write_session_file"
@@ -61,7 +60,7 @@ class Action(BaseModel):
     # Type text
     text: Optional[str] = Field(
         default=None,
-        description="String to type (TYPE_TEXT) or plan content (UPDATE_PLAN) or memory content (WRITE_MEMORY)"
+        description="String to type (TYPE_TEXT) or plan content (UPDATE_PLAN)"
     )
 
     # Key press
@@ -103,10 +102,7 @@ class Action(BaseModel):
         default=None,
         description="What to prioritize in compaction summary (used with COMPACT_CONTEXT)"
     )
-    target: Optional[Literal["daily_log", "long_term", "preferences"]] = Field(
-        default=None,
-        description="Memory target (used with WRITE_MEMORY)"
-    )
+
 
     # Skill invocation
     skill_name: Optional[str] = Field(

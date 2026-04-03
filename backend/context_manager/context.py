@@ -108,7 +108,7 @@ class ContextManager:
         # Skip if: already injected, or message is system feedback (tool results, action results, etc.)
         is_system_feedback = text.startswith("[") and any(
             text.startswith(prefix) for prefix in [
-                "[update_plan result]", "[read_plan result]", "[write_memory result]",
+                "[update_plan result]", "[read_plan result]",
                 "[compact_context result]", "[shell_exec", "[ACTION REJECTED]",
                 "[PLAN CHECKPOINT", "[CONTEXT CONTINUATION]", "[PLANNING REQUIRED]",
                 "[PLAN CHECK]",

@@ -150,46 +150,6 @@ def handle_update_plan(session_id: str, content: str) -> str:
     return "Plan updated successfully."
 
 
-def handle_write_memory(session_id: str, content: str, target: str = "daily_log") -> str:
-    """Handle the model's write_memory tool call."""
-    if not content:
-        return "No content provided for memory write."
-
-    _backend_dir = Path(__file__).parent
-    _project_root = _backend_dir.parent
-    _emu_dir = _project_root / ".emu"
-
-    try:
-        if target == "daily_log":
-            today = datetime.now().strftime("%Y-%m-%d")
-            time_now = datetime.now().strftime("%H:%M")
-            memory_dir = _emu_dir / "workspace" / "memory"
-            memory_dir.mkdir(parents=True, exist_ok=True)
-            daily_path = memory_dir / f"{today}.md"
-            with open(daily_path, "a", encoding="utf-8") as f:
-                f.write(f"\n### {time_now}\n{content}\n")
-            return f"Written to daily log ({today})."
-
-        elif target == "long_term":
-            memory_path = _emu_dir / "workspace" / "MEMORY.md"
-            with open(memory_path, "a", encoding="utf-8") as f:
-                f.write(f"\n{content}\n")
-            return "Written to long-term memory (MEMORY.md)."
-
-        elif target == "preferences":
-            prefs_path = _emu_dir / "global" / "preferences.md"
-            prefs_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(prefs_path, "a", encoding="utf-8") as f:
-                f.write(f"\n{content}\n")
-            return "Written to preferences."
-
-        else:
-            return f"Unknown memory target: {target}. Use daily_log, long_term, or preferences."
-
-    except Exception as e:
-        return f"Memory write failed: {e}"
-
-
 def handle_read_memory(target: str = "long_term") -> str:
     """Handle the model's read_memory tool call."""
     try:
@@ -530,12 +490,6 @@ async def _execute_agent_tool(session_id: str, name: str, args: dict) -> str:
         return handle_read_plan(session_id)
     elif name == "use_skill":
         return handle_use_skill(args.get("skill_name", ""))
-    elif name == "write_memory":
-        return handle_write_memory(
-            session_id,
-            content=args.get("content", ""),
-            target=args.get("target", "daily_log"),
-        )
     elif name == "read_memory":
         return handle_read_memory(target=args.get("target", "long_term"))
     elif name == "write_session_file":

@@ -125,30 +125,6 @@ AGENT_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
-            "name": "write_memory",
-            "description": (
-                "Save observations, decisions, or user preferences to persistent memory."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "What to save",
-                    },
-                    "target": {
-                        "type": "string",
-                        "enum": ["daily_log", "long_term", "preferences"],
-                        "description": "Memory target (default: daily_log)",
-                    },
-                },
-                "required": ["content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "read_memory",
             "description": (
                 "Read a memory file from the .emu workspace. "

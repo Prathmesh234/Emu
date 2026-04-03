@@ -203,12 +203,10 @@ Call them like normal tool/function calls — NOT as JSON actions:
   read_session_file(name)  — Read a scratchpad file you saved earlier
   list_session_files()     — See what temporary files exist in your session
   use_skill(skill_name)    — Load a skill's full instructions by name
-  write_memory(content, target) — Save to daily_log, long_term memory, or preferences
   read_memory(target)      — Read long_term (MEMORY.md), preferences, or daily_log
   compact_context(focus)   — Compress your conversation history when it gets long
 
-MEMORY: At task start, read_memory(long_term) for past learnings. After a task,
-write_memory to save what you learned. Memory makes you smarter over time.
+MEMORY: At task start, read_memory(long_term) for past learnings.
 
 SKILLS: Check <skills> in workspace context. If a skill matches the task,
 load it with use_skill BEFORE attempting the task.
