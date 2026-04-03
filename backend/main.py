@@ -85,6 +85,24 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
+# ── Simple session conversation logger ───────────────────────────────────────
+
+def _log(session_id: str, entry: str) -> None:
+    """Append a timestamped line to .emu/sessions/<id>/logs/conversation.log"""
+    from workspace import get_sessions_dir
+    log_dir = get_sessions_dir() / session_id / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%H:%M:%S")
+    with open(log_dir / "conversation.log", "a", encoding="utf-8") as f:
+        f.write(f"[{ts}] {entry}\n")
+
+
+async def _log_and_send(session_id: str, entry: str) -> None:
+    """Log + push to frontend via websocket."""
+    _log(session_id, entry)
+    await manager.send(session_id, {"type": "log", "message": entry})
+
+
 # ── Agent tool handlers ──────────────────────────────────────────────────────
 
 async def handle_compact_context(session_id: str, focus: str = "") -> str:
@@ -281,8 +299,10 @@ async def agent_step(req: AgentRequest):
     # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
         context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
+        _log(session_id, "[user] <screenshot>")
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
+        await _log_and_send(session_id, f"[user] {req.user_message}")
 
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
@@ -374,6 +394,7 @@ async def agent_step(req: AgentRequest):
                 result = await _execute_agent_tool(session_id, tc.name, args)
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
+                await _log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}")
 
                 # If update_plan was called, capture the plan content for review
                 if tc.name == "update_plan":
@@ -448,6 +469,13 @@ async def agent_step(req: AgentRequest):
 
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
+
+    # Log the assistant's action/response
+    reasoning_preview = (response.reasoning_content or "")[:200]
+    if response.done:
+        await _log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}")
+    else:
+        await _log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}")
 
     # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)

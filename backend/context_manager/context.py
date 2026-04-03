@@ -490,3 +490,7 @@ class ContextManager:
     def chain_length(self, session_id: str) -> int:
         """Return the number of messages in a session's context chain."""
         return len(self._get(session_id))
+
+    def get_raw_history(self, session_id: str) -> list[PreviousMessage]:
+        """Return the full, untruncated conversation history for logging."""
+        return list(self._get(session_id))

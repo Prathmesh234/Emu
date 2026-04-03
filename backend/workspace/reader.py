@@ -187,6 +187,7 @@ def ensure_session_dir(session_id: str) -> Path:
     session_dir = _SESSIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "screenshots").mkdir(exist_ok=True)
+    (session_dir / "logs").mkdir(exist_ok=True)
     return session_dir
 
 
