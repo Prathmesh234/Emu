@@ -10,6 +10,7 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const crypto = require('crypto');
 const { screen } = require('electron');
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -99,6 +100,25 @@ function initEmu(appVersion = '0.0.0') {
     coordinate_system: 'normalized_0_1',
   };
 
+  // Gather hardware info (no personal data)
+  const cpus = os.cpus();
+  const hardware = {
+    cpu_model:    cpus.length > 0 ? cpus[0].model.trim() : 'unknown',
+    cpu_cores:    cpus.length,
+    total_memory_gb: Math.round(os.totalmem() / (1024 ** 3) * 10) / 10,
+    free_memory_gb:  Math.round(os.freemem() / (1024 ** 3) * 10) / 10,
+    endianness:   os.endianness(),
+  };
+
+  // Working directory info — expose folder name only, never full path
+  const workingDir = {
+    folder_name:  path.basename(PROJECT_ROOT),
+    is_git_repo:  fs.existsSync(path.join(PROJECT_ROOT, '.git')),
+  };
+
+  // Anonymized device fingerprint (hashed hostname, no PII)
+  const deviceId = crypto.createHash('sha256').update(os.hostname()).digest('hex').slice(0, 12);
+
   // 5. Write or update manifest.json
   if (!alreadyExists) {
     const manifest = {
@@ -121,16 +141,30 @@ function initEmu(appVersion = '0.0.0') {
         os_name:      osDisplayName,
         arch:         os.arch(),
         electron:     process.versions.electron || 'unknown',
+        node:         process.versions.node || 'unknown',
+        chrome:       process.versions.chrome || 'unknown',
         python:       'unknown',   // filled in by backend later
       },
       device_details: deviceDetails,
+      hardware,
+      working_directory: workingDir,
+      device_id: deviceId,
+      system: {
+        uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
+        shell:         process.env.SHELL || process.env.COMSPEC || 'unknown',
+        locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
+        timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+      },
     };
     fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2), 'utf-8');
   } else {
-    // Always update device_details and platform on launch (screen or OS may have changed)
+    // Always update device_details, hardware, and platform on launch (screen or OS may have changed)
     try {
       const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
       existing.device_details = deviceDetails;
+      existing.hardware = hardware;
+      existing.working_directory = workingDir;
+      existing.device_id = existing.device_id || deviceId;
       existing.platform = {
         ...existing.platform,
         os:         os.platform(),
@@ -138,6 +172,14 @@ function initEmu(appVersion = '0.0.0') {
         os_name:    osDisplayName,
         arch:       os.arch(),
         electron:   process.versions.electron || 'unknown',
+        node:       process.versions.node || 'unknown',
+        chrome:     process.versions.chrome || 'unknown',
+      };
+      existing.system = {
+        uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
+        shell:         process.env.SHELL || process.env.COMSPEC || 'unknown',
+        locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
+        timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
       };
       fs.writeFileSync(MANIFEST, JSON.stringify(existing, null, 2), 'utf-8');
     } catch (e) {

@@ -270,20 +270,33 @@ def read_manifest() -> Optional[dict]:
 
 
 def get_device_details() -> dict:
-    """Extract platform and device details from manifest.json for system prompt injection."""
+    """Extract platform, hardware, and environment details from manifest.json for system prompt injection."""
     manifest = read_manifest()
     if not manifest:
         return {}
     result = {}
     platform = manifest.get("platform", {})
     if platform:
-        result["os_name"] = platform.get("os_name", "macOS")
+        result["os_name"] = platform.get("os_name", "unknown")
         result["arch"] = platform.get("arch", "unknown")
     device = manifest.get("device_details", {})
     if device:
         result["screen_width"] = device.get("screen_width")
         result["screen_height"] = device.get("screen_height")
         result["scale_factor"] = device.get("scale_factor")
+    hardware = manifest.get("hardware", {})
+    if hardware:
+        result["cpu_model"] = hardware.get("cpu_model")
+        result["cpu_cores"] = hardware.get("cpu_cores")
+        result["total_memory_gb"] = hardware.get("total_memory_gb")
+    working_dir = manifest.get("working_directory", {})
+    if working_dir:
+        result["folder_name"] = working_dir.get("folder_name")
+    system = manifest.get("system", {})
+    if system:
+        result["locale"] = system.get("locale")
+        result["timezone"] = system.get("timezone")
+        result["shell"] = system.get("shell")
     return result
 
 
