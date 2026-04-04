@@ -1,6 +1,6 @@
 // services/api.js — HTTP API calls to backend
 
-const BACKEND_URL = 'http://172.23.104.4:8000';
+const BACKEND_URL = 'http://127.0.0.1:8000';
 
 async function createSession() {
     const res = await fetch(`${BACKEND_URL}/agent/session`, { method: 'POST' });

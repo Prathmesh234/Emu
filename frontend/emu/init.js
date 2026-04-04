@@ -10,6 +10,7 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const crypto = require('crypto');
 const { screen } = require('electron');
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ const EMU_DIR      = path.join(PROJECT_ROOT, '.emu');
 const WORKSPACE    = path.join(EMU_DIR, 'workspace');
 const MEMORY       = path.join(WORKSPACE, 'memory');
 const SESSIONS     = path.join(EMU_DIR, 'sessions');
+const SKILLS       = path.join(EMU_DIR, 'skills');
 const GLOBAL       = path.join(EMU_DIR, 'global');
 const MANIFEST     = path.join(EMU_DIR, 'manifest.json');
 
@@ -37,7 +39,7 @@ function initEmu(appVersion = '0.0.0') {
   const alreadyExists = fs.existsSync(MANIFEST);
 
   // 1. Create directory tree
-  [EMU_DIR, WORKSPACE, MEMORY, SESSIONS, GLOBAL].forEach(dir => {
+  [EMU_DIR, WORKSPACE, MEMORY, SESSIONS, SKILLS, GLOBAL].forEach(dir => {
     fs.mkdirSync(dir, { recursive: true });
   });
 
@@ -71,6 +73,15 @@ function initEmu(appVersion = '0.0.0') {
   const physicalWidth  = Math.round(screenWidth * scaleFactor);
   const physicalHeight = Math.round(screenHeight * scaleFactor);
 
+  // Collect OS version information
+  const osVersion = typeof process.getSystemVersion === 'function'
+      ? process.getSystemVersion()     // Electron API
+      : os.release();                  // Fallback: kernel version
+
+  const osDisplayName = os.platform() === 'win32'
+      ? `Windows ${osVersion}`
+      : `${os.platform()} ${osVersion}`;
+
   const deviceDetails = {
     screen_width:    screenWidth,
     screen_height:   screenHeight,
@@ -81,6 +92,25 @@ function initEmu(appVersion = '0.0.0') {
     rotation:        primaryDisplay.rotation || 0,
     coordinate_system: 'normalized_0_1',
   };
+
+  // Gather hardware info (no personal data)
+  const cpus = os.cpus();
+  const hardware = {
+    cpu_model:    cpus.length > 0 ? cpus[0].model.trim() : 'unknown',
+    cpu_cores:    cpus.length,
+    total_memory_gb: Math.round(os.totalmem() / (1024 ** 3) * 10) / 10,
+    free_memory_gb:  Math.round(os.freemem() / (1024 ** 3) * 10) / 10,
+    endianness:   os.endianness(),
+  };
+
+  // Working directory info — expose folder name only, never full path
+  const workingDir = {
+    folder_name:  path.basename(PROJECT_ROOT),
+    is_git_repo:  fs.existsSync(path.join(PROJECT_ROOT, '.git')),
+  };
+
+  // Anonymized device fingerprint (hashed hostname, no PII)
+  const deviceId = crypto.createHash('sha256').update(os.hostname()).digest('hex').slice(0, 12);
 
   // 5. Write or update manifest.json
   if (!alreadyExists) {
@@ -99,19 +129,51 @@ function initEmu(appVersion = '0.0.0') {
         history: ['claude'],
       },
       platform: {
-        os:       os.platform(),
-        arch:     os.arch(),
-        electron: process.versions.electron || 'unknown',
-        python:   'unknown',   // filled in by backend later
+        os:           os.platform(),
+        os_version:   osVersion,
+        os_name:      osDisplayName,
+        arch:         os.arch(),
+        electron:     process.versions.electron || 'unknown',
+        node:         process.versions.node || 'unknown',
+        chrome:       process.versions.chrome || 'unknown',
+        python:       'unknown',   // filled in by backend later
       },
       device_details: deviceDetails,
+      hardware,
+      working_directory: workingDir,
+      device_id: deviceId,
+      system: {
+        uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
+        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
+        locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
+        timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+      },
     };
     fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2), 'utf-8');
   } else {
-    // Always update device_details on launch (screen may have changed)
+    // Always update device_details, hardware, and platform on launch (screen or OS may have changed)
     try {
       const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
       existing.device_details = deviceDetails;
+      existing.hardware = hardware;
+      existing.working_directory = workingDir;
+      existing.device_id = existing.device_id || deviceId;
+      existing.platform = {
+        ...existing.platform,
+        os:         os.platform(),
+        os_version: osVersion,
+        os_name:    osDisplayName,
+        arch:       os.arch(),
+        electron:   process.versions.electron || 'unknown',
+        node:       process.versions.node || 'unknown',
+        chrome:     process.versions.chrome || 'unknown',
+      };
+      existing.system = {
+        uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
+        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
+        locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
+        timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+      };
       fs.writeFileSync(MANIFEST, JSON.stringify(existing, null, 2), 'utf-8');
     } catch (e) {
       console.warn('[emu] failed to update device_details in manifest:', e.message);
@@ -129,4 +191,4 @@ function getEmuDir() {
   return EMU_DIR;
 }
 
-module.exports = { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, GLOBAL, MANIFEST };
+module.exports = { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, SKILLS, GLOBAL, MANIFEST };

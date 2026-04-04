@@ -1,4 +1,4 @@
-# Backend Architecture — Modal GPU Integration
+# Backend Architecture (v0.1) — Modal GPU Integration
 
 This document details the backend architecture for the Emulation Agent, focusing on Modal as the GPU container service for hosting vision-language models.
 
@@ -25,7 +25,7 @@ This document details the backend architecture for the Emulation Agent, focusing
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │                     Electron Frontend (main.js)                      │   │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐   │   │
-│  │  │  Chat UI    │◄──►│  IPC Bridge │◄──►│  PowerShell Process     │   │   │
+│  │  │  Chat UI    │◄──►│  IPC Bridge │◄──►│  Shell Process          │   │   │
 │  │  │  (renderer) │    │  (actions/) │    │  (psProcess.js)         │   │   │
 │  │  └─────────────┘    └──────┬──────┘    └─────────────────────────┘   │   │
 │  │                            │                                          │   │
@@ -106,7 +106,7 @@ Step 5: MODEL RESPONSE
            ▼
 Step 6: EXECUTE ACTION
     Backend sends action to Electron
-    PowerShell executes: mouse move, click, type, scroll, etc.
+    Shell executes: mouse move, click, type, scroll, etc via PowerShell Win32 API
            │
            ▼
 Step 7: CAPTURE NEW STATE
@@ -124,7 +124,7 @@ Step 8: LOOP OR TERMINATE
 ### Detailed Sequence Diagram
 
 ```
-User          Electron        Backend         Modal           PowerShell
+User          Electron        Backend         Modal           Shell
  │               │               │               │               │
  │──"open calc"──►               │               │               │
  │               │               │               │               │
@@ -200,7 +200,7 @@ emulation-agent/
 │   │   ├── scroll.js              # Scroll up/down
 │   │   └── window.js              # Window minimize/restore
 │   └── process/
-│       └── psProcess.js           # Persistent PowerShell subprocess
+│       └── psProcess.js           # Persistent Shell subprocess
 │
 ├── main.js                        # Electron main process
 ├── package.json

@@ -4,17 +4,10 @@ const psProcess = require('./frontend/process/psProcess');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
 
-const BACKEND_URL = 'http://172.23.104.4:8000';
+const BACKEND_URL = 'http://127.0.0.1:8000';
 
 let mainWindow;
-
-// ── IPC handlers (co-located with their action files) ─────────────────────
-const { registerAll } = require('./frontend/actions');
-registerAll(ipcMain, {
-    BACKEND_URL,
-    screen,
-    getMainWindow: () => mainWindow
-});
+let borderWindow;
 
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -46,6 +39,47 @@ function createWindow() {
 app.whenReady().then(() => {
   // Bootstrap .emu/ folder (idempotent — safe on every launch)
   initEmu(pkg.version);
+
+  // Set up IPC for the desktop border
+  ipcMain.on('set-generating', (event, generating) => {
+    if (generating) {
+      if (!borderWindow) {
+        const primaryDisplay = screen.getPrimaryDisplay();
+        borderWindow = new BrowserWindow({
+          x: primaryDisplay.bounds.x,
+          y: primaryDisplay.bounds.y,
+          width: primaryDisplay.bounds.width,
+          height: primaryDisplay.bounds.height,
+          transparent: true,
+          frame: false,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          hasShadow: false,
+          focusable: false,
+          webPreferences: { nodeIntegration: true, contextIsolation: false }
+        });
+        borderWindow.setIgnoreMouseEvents(true, { forward: true });
+        // Set window level to float above everything (screen saver level)
+        borderWindow.setAlwaysOnTop(true, 'screen-saver');
+        borderWindow.setVisibleOnAllWorkspaces(true);
+        borderWindow.loadFile(path.join(__dirname, 'frontend', 'border.html'));
+      } else {
+        borderWindow.show();
+      }
+    } else {
+      if (borderWindow) {
+        borderWindow.hide();
+      }
+    }
+  });
+
+  // Register IPC handlers AFTER app is ready (desktopCapturer + screen need this)
+  const { registerAll } = require('./frontend/actions');
+  registerAll(ipcMain, {
+      BACKEND_URL,
+      screen,
+      getMainWindow: () => mainWindow
+  });
 
   psProcess.start();
   createWindow();

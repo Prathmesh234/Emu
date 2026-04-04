@@ -1,17 +1,10 @@
 """
-client.py — Google Gemini API client (Gemini 3 Flash)
+client.py — Google Gemini API client
 
-Uses the google-genai SDK (>= 1.51.0) with client.models.generate_content().
-System instructions are passed via GenerateContentConfig.system_instruction.
-Images are sent as types.Part with inline_data (types.Blob).
+Uses native function calling for agent tools (plan, memory, skills, etc.).
+Desktop actions are returned as JSON text responses.
 
-Docs: https://ai.google.dev/gemini-api/docs/gemini-3
-
-Drop-in replacement for other providers — same public interface:
-
-    call_model(agent_req: AgentRequest) -> AgentResponse
-    is_ready() -> bool
-    ensure_ready(**kwargs) -> None
+Docs: https://ai.google.dev/gemini-api/docs
 
 Environment:
     GOOGLE_API_KEY  — required
@@ -23,12 +16,13 @@ import json
 import os
 import re
 import time
+import uuid
 
 from google import genai
 from google.genai import types
 
-from models import Action, AgentRequest, AgentResponse, MessageRole
-from prompts import SYSTEM_PROMPT
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from providers.agent_tools import tools_for_gemini
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -38,9 +32,10 @@ MAX_TOKENS = 1024
 SCREENSHOT_PREFIX = "data:image/"
 
 client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+GEMINI_TOOLS = tools_for_gemini()
 
 
-# ── Public API (matches provider interface) ──────────────────────────────────
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def call_model(agent_req: AgentRequest) -> AgentResponse:
     system_prompt, contents = _build_contents(agent_req)
@@ -52,6 +47,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             max_output_tokens=MAX_TOKENS,
+            tools=GEMINI_TOOLS,
         ),
     )
     elapsed_ms = int((time.time() - start) * 1000)
@@ -70,23 +66,55 @@ def ensure_ready(**kwargs) -> None:
 # ── Message builder ──────────────────────────────────────────────────────────
 
 def _build_contents(req: AgentRequest) -> tuple[str, list]:
-    """Build (system_prompt, contents) using Gemini types.
-
-    Uses types.Content with types.Part for structured content.
-    Images are passed as types.Part with inline_data (types.Blob).
-    Gemini uses role="model" for assistant turns.
-    """
+    """Build (system_prompt, contents) using Gemini types."""
     system_prompt = ""
     contents: list[types.Content] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
             system_prompt = pm.content
+
         elif pm.role == MessageRole.assistant:
+            if pm.tool_calls:
+                # Gemini: model turn with function_call parts
+                parts = []
+                if pm.content:
+                    parts.append(types.Part(text=pm.content))
+                for tc in pm.tool_calls:
+                    fn = tc.get("function", {})
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    fc_kwargs = {"name": fn.get("name", ""), "args": args}
+                    # Pass ID if available (Gemini 3+ requires matching IDs)
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        fc_kwargs["id"] = tc_id
+                    parts.append(types.Part(
+                        function_call=types.FunctionCall(**fc_kwargs)
+                    ))
+                contents.append(types.Content(role="model", parts=parts))
+            else:
+                contents.append(types.Content(
+                    role="model",
+                    parts=[types.Part(text=pm.content)],
+                ))
+
+        elif pm.role == MessageRole.tool:
+            # Gemini: function_response as a user turn
+            tool_name = pm.tool_name or _find_tool_name(contents, pm.tool_call_id)
+            fr_kwargs = {"name": tool_name, "response": {"result": pm.content}}
+            # Pass matching ID if available (Gemini 3+ requires it)
+            if pm.tool_call_id:
+                fr_kwargs["id"] = pm.tool_call_id
             contents.append(types.Content(
-                role="model",
-                parts=[types.Part(text=pm.content)],
+                role="user",
+                parts=[types.Part(
+                    function_response=types.FunctionResponse(**fr_kwargs)
+                )],
             ))
+
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
                 mime_type, b64_data = _parse_data_uri(pm.content)
@@ -105,10 +133,18 @@ def _build_contents(req: AgentRequest) -> tuple[str, list]:
                     parts=[types.Part(text=pm.content)],
                 ))
 
-    # Gemini requires alternating user/model turns — merge consecutive same-role
     contents = _merge_consecutive(contents)
+    return system_prompt or "", contents
 
-    return system_prompt or SYSTEM_PROMPT.strip(), contents
+
+def _find_tool_name(contents: list[types.Content], tool_call_id: str | None) -> str:
+    """Find the tool name from the preceding model turn's function_call parts."""
+    for content in reversed(contents):
+        if content.role == "model":
+            for part in content.parts:
+                if hasattr(part, "function_call") and part.function_call:
+                    return part.function_call.name
+    return "unknown"
 
 
 def _parse_data_uri(data_uri: str) -> tuple[str, str]:
@@ -134,8 +170,37 @@ def _merge_consecutive(contents: list[types.Content]) -> list[types.Content]:
 # ── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
-    content = resp.text or ""
+    # Check for function_call parts
+    tool_calls = []
+    text_parts = []
 
+    candidate = resp.candidates[0] if resp.candidates else None
+    if candidate and candidate.content:
+        for part in candidate.content.parts:
+            if hasattr(part, "function_call") and part.function_call:
+                fc = part.function_call
+                # Gemini 3+ provides IDs; older models may not
+                fc_id = getattr(fc, "id", None) or str(uuid.uuid4())
+                tool_calls.append(ToolCallInfo(
+                    id=fc_id,
+                    name=fc.name,
+                    arguments=json.dumps(fc.args) if fc.args else "{}",
+                ))
+            elif hasattr(part, "text") and part.text:
+                text_parts.append(part.text)
+
+    if tool_calls:
+        print(f"[gemini] tool_calls: {[tc.name for tc in tool_calls]}")
+        return AgentResponse(
+            tool_calls=tool_calls,
+            done=False,
+            reasoning_content=None,
+            inference_time_ms=elapsed_ms,
+            model_name=MODEL_NAME,
+        )
+
+    # No tool calls — parse JSON desktop action from text
+    content = "".join(text_parts) or (resp.text or "")
     data = _extract_json(content)
 
     return AgentResponse(
@@ -153,13 +218,11 @@ def _extract_json(content: str) -> dict:
     """Pull the JSON object out of the model's text response."""
     text = content.strip()
 
-    # Strip markdown fences
     if "```json" in text:
         text = text.split("```json", 1)[1].split("```", 1)[0].strip()
     elif "```" in text:
         text = text.split("```", 1)[1].split("```", 1)[0].strip()
 
-    # Isolate outermost { … }
     brace_start = text.find("{")
     brace_end = text.rfind("}")
     if brace_start != -1 and brace_end != -1:
@@ -170,17 +233,13 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Common JSON repairs
     repaired = text
-    # Trailing commas
     repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
-    # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
     repaired = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', repaired)
     try:
         return json.loads(repaired)
     except json.JSONDecodeError:
         pass
 
-    # Plain text response — treat as conversational done, not a loop
-    print(f"[gemini] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
-    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}
+    print(f"[gemini] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
+    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}
