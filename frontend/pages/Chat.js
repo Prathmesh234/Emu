@@ -4,7 +4,8 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, ErrorCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
 const store = require('../state/store');
@@ -38,6 +39,7 @@ function scrollToBottom() {
 
 function syncGeneratingUI(generating) {
     store.setGenerating(generating);
+    ipcRenderer.send('set-generating', generating);
     if (generating) {
         chatInput.setMode('stop');
         chatInput.setTooltip('Click to stop the agent');
@@ -83,11 +85,7 @@ function addMessage(role, content, index) {
     const empty = chatWrapper.querySelector('.empty-state');
     if (empty) empty.remove();
 
-    const msg = Message(role, content, () => {
-        if (store.state.isGenerating) return;
-        if (role === 'user') editMessage(index);
-        else regenerate(index);
-    });
+    const msg = Message(role, content);
 
     chatWrapper.appendChild(msg.element);
     scrollToBottom();
@@ -232,19 +230,36 @@ async function sendMessage() {
     const text = chatInput.textarea.value.trim();
     if (!text) return;
 
-    // If currently generating, stop instead
+    // If currently generating, stop the current task first, then send the new message
     if (store.state.isGenerating) {
+        // Grab the text before stopping (stop clears state)
+        const pendingText = text;
         await stopAgent();
-        return;
+        // Wait for stop to settle
+        await sleep(300);
+        // Now send the new message by putting it back and recursing
+        chatInput.textarea.value = pendingText;
+        chatInput.sendBtn.disabled = false;
+        // Fall through to send logic below (isGenerating is now false)
+    }
+
+    let finalText = chatInput.textarea.value.trim();
+    if (!finalText) return;
+
+    // If user is refining a plan, prefix the message
+    if (store.state.pendingPlanRefine) {
+        finalText = `User wants to refine the plan: ${finalText}`;
+        store.state.pendingPlanRefine = false;
+        chatInput.textarea.placeholder = 'Ask anything...';
     }
 
     const chat = store.getCurrentChat();
     if (!chat) return;
 
     // Add user message
-    store.pushMessage(chat.id, { role: 'user', content: text });
-    addMessage('user', text, chat.messages.length - 1);
-    store.updateChatPreview(chat.id, text);
+    store.pushMessage(chat.id, { role: 'user', content: finalText });
+    addMessage('user', finalText, chat.messages.length - 1);
+    store.updateChatPreview(chat.id, finalText);
 
     // Clear input
     chatInput.textarea.value = '';
@@ -266,7 +281,7 @@ async function sendMessage() {
     // (see handleWsMessage 'step' case)
 
     // Debug: full-capture
-    if (/\bfull[-\s]?capture\b/i.test(text)) {
+    if (/\bfull[-\s]?capture\b/i.test(finalText)) {
         showStatus('Full capture (panel excluded)...');
         const result = await fullCapture();
         removeStatus();
@@ -293,7 +308,7 @@ async function respond(chat, base64Screenshot = null) {
 
     store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
     const contentEl = addMessage('assistant', '', chat.messages.length - 1);
-    contentEl.innerHTML = '<span class="typing"></span>';
+    contentEl.appendChild(createEmuRunner());
 
     // Create a step container for sequential step cards
     const stepContainer = document.createElement('div');
@@ -577,6 +592,89 @@ async function handleWsMessage(data) {
             console.log('[ws] received stopped from backend');
             syncGeneratingUI(false);
             break;
+
+        case 'plan_review': {
+            if (msgGenId !== _generationId) break;
+            removeStatus();
+
+            if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
+                let container = state.stepContainer;
+                if (container && !container.parentNode) {
+                    state.currentAssistantEl.appendChild(container);
+                }
+
+                const planCard = PlanCard(data.content);
+
+                planCard.acceptBtn.addEventListener('click', async () => {
+                    planCard.acceptBtn.disabled = true;
+                    planCard.refineBtn.disabled = true;
+                    planCard.acceptBtn.classList.add('chosen');
+
+                    // User accepted — inject approval into context and resume
+                    showStatus('Plan accepted — starting execution...');
+                    try {
+                        await api.postStep({
+                            sessionId: store.state.sessionId,
+                            userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
+                            base64Screenshot: '',
+                        });
+                    } catch (err) {
+                        console.error('[plan_review] accept failed:', err);
+                        removeStatus();
+                        syncGeneratingUI(false);
+                    }
+                }, { once: true });
+
+                planCard.refineBtn.addEventListener('click', async () => {
+                    planCard.acceptBtn.disabled = true;
+                    planCard.refineBtn.disabled = true;
+                    planCard.refineBtn.classList.add('chosen');
+
+                    // Pause — let user type refinement
+                    syncGeneratingUI(false);
+                    store.state.pendingPlanRefine = true;
+                    chatInput.textarea.placeholder = 'Describe how to refine the plan...';
+                    chatInput.textarea.focus();
+                }, { once: true });
+
+                if (container) {
+                    container.appendChild(planCard.element);
+                } else {
+                    state.currentAssistantEl.appendChild(planCard.element);
+                }
+            }
+            scrollToBottom();
+            break;
+        }
+
+        case 'tool_event': {
+            if (msgGenId !== _generationId) break;
+            removeStatus();
+
+            if (state.currentAssistantEl) {
+                const typing = state.currentAssistantEl.querySelector('.typing');
+                if (typing) typing.remove();
+
+                let container = state.stepContainer;
+                if (container && !container.parentNode) {
+                    state.currentAssistantEl.appendChild(container);
+                }
+
+                if (data.event === 'file_written') {
+                    const fileCard = FileCard(data.filename, data.action);
+                    if (container) {
+                        container.appendChild(fileCard.element);
+                    } else {
+                        state.currentAssistantEl.appendChild(fileCard.element);
+                    }
+                }
+            }
+            scrollToBottom();
+            break;
+        }
 
         case 'error':
             removeStatus();

@@ -1,11 +1,8 @@
 """
 client.py — Anthropic Claude API client
 
-Drop-in replacement for the Modal provider — same public interface:
-
-    call_model(agent_req: AgentRequest) -> AgentResponse
-    is_ready() -> bool
-    ensure_ready(**kwargs) -> None
+Uses native tool calling for agent tools (plan, memory, skills, etc.).
+Desktop actions are returned as JSON text responses.
 
 Environment:
     ANTHROPIC_API_KEY  — required
@@ -17,8 +14,8 @@ import time
 
 import anthropic
 
-from models import Action, AgentRequest, AgentResponse, MessageRole
-from prompts import SYSTEM_PROMPT
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from providers.agent_tools import tools_for_anthropic
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -28,18 +25,20 @@ MAX_TOKENS = 1024
 SCREENSHOT_PREFIX = "data:image/"
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+ANTHROPIC_TOOLS = tools_for_anthropic()
 
 
-# ── Public API (matches modal provider interface) ────────────────────────────
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def call_model(agent_req: AgentRequest) -> AgentResponse:
-    system_prompt, messages = _build_messages(agent_req)
+    system_blocks, messages = _build_messages(agent_req)
 
     start = time.time()
     resp = client.messages.create(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
-        system=system_prompt,
+        system=system_blocks,
+        tools=ANTHROPIC_TOOLS,
         messages=messages,
     )
     elapsed_ms = int((time.time() - start) * 1000)
@@ -57,16 +56,50 @@ def ensure_ready(**kwargs) -> None:
 
 # ── Message builder ──────────────────────────────────────────────────────────
 
-def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
-    """Build (system_prompt, messages) in Anthropic format."""
-    system_prompt = ""
+def _build_messages(req: AgentRequest) -> tuple[list[dict], list[dict]]:
+    """Build (system_blocks, messages) in Anthropic format.
+
+    Splits the system prompt at the <session> tag so the large static prefix
+    gets cache_control and stays cached across turns, while the small
+    dynamic session/workspace block changes freely.
+    """
+    system_text = ""
     raw: list[dict] = []
 
     for pm in req.previous_messages:
         if pm.role == MessageRole.system:
-            system_prompt = pm.content
+            system_text = pm.content
+
         elif pm.role == MessageRole.assistant:
-            raw.append({"role": "assistant", "content": pm.content})
+            if pm.tool_calls:
+                # Anthropic: assistant message with tool_use content blocks
+                content = []
+                if pm.content:
+                    content.append({"type": "text", "text": pm.content})
+                for tc in pm.tool_calls:
+                    fn = tc.get("function", {})
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    content.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": fn.get("name", ""),
+                        "input": args,
+                    })
+                raw.append({"role": "assistant", "content": content})
+            else:
+                raw.append({"role": "assistant", "content": pm.content})
+
+        elif pm.role == MessageRole.tool:
+            # Anthropic: tool results are user messages with tool_result blocks
+            raw.append({"role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": pm.tool_call_id or "",
+                "content": pm.content,
+            }]})
+
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
                 base64_data = pm.content
@@ -81,7 +114,33 @@ def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
             else:
                 raw.append({"role": "user", "content": pm.content})
 
-    return system_prompt or SYSTEM_PROMPT.strip(), _merge_consecutive(raw)
+    if not system_text:
+        system_text = ""
+
+    # Split at <session> to separate static (cacheable) from dynamic
+    session_marker = "<session>"
+    if session_marker in system_text:
+        static_part, dynamic_part = system_text.split(session_marker, 1)
+        system_blocks = [
+            {
+                "type": "text",
+                "text": static_part.rstrip(),
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": session_marker + dynamic_part,
+            },
+        ]
+    else:
+        # Fallback: no session marker — cache the whole thing
+        system_blocks = [{
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }] if system_text else []
+
+    return system_blocks, _merge_consecutive(raw)
 
 
 def _merge_consecutive(messages: list[dict]) -> list[dict]:
@@ -104,7 +163,33 @@ def _merge_consecutive(messages: list[dict]) -> list[dict]:
 # ── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
-    content = "".join(b.text for b in resp.content if b.type == "text")
+    # Check for tool_use blocks first
+    tool_calls = []
+    text_parts = []
+
+    for block in resp.content:
+        if block.type == "tool_use":
+            tool_calls.append(ToolCallInfo(
+                id=block.id,
+                name=block.name,
+                arguments=json.dumps(block.input),
+            ))
+        elif block.type == "text":
+            text_parts.append(block.text)
+
+    content = "".join(text_parts)
+
+    if tool_calls:
+        print(f"[claude] tool_calls: {[tc.name for tc in tool_calls]}")
+        return AgentResponse(
+            tool_calls=tool_calls,
+            done=False,
+            reasoning_content=None,
+            inference_time_ms=elapsed_ms,
+            model_name=MODEL_NAME,
+        )
+
+    # No tool calls — parse JSON desktop action from text
     data = _extract_json(content)
 
     return AgentResponse(
@@ -118,17 +203,41 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     )
 
 
+def _fix_literal_newlines(text: str) -> str:
+    """Escape literal newlines/tabs inside JSON string values."""
+    result = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+        elif ch == '\\' and in_string:
+            result.append(ch)
+            escape_next = True
+        elif ch == '"':
+            in_string = not in_string
+            result.append(ch)
+        elif ch == '\n' and in_string:
+            result.append('\\n')
+        elif ch == '\r' and in_string:
+            result.append('\\r')
+        elif ch == '\t' and in_string:
+            result.append('\\t')
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+
 def _extract_json(content: str) -> dict:
     """Pull the JSON object out of Claude's text response."""
     text = content.strip()
 
-    # Strip markdown fences
     if "```json" in text:
         text = text.split("```json", 1)[1].split("```", 1)[0].strip()
     elif "```" in text:
         text = text.split("```", 1)[1].split("```", 1)[0].strip()
 
-    # Isolate outermost { … }
     brace_start = text.find("{")
     brace_end = text.rfind("}")
     if brace_start != -1 and brace_end != -1:
@@ -139,18 +248,18 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Common JSON repairs
-    repaired = text
-    # Trailing commas
+    repaired = _fix_literal_newlines(text)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        pass
+
     repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
-    # Malformed coordinates: {"x":255,219} → {"x":255,"y":219}
-    # Handles both coordinates and end_coordinates fields
     repaired = re.sub(r'"x"\s*:\s*(\d+)\s*,\s*(\d+)\s*}', r'"x":\1,"y":\2}', repaired)
     try:
         return json.loads(repaired)
     except json.JSONDecodeError:
         pass
 
-    # Plain text response — treat as conversational done, not a loop
-    print(f"[claude] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
-    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 0.9}
+    print(f"[claude] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
+    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}

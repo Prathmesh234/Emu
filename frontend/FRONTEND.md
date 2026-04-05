@@ -1,4 +1,4 @@
-# Frontend Architecture
+# Frontend Architecture (v0.1)
 
 The core philosophy of this frontend is **reusability**. Every UI element should be a self-contained component that can be imported, composed, and reused across different parts of the application. This reduces code duplication, improves maintainability, and makes it easier to build new features by combining existing components.
 
@@ -37,7 +37,7 @@ frontend/
 │   ├── scroll.js          # Scroll action
 │   └── window.js          # Window positioning
 └── process/
-    └── psProcess.js       # PowerShell process manager
+    └── psProcess.js       # Persistent PowerShell process manager
 ```
 
 ## Components

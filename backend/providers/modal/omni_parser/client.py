@@ -19,8 +19,8 @@ import requests
 from PIL import Image
 
 # ── Endpoint URLs (from .env or fallback) ────────────────────────────────────
-MODAL_PARSE_URL = os.getenv("OMNIPARSER_PARSE_URL", "https://ppbhatt500--omniparser-v2-omniparserv2-parse.modal.run")
-MODAL_HEALTH_URL = os.getenv("OMNIPARSER_HEALTH_URL", "https://ppbhatt500--omniparser-v2-omniparserv2-health.modal.run")
+MODAL_PARSE_URL = os.getenv("OMNIPARSER_PARSE_URL", "")
+MODAL_HEALTH_URL = os.getenv("OMNIPARSER_HEALTH_URL", "")
 REQUEST_TIMEOUT = 300
 
 

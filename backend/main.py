@@ -1,47 +1,37 @@
-import base64
-import io
-import os
 import uuid
-from datetime import datetime
-from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
+
+import json
 
 from models import (
+    Action,
+    ActionType,
     AgentRequest,
     AgentResponse,
     ActionCompleteRequest,
     CompactRequest,
-    ScreenshotRequest,
     StopRequest,
 )
 from context_manager import ContextManager
 from workspace import ensure_session_dir
+from utilities import ConnectionManager, log_entry, log_and_send
+from tools import execute_agent_tool, auto_compact
 
 # ── Inference backend ────────────────────────────────────────────────────────
-# Auto-detects provider from environment variables.
-# Override with EMU_PROVIDER=claude|openai|gemini|openai_compatible|modal
-#
 from providers.registry import load_provider, load_compact_provider
+from context_manager.context import USE_OMNI_PARSER
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
 
-# ── OmniParser mode ──────────────────────────────────────────────────────────
-_use_omni = os.environ.get("USE_OMNI_PARSER", "").strip() in ("1", "true", "yes")
-print(f"[config] OmniParser: {'ENABLED' if _use_omni else 'DISABLED (direct screenshot mode)'}")
-if not _use_omni:
-    print(f"[config] To enable OmniParser, set USE_OMNI_PARSER=1")
+print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
 
 app = FastAPI(title="Emulation Agent API")
-
-SCREENSHOTS_DIR = Path(__file__).parent / "emulation_screen_shots"
-SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,57 +41,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ── WebSocket connection manager ─────────────────────────────────────────────────────
-
-class ConnectionManager:
-    def __init__(self):
-        self._sockets: dict[str, WebSocket] = {}
-
-    async def connect(self, session_id: str, ws: WebSocket):
-        await ws.accept()
-        self._sockets[session_id] = ws
-        print(f"[ws] connected  session={session_id}")
-
-    def disconnect(self, session_id: str):
-        self._sockets.pop(session_id, None)
-        print(f"[ws] disconnected session={session_id}")
-
-    async def send(self, session_id: str, message: dict):
-        ws = self._sockets.get(session_id)
-        if ws:
-            await ws.send_json(message)
-
 manager = ConnectionManager()
 context_manager = ContextManager()
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
 
 
-@app.post("/screenshot")
-async def receive_screenshot(req: ScreenshotRequest):
-    """Accept a base64 PNG from Electron, decode and save to disk."""
-    try:
-        img_bytes = base64.b64decode(req.image)
-        img = Image.open(io.BytesIO(img_bytes))
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"screenshot_{ts}.png"
-        filepath = SCREENSHOTS_DIR / filename
-        img.save(filepath, format="PNG")
-        print(f"[screenshot] saved {filename} ({img.width}×{img.height})")
-        return {"success": True, "filename": filename, "width": img.width, "height": img.height}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 @app.post("/agent/session")
 async def create_session():
-    """Create a new agent session, scaffold its .emu/sessions/<id>/ directory."""
+    """Create a new agent session."""
     session_id = str(uuid.uuid4())
     session_dir = ensure_session_dir(session_id)
     print(f"[session] created {session_id}  dir={session_dir}")
@@ -111,7 +64,6 @@ async def create_session():
 @app.get("/agent/session/{session_id}")
 async def get_session(session_id: str):
     """Return current session state."""
-    # Placeholder until full session management is implemented
     return {"session_id": session_id, "status": "active"}
 
 
@@ -120,109 +72,206 @@ async def agent_step(req: AgentRequest):
     """
     Main agent loop entry point.
 
-    Two modes of invocation:
-      1. New task:   user_message is set, base64_screenshot is empty.
-                     Adds the user text to context, calls the model.
-                     Model will likely respond with a screenshot action.
-
-      2. Screenshot: base64_screenshot is set (after frontend captures).
-                     Adds the screenshot to context, calls the model.
-                     Model sees the screen and decides the next action.
+    Simple loop:
+      1. Add user input to context
+      2. Call model
+      3. If tool_calls → execute tools, add results to context, re-call model (repeat)
+      4. If desktop action → validate, dispatch to frontend
+      5. If done → send final message
     """
     session_id = req.session_id or str(uuid.uuid4())
     has_screenshot = bool(req.base64_screenshot)
     has_text = bool(req.user_message.strip())
 
-    # ── Add to context ──────────────────────────────────────────────────────
+    # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
         context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
+        log_entry(session_id, "[user] <screenshot>")
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
-
-    # Build the request from accumulated history
-    agent_req = context_manager.build_request(session_id)
+        await log_and_send(session_id, f"[user] {req.user_message}", manager)
 
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
-    screenshot_kb = round(len(req.base64_screenshot) * 3 / 4 / 1024, 1) if has_screenshot else 0
-
-    print("\n" + "=" * 60)
-    print("[agent/step] NEW REQUEST")
-    print(f"  session_id  : {session_id}")
-    print(f"  mode        : {'screenshot' if has_screenshot else 'text'}")
-    print(f"  step_index  : {agent_req.step_index}")
+    print(f"\n{'=' * 60}")
+    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  chain={len(history)}")
     if has_text:
-        print(f"  user_message: {req.user_message}")
-    if has_screenshot:
-        print(f"  screenshot  : {screenshot_kb} KB")
-    print(f"\n  ── context chain ({len(history)} messages) ──")
-    for i, msg in enumerate(history):
-        if msg.content.startswith("data:image/"):
-            print(f"    [{i}] {msg.role.value:<10}  [SCREENSHOT]")
-        else:
-            preview = msg.content[:80].replace("\n", " ")
-            print(f"    [{i}] {msg.role.value:<10}  {preview}{'...' if len(msg.content) > 80 else ''}")
-    print("=" * 60 + "\n")
+        print(f"  message: {req.user_message[:120]}")
+    print(f"{'=' * 60}\n")
 
-    # Tell frontend we're thinking
-    await manager.send(session_id, {
-        "type": "status",
-        "message": "Processing your request..."
-    })
+    await manager.send(session_id, {"type": "status", "message": "Processing..."})
 
-    # ── Ensure inference backend is ready ───────────────────────────────────
+    # ── Ensure backend ready ─────────────────────────────────────────────────
     if not is_ready():
-        await manager.send(session_id, {
-            "type": "status",
-            "message": "Warming up inference server... (first request may take a moment)"
-        })
-
+        await manager.send(session_id, {"type": "status", "message": "Warming up..."})
     try:
         ensure_ready(timeout=300, poll_interval=5)
     except TimeoutError as e:
-        print(f"[agent/step] Container not ready: {e}")
-        await manager.send(session_id, {
-            "type": "error",
-            "message": "Inference server is not responding. Please try again in a minute.",
-        })
+        await manager.send(session_id, {"type": "error", "message": str(e)})
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
+    # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
+    MAX_TOOL_LOOPS = 10
+    response: AgentResponse | None = None
+    plan_pending_review: str | None = None  # set when update_plan is called
 
-    # ── Call inference backend ──────────────────────────────────────────────
-    try:
-        response: AgentResponse = call_model(agent_req)
-    except Exception as e:
-        print(f"[agent/step] Inference call failed: {e}")
-        await manager.send(session_id, {
-            "type": "error",
-            "message": f"Inference failed: {e}",
-        })
-        return {"session_id": session_id, "status": "error", "error": str(e)}
+    for loop_i in range(MAX_TOOL_LOOPS + 1):
+        # Call model
+        try:
+            agent_req = context_manager.build_request(session_id)
+            response = call_model(agent_req)
+        except Exception as e:
+            from pydantic import ValidationError
+            if isinstance(e, ValidationError):
+                print(f"[agent/step] Pydantic Validation failed: {e}")
+                # Inject the exact error into the context so the model can fix its own JSON schema violation
+                context_manager.add_user_message(
+                    session_id,
+                    f"[SCHEMA VALIDATION FAILED] The JSON you returned was invalid or violated the schema limits:\n{e}\n\nPlease fix your formatting and try again."
+                )
+                await manager.send(session_id, {"type": "status", "message": "Pydantic schema validation error, returning to model to fix..."})
+                
+                if loop_i >= MAX_TOOL_LOOPS:
+                    return {"session_id": session_id, "status": "action_rejected", "error": str(e), "done": False}
+                    
+                continue  # Re-call the model internally
 
-    # Persist the model's response in conversation history
+            print(f"[agent/step] Inference failed: {e}")
+            await manager.send(session_id, {"type": "error", "message": f"Inference failed: {e}"})
+            return {"session_id": session_id, "status": "error", "error": str(e)}
+
+        print(f"[agent/step] Response in {response.inference_time_ms}ms"
+              f"  tool_calls={bool(response.tool_calls)}"
+              f"  action={response.action.type.value if response.action else 'none'}"
+              f"  done={response.done}")
+
+        # ── 3. Tool calls? Execute and loop ──────────────────────────────────
+        if response.tool_calls:
+            if loop_i >= MAX_TOOL_LOOPS:
+                print(f"[agent/step] Hit max tool loops ({MAX_TOOL_LOOPS}) — forcing screenshot")
+                context_manager.add_user_message(
+                    session_id,
+                    "[TOOL LOOP LIMIT] You called tools 10 times without taking a desktop action. "
+                    "STOP calling tools. Take a screenshot to see the screen and proceed with "
+                    "a desktop action (mouse_move, left_click, type_text, key_press, etc.)."
+                )
+                response.tool_calls = None
+                response.action = Action(type=ActionType.SCREENSHOT)
+                response.done = False
+                break
+
+            # Store assistant turn with tool calls (OpenAI format for context)
+            raw_tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": tc.arguments},
+                }
+                for tc in response.tool_calls
+            ]
+            context_manager.add_tool_call_turn(session_id, raw_tool_calls)
+
+            # Execute each tool and add results
+            for tc in response.tool_calls:
+                try:
+                    args = json.loads(tc.arguments) if tc.arguments else {}
+                except json.JSONDecodeError:
+                    args = {}
+
+                result = await execute_agent_tool(
+                    session_id, tc.name, args, manager, context_manager, compact_model,
+                )
+                context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
+                print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
+                await log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}", manager)
+
+                # If update_plan was called, capture the plan content for review
+                if tc.name == "update_plan":
+                    plan_content = args.get("content", "")
+                    if plan_content:
+                        plan_pending_review = plan_content
+
+            # ── Plan review gate: pause loop and wait for user approval ──────
+            if plan_pending_review:
+                print(f"[plan-review] Plan created — pausing for user approval")
+                await manager.send(session_id, {
+                    "type": "plan_review",
+                    "content": plan_pending_review,
+                })
+                return {
+                    "session_id": session_id,
+                    "status": "plan_pending",
+                    "done": False,
+                }
+
+            await manager.send(session_id, {
+                "type": "status",
+                "message": f"Tools: {', '.join(tc.name for tc in response.tool_calls)}. Continuing...",
+            })
+            continue  # re-call model with tool results
+
+        # No tool calls — we have a desktop action or done.
+        
+        # ── Safety: ensure we have an action ──────────────────────────────────────
+        if not response.action:
+            response.action = Action(type=ActionType.SCREENSHOT)
+            response.done = False
+
+        action_type = response.action.type.value
+        action_payload = response.action.model_dump(exclude_none=True)
+
+        # ── 4. Action validation ─────────────────────────────────────────────────
+        is_valid, error_msg = context_manager.action_validator.validate(
+            session_id, action_payload
+        )
+
+        if not is_valid:
+            print(f"[validator] REJECTED: {error_msg}")
+            context_manager.add_assistant_turn(
+                session_id,
+                response.model_dump_json(exclude_none=True),
+            )
+            context_manager.add_user_message(
+                session_id,
+                f"[ACTION REJECTED] {error_msg}\nChoose a different action.",
+            )
+            await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}. Retrying..."})
+            
+            # If we hit the loop limit, don't loop again to avoid infinite hangs
+            if loop_i >= MAX_TOOL_LOOPS:
+                await manager.send(session_id, {"type": "error", "message": f"Validation failed {MAX_TOOL_LOOPS} times. Aborting."})
+                return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
+                
+            continue  # Re-call the model internally
+
+        break  # Valid desktop action or done, dispatch to frontend
+
+    # ── 5. Dispatch action to frontend ────────────────────────────────────────
+    if not response or not response.action:
+        response = response or AgentResponse(action=Action(type=ActionType.SCREENSHOT), done=False)
+        if not response.action:
+            response.action = Action(type=ActionType.SCREENSHOT)
+            response.done = False
+
+    action_type = response.action.type.value
+    action_payload = response.action.model_dump(exclude_none=True)
+
     response_json = response.model_dump_json(exclude_none=True)
     context_manager.add_assistant_turn(session_id, response_json)
 
-    print(f"[agent/step] Model responded in {response.inference_time_ms}ms")
-    print(f"  action     : {response.action.type.value}")
-    print(f"  done       : {response.done}")
-    print(f"  confidence : {response.confidence}")
+    # Log the assistant's action/response
+    reasoning_preview = (response.reasoning_content or "")[:200]
+    if response.done:
+        await log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}", manager)
+    else:
+        await log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}", manager)
 
-    # Check if auto-compaction is needed after this turn
+    # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)
     if needs_compact:
-        chain_len = context_manager.chain_length(session_id)
-        token_est = context_manager.estimate_token_count(session_id)
-        print(f"[auto-compact] Chain at {chain_len} messages (~{token_est} tokens) — compaction recommended")
+        print(f"[auto-compact] Safety net triggered at {context_manager.chain_length(session_id)} messages")
 
-    # Route action to frontend via WebSocket
-    action_payload = response.action.model_dump(exclude_none=True)
-
-    # shell_exec commands require user confirmation before execution
-    needs_confirm = (
-        response.action.type.value == "shell_exec"
-        and not response.done
-    )
+    needs_confirm = action_type == "shell_exec" and not response.done
 
     await manager.send(session_id, {
         "type":                 "step",
@@ -237,27 +286,9 @@ async def agent_step(req: AgentRequest):
         "needs_compaction":     needs_compact,
     })
 
-    # Auto-compact if threshold exceeded and task is still in progress
+    # Run auto-compact if needed
     if needs_compact and not response.done:
-        print(f"[auto-compact] Triggering automatic context compaction...")
-        await manager.send(session_id, {
-            "type": "status",
-            "message": "Context getting large — auto-compacting to stay sharp...",
-        })
-        try:
-            compact_messages = context_manager.get_compact_messages(session_id)
-            summary = compact_model(compact_messages)
-            old_len = context_manager.chain_length(session_id)
-            context_manager.reset_with_summary(session_id, summary)
-            new_len = context_manager.chain_length(session_id)
-            print(f"[auto-compact] Done. {old_len} → {new_len} messages")
-            await manager.send(session_id, {
-                "type": "status",
-                "message": f"Context auto-compacted: {old_len} → {new_len} messages. Continuing seamlessly.",
-            })
-        except Exception as e:
-            print(f"[auto-compact] Failed (non-fatal): {e}")
-            # Non-fatal: the middle-trim fallback in build_request() will handle it
+        await auto_compact(session_id, context_manager, compact_model, manager)
 
     if response.done:
         await manager.send(session_id, {
@@ -280,9 +311,6 @@ async def action_complete(req: ActionCompleteRequest):
     """Electron notifies backend that a dispatched action has finished."""
     print(f"[action/complete] session={req.session_id} channel={req.ipc_channel} ok={req.success}")
 
-    # Inject shell_exec output (or error) into the context chain so the model
-    # can see what a command returned.  This goes in as a user message right
-    # before the next screenshot.
     if req.output or req.error:
         text_parts = []
         if req.output:
@@ -297,15 +325,10 @@ async def action_complete(req: ActionCompleteRequest):
 
 @app.post("/agent/stop")
 async def agent_stop(req: StopRequest):
-    """
-    User interrupted the agent flow.
-    Append a STOP user message to the context chain so the model is
-    aware the user halted execution. The chain is preserved — the user
-    can continue the conversation afterwards.
-    """
+    """User interrupted the agent flow."""
     session_id = req.session_id
     context_manager.add_user_message(session_id, "STOP")
-    print(f"[agent/stop] session={session_id} — user interrupted, STOP added to chain")
+    print(f"[agent/stop] session={session_id}")
 
     await manager.send(session_id, {
         "type": "stopped",
@@ -317,13 +340,7 @@ async def agent_stop(req: StopRequest):
 
 @app.post("/agent/compact")
 async def compact_context(req: CompactRequest):
-    """
-    Compact a bloated context chain.
-
-    Serialises the full chain (minus screenshots and system prompt),
-    sends it to a lightweight model for summarisation, then resets
-    the chain to: system prompt + compressed summary.
-    """
+    """Manual compact endpoint (user-triggered via UI)."""
     session_id = req.session_id
     chain_len = context_manager.chain_length(session_id)
     print(f"[compact] session={session_id}  chain_length={chain_len}")
@@ -336,18 +353,11 @@ async def compact_context(req: CompactRequest):
             "chain_length": chain_len,
         }
 
-    # Get the message chain (screenshots → placeholders, system prompt stripped)
     compact_messages = context_manager.get_compact_messages(session_id)
-
-    # Log what we're sending to the compact model
-    print(f"[compact] Sending {len(compact_messages)} messages to compact model")
-    for i, m in enumerate(compact_messages):
-        preview = m.content[:200].replace('\n', ' ')
-        print(f"[compact]   [{i}] {m.role.value}: {preview}...")
 
     await manager.send(session_id, {
         "type": "status",
-        "message": "Compacting context — summarising conversation history...",
+        "message": "Compacting context...",
     })
 
     try:
@@ -360,14 +370,10 @@ async def compact_context(req: CompactRequest):
         })
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
-    # Reset the chain: system prompt + summary
     context_manager.reset_with_summary(session_id, summary)
     new_len = context_manager.chain_length(session_id)
 
-    print(f"[compact] Done. {chain_len} messages → {new_len} messages")
-    print(f"[compact] ═══ COMPACTED SUMMARY START ═══")
-    print(summary)
-    print(f"[compact] ═══ COMPACTED SUMMARY END ═══")
+    print(f"[compact] Done. {chain_len} → {new_len} messages")
 
     await manager.send(session_id, {
         "type": "status",
@@ -387,7 +393,6 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
     await manager.connect(session_id, ws)
     try:
         while True:
-            # Keep the connection alive; all messages are pushed from HTTP handlers
             await ws.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(session_id)

@@ -12,6 +12,7 @@ class MessageRole(str, Enum):
     user      = "user"
     assistant = "assistant"
     system    = "system"
+    tool      = "tool"
 
 
 # ── Sub-models ─────────────────────────────────────────────────────────────────
@@ -41,6 +42,19 @@ class PreviousMessage(BaseModel):
     annotations: Optional[ScreenAnnotation] = Field(
         default=None,
         description="OmniParser UI element detections (only on screenshot messages)"
+    )
+    # Tool calling support
+    tool_calls:   Optional[list[dict]] = Field(
+        default=None,
+        description="OpenAI-format tool_calls (only on assistant messages with tool use)"
+    )
+    tool_call_id: Optional[str] = Field(
+        default=None,
+        description="ID of the tool call this message is a result for (only on tool role messages)"
+    )
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="Name of the tool that was called (only on tool role messages)"
     )
     timestamp:   datetime = Field(default_factory=datetime.utcnow)
 
@@ -110,7 +124,7 @@ class AgentRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "user_message": "Open Notepad and type hello world",
+                "user_message": "Open TextEdit and type hello world",
                 "base64_screenshot": "<base64-encoded-png>",
                 "timestamp": "2026-03-03T12:00:00Z",
                 "previous_messages": [

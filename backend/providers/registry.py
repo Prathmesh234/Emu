@@ -11,10 +11,11 @@ provider module. All providers expose the same three-function interface:
 Detection order:
     1. EMU_PROVIDER env var (explicit override)
     2. ANTHROPIC_API_KEY  → Claude
-    3. OPENAI_API_KEY     → OpenAI  (unless OPENAI_BASE_URL is also set)
-    4. OPENAI_BASE_URL    → OpenAI-compatible (vLLM, SGLang, Ollama, etc.)
-    5. GOOGLE_API_KEY     → Google Gemini
-    6. Modal fallback     → Modal GPU (no key needed)
+    3. OPENROUTER_API_KEY → OpenRouter (200+ models)
+    4. OPENAI_API_KEY     → OpenAI  (unless OPENAI_BASE_URL is also set)
+    5. OPENAI_BASE_URL    → OpenAI-compatible (vLLM, SGLang, Ollama, etc.)
+    6. GOOGLE_API_KEY     → Google Gemini
+    7. Modal fallback     → Modal GPU (no key needed)
 """
 
 import os
@@ -24,6 +25,7 @@ import importlib
 _PROVIDER_MAP = {
     "claude":          "providers.claude",
     "openai":          "providers.openai_provider",
+    "openrouter":      "providers.openrouter",
     "gemini":          "providers.gemini",
     "openai_compatible": "providers.openai_compatible",
     "modal":           "providers.modal",
@@ -41,6 +43,9 @@ def _detect_provider() -> str:
     # Auto-detect from API keys
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "claude"
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return "openrouter"
 
     if os.environ.get("OPENAI_BASE_URL") and os.environ.get("OPENAI_API_KEY", ""):
         # Custom endpoint — vLLM / SGLang / Ollama / etc.

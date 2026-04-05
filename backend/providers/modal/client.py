@@ -1,50 +1,35 @@
 """
 client.py — Modal GPU inference client
 
-HTTP client for calling the deployed Qwen3.5 VLM on Modal.
-Converts AgentRequest → OpenAI chat payload → Modal → AgentResponse.
+HTTP client for calling the deployed VLM on Modal.
+Sends agent tools in the request; handles tool_calls in the response.
+Falls back to JSON text parsing for desktop actions.
 """
 
 import json
+import os
 import re
 import time
-from typing import Optional
 
 import requests
 
-from models import (
-    Action,
-    AgentRequest,
-    AgentResponse,
-    MessageRole,
-)
-from prompts import SYSTEM_PROMPT
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from providers.agent_tools import AGENT_TOOLS_OPENAI
 
 # ── Configuration ────────────────────────────────────────────────────────────
-import os
 
-MODAL_URL = os.getenv("MODAL_VLM_URL", "https://ppbhatt500--qwen35-35b-a3b-vlm-qwen35vlm.us-east.modal.direct")
+MODAL_URL = os.getenv("MODAL_VLM_URL", "")
 MODEL_NAME = "Qwen/Qwen3.5-35B-A3B"
 MAX_TOKENS = 1024
 TEMPERATURE = 0.6
 REQUEST_TIMEOUT = 300  # seconds
 
-# Prefix that marks a user message as a screenshot (data URI)
 SCREENSHOT_PREFIX = "data:image/"
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def call_modal(agent_req: AgentRequest) -> AgentResponse:
-    """
-    Send an agent step to the Modal VLM and return a parsed AgentResponse.
-
-    Builds an OpenAI-compatible chat/completions payload from the AgentRequest:
-      - System prompt
-      - User text messages rendered as text
-      - User screenshot messages rendered as multimodal image_url
-      - Assistant messages rendered as text
-    """
     messages = _build_messages(agent_req)
 
     payload = {
@@ -52,6 +37,7 @@ def call_modal(agent_req: AgentRequest) -> AgentResponse:
         "messages": messages,
         "max_tokens": MAX_TOKENS,
         "temperature": TEMPERATURE,
+        "tools": AGENT_TOOLS_OPENAI,
     }
 
     start = time.time()
@@ -64,15 +50,7 @@ def call_modal(agent_req: AgentRequest) -> AgentResponse:
 # ── Message builder ──────────────────────────────────────────────────────────
 
 def _build_messages(req: AgentRequest) -> list[dict]:
-    """
-    Convert AgentRequest.previous_messages into OpenAI chat format.
-
-    Detection logic:
-      - system messages  → {"role": "system", "content": text}
-      - assistant msgs   → {"role": "assistant", "content": text}
-      - user msgs starting with "data:image/" → multimodal image
-      - user msgs (anything else) → plain text
-    """
+    """Convert AgentRequest.previous_messages into OpenAI chat format."""
     messages: list[dict] = []
 
     for pm in req.previous_messages:
@@ -80,11 +58,26 @@ def _build_messages(req: AgentRequest) -> list[dict]:
             messages.append({"role": "system", "content": pm.content})
 
         elif pm.role == MessageRole.assistant:
-            messages.append({"role": "assistant", "content": pm.content})
+            msg = {"role": "assistant"}
+            if pm.tool_calls:
+                msg["tool_calls"] = pm.tool_calls
+                msg["content"] = pm.content if pm.content else None
+            else:
+                msg["content"] = pm.content
+            messages.append(msg)
+
+        elif pm.role == MessageRole.tool:
+            msg = {
+                "role": "tool",
+                "tool_call_id": pm.tool_call_id or "",
+                "content": pm.content,
+            }
+            if pm.tool_name:
+                msg["name"] = pm.tool_name
+            messages.append(msg)
 
         elif pm.role == MessageRole.user:
             if pm.content.startswith(SCREENSHOT_PREFIX):
-                # Screenshot turn → multimodal image
                 messages.append({
                     "role": "user",
                     "content": [
@@ -92,7 +85,6 @@ def _build_messages(req: AgentRequest) -> list[dict]:
                     ],
                 })
             else:
-                # Text turn
                 messages.append({"role": "user", "content": pm.content})
 
     return messages
@@ -100,10 +92,7 @@ def _build_messages(req: AgentRequest) -> list[dict]:
 
 # ── HTTP call with retry ─────────────────────────────────────────────────────
 
-def _post_with_retry(
-    payload: dict,
-    max_retries: int = 5,
-) -> dict:
+def _post_with_retry(payload: dict, max_retries: int = 5) -> dict:
     """POST to Modal endpoint with retry on transient errors."""
     url = f"{MODAL_URL}/v1/chat/completions"
 
@@ -112,10 +101,7 @@ def _post_with_retry(
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             return resp.json()
-        except (
-            requests.exceptions.SSLError,
-            requests.exceptions.ConnectionError,
-        ):
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError):
             if attempt == max_retries:
                 raise
             _backoff(attempt, "connection error (container may be starting)")
@@ -138,32 +124,40 @@ def _backoff(attempt: int, reason: str):
 # ── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(data: dict, elapsed_ms: int) -> AgentResponse:
-    """
-    Parse the OpenAI-compatible response from Modal into an AgentResponse.
-
-    The VLM returns JSON in the message content. We extract:
-      - reasoning_content (thinking/CoT)
-      - content (the action JSON)
-    """
     choice = (data.get("choices") or [{}])[0]
     message = choice.get("message") or {}
 
     reasoning = message.get("reasoning_content") or ""
     content = message.get("content") or ""
 
-    # Parse the action JSON from content
+    # ── Tool calls? ──────────────────────────────────────────────────────────
+    raw_tool_calls = message.get("tool_calls")
+    if raw_tool_calls:
+        tool_calls = [
+            ToolCallInfo(
+                id=tc.get("id", ""),
+                name=tc.get("function", {}).get("name", ""),
+                arguments=tc.get("function", {}).get("arguments", "{}"),
+            )
+            for tc in raw_tool_calls
+        ]
+        print(f"[modal] tool_calls: {[tc.name for tc in tool_calls]}")
+        return AgentResponse(
+            tool_calls=tool_calls,
+            done=False,
+            reasoning_content=reasoning if reasoning else None,
+            inference_time_ms=elapsed_ms,
+            model_name=MODEL_NAME,
+        )
+
+    # ── No tool calls — parse JSON action from text ──────────────────────────
     action_data = _extract_action_json(content)
 
-    action = Action(**action_data.get("action", {"type": "done"}))
-    done = action_data.get("done", False)
-    final_message = action_data.get("final_message")
-    confidence = action_data.get("confidence", 1.0)
-
     return AgentResponse(
-        action=action,
-        done=done,
-        final_message=final_message,
-        confidence=confidence,
+        action=Action(**action_data.get("action", {"type": "done"})),
+        done=action_data.get("done", False),
+        final_message=action_data.get("final_message"),
+        confidence=action_data.get("confidence", 1.0),
         reasoning_content=reasoning if reasoning else None,
         inference_time_ms=elapsed_ms,
         model_name=MODEL_NAME,
@@ -171,16 +165,9 @@ def _parse_response(data: dict, elapsed_ms: int) -> AgentResponse:
 
 
 def _extract_action_json(content: str) -> dict:
-    """
-    Extract the JSON action object from the model's text response.
-    The model may wrap JSON in markdown code fences, include extra text,
-    or produce slightly malformed JSON (missing quotes on keys, trailing
-    commas, etc.).  We try progressively more aggressive repairs before
-    giving up.
-    """
+    """Extract the JSON action object from the model's text response."""
     text = content.strip()
 
-    # Strip markdown code fences
     if "```json" in text:
         start = text.index("```json") + len("```json")
         end = text.index("```", start)
@@ -190,72 +177,37 @@ def _extract_action_json(content: str) -> dict:
         end = text.index("```", start)
         text = text[start:end].strip()
 
-    # Isolate the outermost { … }
     if not text.startswith("{"):
         brace_start = text.find("{")
         brace_end = text.rfind("}")
         if brace_start != -1 and brace_end != -1:
             text = text[brace_start : brace_end + 1]
 
-    # ── Attempt 1: strict parse ──────────────────────────────────────────
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # ── Attempt 2: repair common issues ──────────────────────────────────
     repaired = _repair_json(text)
     try:
         result = json.loads(repaired)
-        print(f"[modal_client] JSON repaired successfully")
+        print(f"[modal] JSON repaired successfully")
         return result
     except json.JSONDecodeError:
         pass
 
-    # ── Give up — ask the model to try again (screenshot, not done) ──────
-    print(f"[modal_client] WARNING: Could not parse action JSON from model output:")
-    print(f"  {content[:300]}")
-    return {
-        "action": {"type": "screenshot"},
-        "done": False,
-        "confidence": 0.5,
-    }
+    print(f"[modal] WARNING: Could not parse action JSON:\n  {content[:300]}")
+    return {"action": {"type": "screenshot"}, "done": False, "confidence": 0.5}
 
 
 def _repair_json(text: str) -> str:
-    """
-    Best-effort repairs for common VLM JSON mistakes:
-      1. Unquoted keys:           { x: 1 }            → { "x": 1 }
-      2. Missing opening quote:   { x": 1 }           → { "x": 1 }
-      3. Single-quoted strings:   { 'key': 'val' }    → { "key": "val" }
-      4. Trailing commas:         [1, 2, ]             → [1, 2]
-      5. True/False/None:         True                 → true
-    """
+    """Best-effort repairs for common VLM JSON mistakes."""
     s = text
-
-    # Fix unquoted or half-quoted keys:  ,  key": val  or  { key": val
-    s = re.sub(
-        r'([{,]\s*)([a-zA-Z_]\w*)"(\s*:)',
-        r'\1"\2"\3',
-        s,
-    )
-
-    # Fix fully unquoted keys:  { key : val }
-    s = re.sub(
-        r'([{,]\s*)([a-zA-Z_]\w*)(\s*:)',
-        r'\1"\2"\3',
-        s,
-    )
-
-    # Single quotes → double quotes (naive but effective for simple cases)
+    s = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)"(\s*:)', r'\1"\2"\3', s)
+    s = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)(\s*:)', r'\1"\2"\3', s)
     s = s.replace("'", '"')
-
-    # Trailing commas before } or ]
     s = re.sub(r',\s*([}\]])', r'\1', s)
-
-    # Python-style booleans / None
     s = re.sub(r'\bTrue\b', 'true', s)
     s = re.sub(r'\bFalse\b', 'false', s)
     s = re.sub(r'\bNone\b', 'null', s)
-
     return s
