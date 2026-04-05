@@ -21,6 +21,7 @@ Missing files are silently skipped.
 """
 
 import json
+import platform
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
@@ -96,6 +97,17 @@ def get_workspace_dir() -> Path:
 
 def get_sessions_dir() -> Path:
     return _SESSIONS_DIR
+
+
+def get_device_details() -> dict:
+    """Return basic device info for injection into the system prompt."""
+    os_name = platform.system()  # 'Windows', 'Darwin', 'Linux'
+    if os_name == "Darwin":
+        os_name = "macOS"
+    return {
+        "os_name": os_name,
+        "arch": platform.machine(),
+    }
 
 
 def _read_file(filepath: Path) -> Optional[str]:
@@ -209,6 +221,27 @@ def append_session_notes(session_id: str, note: str) -> Path:
     with open(notes_path, "a", encoding="utf-8") as f:
         f.write(note + "\n")
     return notes_path
+
+
+def write_session_file(session_id: str, filename: str, content: str) -> Path:
+    """Write an arbitrary file into the session directory."""
+    session_dir = ensure_session_dir(session_id)
+    file_path = session_dir / filename
+    file_path.write_text(content, encoding="utf-8")
+    return file_path
+
+
+def read_session_file(session_id: str, filename: str) -> Optional[str]:
+    """Read an arbitrary file from the session directory."""
+    return _read_file(_SESSIONS_DIR / session_id / filename)
+
+
+def list_session_files(session_id: str) -> list[str]:
+    """List filenames in a session directory."""
+    session_dir = _SESSIONS_DIR / session_id
+    if not session_dir.is_dir():
+        return []
+    return [f.name for f in session_dir.iterdir() if f.is_file()]
 
 
 # ── Builder ─────────────────────────────────────────────────────────────────

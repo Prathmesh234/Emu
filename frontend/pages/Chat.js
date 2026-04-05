@@ -608,6 +608,34 @@ async function handleWsMessage(data) {
 
                 const planCard = PlanCard(data.content);
 
+                // In dangerous mode, auto-accept the plan without user confirmation
+                if (store.state.dangerousMode) {
+                    planCard.acceptBtn.disabled = true;
+                    planCard.refineBtn.disabled = true;
+                    planCard.acceptBtn.classList.add('chosen');
+
+                    if (container) {
+                        container.appendChild(planCard.element);
+                    } else {
+                        state.currentAssistantEl.appendChild(planCard.element);
+                    }
+                    scrollToBottom();
+
+                    showStatus('Plan auto-accepted — starting execution...');
+                    try {
+                        await api.postStep({
+                            sessionId: store.state.sessionId,
+                            userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
+                            base64Screenshot: '',
+                        });
+                    } catch (err) {
+                        console.error('[plan_review] auto-accept failed:', err);
+                        removeStatus();
+                        syncGeneratingUI(false);
+                    }
+                    break;
+                }
+
                 planCard.acceptBtn.addEventListener('click', async () => {
                     planCard.acceptBtn.disabled = true;
                     planCard.refineBtn.disabled = true;

@@ -179,7 +179,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     white-space: pre-wrap;
     line-height: 1.5;
     max-width: 90%;
-    cursor: pointer;
+    cursor: default;
     font-size: 13px;
     color: #111111;
 }
@@ -293,6 +293,10 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 }
 .chat-input:focus { border-color: #111111; }
 .chat-input::placeholder { color: #888888; }
+.chat-input::-webkit-scrollbar { width: 4px; }
+.chat-input::-webkit-scrollbar-track { background: transparent; }
+.chat-input::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 4px; }
+.chat-input::-webkit-scrollbar-thumb:hover { background: #999999; }
 
 /* ── Send button — filled primary ────────────────────────────────────── */
 
@@ -566,12 +570,12 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* Done block */
 .step-done {
-    padding: 8px 12px;
+    padding: 0;
     background: #ffffff;
-    border-radius: 4px;
-    border: 2px solid #16a34a;
-    color: #16a34a;
-    font-weight: 700;
+    border-radius: 0;
+    border: none;
+    color: #111111;
+    font-weight: 400;
     font-size: 13px;
     word-break: break-word;
     overflow-wrap: break-word;

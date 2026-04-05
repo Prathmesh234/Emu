@@ -55,6 +55,7 @@ function ChatInput(onSend, onStop) {
     };
 
     function setMode(newMode) {
+        if (mode === newMode) return;
         mode = newMode;
         if (mode === 'stop') {
             sendBtn.innerHTML = icons.stop;

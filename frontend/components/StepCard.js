@@ -7,31 +7,6 @@ function StepCard(data, stepNum) {
     const card = document.createElement('div');
     card.className = 'step-card';
 
-    // Step header with number
-    const header = document.createElement('div');
-    header.className = 'step-header';
-
-    const numBadge = document.createElement('span');
-    numBadge.className = 'step-number';
-    numBadge.textContent = stepNum || '?';
-    header.appendChild(numBadge);
-
-    const headerLabel = document.createElement('span');
-    headerLabel.textContent = data.done ? 'Complete' : `Step ${stepNum || '?'}`;
-    header.appendChild(headerLabel);
-
-    // Confidence pill (inline in header)
-    if (data.confidence != null && !data.done) {
-        const pill = document.createElement('span');
-        pill.className = 'step-confidence';
-        const pct = Math.round(data.confidence * 100);
-        pill.textContent = `${pct}%`;
-        pill.classList.add(pct >= 80 ? 'high' : pct >= 50 ? 'mid' : 'low');
-        header.appendChild(pill);
-    }
-
-    card.appendChild(header);
-
     // Screenshot thumbnail
     if (data.screenshot) {
         const imgWrap = document.createElement('div');
