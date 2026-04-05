@@ -12,7 +12,6 @@ const state = {
     sessionId: null,
     ws: null,
     dangerousMode: false,
-    darkMode: false,
 
     // Transient references (current render cycle)
     currentAssistantEl: null,
@@ -69,11 +68,6 @@ function setDangerousMode(value) {
     state.dangerousMode = value;
 }
 
-function setDarkMode(value) {
-    state.darkMode = value;
-    document.documentElement.classList.toggle('dark', value);
-}
-
 function setWebSocket(socket) {
     state.ws = socket;
 }
@@ -111,7 +105,6 @@ module.exports = {
     setSidePanel,
     setSession,
     setDangerousMode,
-    setDarkMode,
     setWebSocket,
     setAssistantEl,
     pushMessage,
