@@ -153,7 +153,7 @@ function initEmu(appVersion = '0.0.0') {
   } else {
     // Always update device_details, hardware, and platform on launch (screen or OS may have changed)
     try {
-      const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
+      const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8').replace(/^\uFEFF/, ''));
       existing.device_details = deviceDetails;
       existing.hardware = hardware;
       existing.working_directory = workingDir;

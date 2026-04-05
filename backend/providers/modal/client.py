@@ -154,7 +154,7 @@ def _parse_response(data: dict, elapsed_ms: int) -> AgentResponse:
     action_data = _extract_action_json(content)
 
     return AgentResponse(
-        action=Action(**action_data.get("action", {"type": "done"})),
+        action=Action(**(action_data.get("action", {"type": "done"}) if isinstance(action_data.get("action", {"type": "done"}), dict) else {"type": action_data.get("action", "done")})),
         done=action_data.get("done", False),
         final_message=action_data.get("final_message"),
         confidence=action_data.get("confidence", 1.0),

@@ -152,8 +152,12 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     data = _extract_json(content)
     data = _sanitize_single_action(data)
 
+    raw_action = data.get("action", {"type": "done"})
+    if isinstance(raw_action, str):
+        raw_action = {"type": raw_action}
+
     return AgentResponse(
-        action=Action(**data.get("action", {"type": "done"})),
+        action=Action(**raw_action),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
@@ -233,6 +237,6 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Plain text — treat as unknown to force retry
-    print(f"[openrouter] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
-    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}
+    # Plain text — treat as conversational done response
+    print(f"[openrouter] INFO: plain-text response, wrapping as done:\n  {content[:200]}")
+    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 1.0}

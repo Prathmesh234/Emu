@@ -179,7 +179,7 @@ def read_recent_daily_memories() -> dict[str, str]:
 def is_bootstrap_needed() -> bool:
     """Check if the first-launch interview hasn't been completed yet."""
     try:
-        manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+        manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8-sig"))
         return not manifest.get("bootstrap_complete", False)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         # If manifest is missing or corrupt, assume bootstrap is needed

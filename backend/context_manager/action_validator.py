@@ -17,6 +17,7 @@ class ActionValidator:
       2. Micro-movement detection (cursor already at target).
       3. Same action 3× with no screen change → force strategy change.
       4. Scroll amount must be >= 5.
+      5. Same click type 5× in a row → force strategy change.
     """
 
     def __init__(self):
@@ -77,6 +78,17 @@ class ActionValidator:
         # Rule 5: Reject unknown/plain text actions
         if action_type == "unknown":
             return False, "Unknown tool call or invalid JSON format. Please choose from the tools available to you."
+
+        # Rule 6: Same click type 3+ times in a row → force strategy change
+        click_types = {"left_click", "right_click", "double_click", "triple_click"}
+        if action_type in click_types and len(history) >= 2:
+            if all(h == action_type for h in history[-2:]):
+                return False, (
+                    f"You've clicked '{action_type}' 3 times in a row without meaningful progress. "
+                    f"STOP clicking. Re-read your plan with read_plan, then try a completely "
+                    f"different approach: use keyboard shortcuts, shell_exec to launch apps, "
+                    f"type_text, or navigate differently."
+                )
 
         # Record and trim history
         history.append(action_type)
