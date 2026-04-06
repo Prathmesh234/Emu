@@ -37,11 +37,13 @@ _SESSIONS_DIR  = _EMU_DIR / "sessions"
 _MANIFEST_PATH = _EMU_DIR / "manifest.json"
 
 # ── Tier 1: Firmware (always injected) ──────────────────────────────────────
+# Ordered for cache efficiency: static files first, user-dependent files last.
+# The system prompt + early firmware form a stable prefix that LLMs can cache.
 FIRMWARE_FILES = [
     ("SOUL.md",        _WORKSPACE_DIR / "SOUL.md"),
     ("AGENTS.md",      _WORKSPACE_DIR / "AGENTS.md"),
-    ("USER.md",        _WORKSPACE_DIR / "USER.md"),
     ("IDENTITY.md",    _WORKSPACE_DIR / "IDENTITY.md"),
+    ("USER.md",        _WORKSPACE_DIR / "USER.md"),
     ("preferences.md", _GLOBAL_DIR / "preferences.md"),
 ]
 
