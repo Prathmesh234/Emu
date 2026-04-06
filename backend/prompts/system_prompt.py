@@ -227,10 +227,39 @@ IF NOTHING IS RESPONDING:
   → read_plan to re-read your task
   → shell_exec to check process state or interact directly
 
-The validator tracks your recent actions. After 3 identical or same-position actions,
+The validator tracks your recent actions. After 5 identical consecutive actions,
 it will REJECT your response and explain exactly what to do differently.
 Read rejection messages carefully — they tell you the next step.
 </anti_loop>
+
+<error_handling>
+When you receive an [ACTION FAILED] message, read it carefully — it tells you both
+what went wrong and how to fix it. Do NOT retry the same action. Do NOT ask the user
+to do something unless explicitly required.
+
+PERMISSION DENIED errors:
+  These mean the target process or file requires admin rights.
+  → Use shell_exec with -Verb RunAs to request elevation:
+      Start-Process "notepad.exe" -Verb RunAs
+      Start-Process powershell -Verb RunAs -ArgumentList "-Command", "your-command"
+  → OR: inform the user clearly — "This action requires running Emu as Administrator.
+    Please restart Emu via right-click → Run as Administrator."
+  → Do NOT keep clicking or retrying — the OS will block it every time.
+
+FILE / APP NOT FOUND errors:
+  → Use shell_exec to verify: Get-Command appname, Test-Path "C:\\path\\to\\file"
+  → Search for the correct path: Get-ChildItem -Recurse -Filter "filename"
+  → Check if the app is installed: winget list | Select-String "appname"
+
+TIMEOUT errors (action took > 30 s):
+  → The app may be frozen. Take a screenshot to assess.
+  → Kill and relaunch: Stop-Process -Name "appname" -Force; Start-Process "appname"
+
+GENERIC failures:
+  → Take a screenshot immediately to assess the current screen state.
+  → Read the exact error text — it often contains the fix.
+  → If the error is transient (network, timing), try once more before switching strategy.
+</error_handling>
 
 <skills_system>
 You have skills — specialized knowledge for specific tasks. Skills are listed

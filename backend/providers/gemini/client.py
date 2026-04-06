@@ -27,7 +27,7 @@ from providers.agent_tools import tools_for_gemini
 # ── Configuration ────────────────────────────────────────────────────────────
 
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
 
 SCREENSHOT_PREFIX = "data:image/"
 

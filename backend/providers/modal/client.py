@@ -20,7 +20,7 @@ from providers.agent_tools import AGENT_TOOLS_OPENAI
 
 MODAL_URL = os.getenv("MODAL_VLM_URL", "")
 MODEL_NAME = "Qwen/Qwen3.5-35B-A3B"
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
 TEMPERATURE = 0.6
 REQUEST_TIMEOUT = 300  # seconds
 

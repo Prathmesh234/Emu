@@ -29,7 +29,7 @@ from providers.agent_tools import AGENT_TOOLS_OPENAI
 BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8000/v1")
 API_KEY = os.environ.get("OPENAI_API_KEY", "none")
 MODEL_NAME = os.environ.get("OPENAI_COMPAT_MODEL", "")
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
 TEMPERATURE = 0.6
 
 SCREENSHOT_PREFIX = "data:image/"

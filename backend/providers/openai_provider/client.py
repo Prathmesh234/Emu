@@ -24,7 +24,7 @@ from providers.agent_tools import AGENT_TOOLS_OPENAI
 # ── Configuration ────────────────────────────────────────────────────────────
 
 MODEL_NAME = os.environ.get("OPENAI_MODEL", "gpt-5.4")
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
 
 SCREENSHOT_PREFIX = "data:image/"
 
