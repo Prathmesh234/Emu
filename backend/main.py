@@ -311,16 +311,92 @@ async def action_complete(req: ActionCompleteRequest):
     """Electron notifies backend that a dispatched action has finished."""
     print(f"[action/complete] session={req.session_id} channel={req.ipc_channel} ok={req.success}")
 
-    if req.output or req.error:
-        text_parts = []
+    text_parts = []
+
+    is_shell = req.ipc_channel in ("shell:exec", "shell_exec")
+
+    if is_shell:
+        # Shell exec: always inject stdout; inject stderr on failure
         if req.output:
             text_parts.append(f"[shell_exec output]\n{req.output}")
         if req.error and not req.success:
             text_parts.append(f"[shell_exec error]\n{req.error}")
+    elif not req.success and req.error:
+        # Non-shell actions: only inject on failure with interpreted guidance
+        action_label = _ipc_to_action_label(req.ipc_channel)
+        text_parts.append(_interpret_action_error(req.error, action_label))
+
+    if text_parts:
         context_manager.add_user_message(req.session_id, "\n".join(text_parts))
-        print(f"[action/complete] injected shell output ({len(req.output or '')} chars) into context")
+        print(f"[action/complete] injected feedback into context ({len(' '.join(text_parts))} chars)")
 
     return {"acknowledged": True}
+
+
+# ── Action error helpers ──────────────────────────────────────────────────────
+
+_IPC_TO_ACTION = {
+    "mouse:left-click":  "left_click",
+    "mouse:right-click": "right_click",
+    "mouse:double-click": "double_click",
+    "mouse:triple-click": "triple_click",
+    "mouse:move":        "mouse_move",
+    "mouse:drag":        "drag",
+    "mouse:scroll":      "scroll",
+    "keyboard:type":     "type_text",
+    "keyboard:key-press": "key_press",
+}
+
+
+def _ipc_to_action_label(ipc_channel: str) -> str:
+    return _IPC_TO_ACTION.get(ipc_channel, ipc_channel)
+
+
+def _interpret_action_error(error: str, action_label: str) -> str:
+    """Convert raw OS/IPC errors into actionable guidance for the model."""
+    el = error.lower()
+
+    if any(kw in el for kw in ("access is denied", "permission", "privileged",
+                                "uac", "administrator", "elevated", "requires elevation")):
+        return (
+            f"[ACTION FAILED: {action_label}] Permission denied — {error}\n"
+            f"This action requires elevated privileges. Your options:\n"
+            f"  1. Inform the user they need to run Emu as Administrator.\n"
+            f"  2. Use shell_exec with -Verb RunAs to request elevation:\n"
+            f"     Start-Process 'app.exe' -Verb RunAs\n"
+            f"  3. Choose an approach that doesn't require admin rights."
+        )
+
+    if any(kw in el for kw in ("not found", "no such file", "cannot find",
+                                "does not exist", "path not found")):
+        return (
+            f"[ACTION FAILED: {action_label}] Target not found — {error}\n"
+            f"The file, app, or element doesn't exist at the expected location.\n"
+            f"Try: use shell_exec to verify the path exists, or search for the "
+            f"correct location with Get-ChildItem / Get-Command."
+        )
+
+    if "timed out" in el:
+        return (
+            f"[ACTION FAILED: {action_label}] Timed out after 30s — the app may be "
+            f"unresponsive.\n"
+            f"Take a screenshot to assess the current state. If the app is frozen, "
+            f"use shell_exec to kill and relaunch it: Stop-Process -Name 'appname'"
+        )
+
+    if any(kw in el for kw in ("powershell", "process exited", "ps exited")):
+        return (
+            f"[ACTION FAILED: {action_label}] PowerShell process error — {error}\n"
+            f"The automation shell encountered an error. Take a screenshot to "
+            f"re-orient, then try a simpler action or use shell_exec directly."
+        )
+
+    # Generic failure
+    return (
+        f"[ACTION FAILED: {action_label}] {error}\n"
+        f"This action failed at the OS level. Take a screenshot to assess the "
+        f"current state, then try a different approach."
+    )
 
 
 @app.post("/agent/stop")

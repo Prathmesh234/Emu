@@ -28,7 +28,7 @@ API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 MODEL_NAME = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
 PROVIDER_NAME = os.environ.get("OPENROUTER_PROVIDER_NAME", "")
 BASE_URL = "https://openrouter.ai/api/v1"
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
 TEMPERATURE = 0.6
 
 SCREENSHOT_PREFIX = "data:image/"
