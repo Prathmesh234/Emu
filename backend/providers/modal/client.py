@@ -152,9 +152,14 @@ def _parse_response(data: dict, elapsed_ms: int) -> AgentResponse:
 
     # ── No tool calls — parse JSON action from text ──────────────────────────
     action_data = _extract_action_json(content)
+    action_data = _sanitize_action(action_data)
+
+    raw_action = action_data.get("action", {"type": "done"})
+    if isinstance(raw_action, str):
+        raw_action = {"type": raw_action}
 
     return AgentResponse(
-        action=Action(**(action_data.get("action", {"type": "done"}) if isinstance(action_data.get("action", {"type": "done"}), dict) else {"type": action_data.get("action", "done")})),
+        action=Action(**raw_action),
         done=action_data.get("done", False),
         final_message=action_data.get("final_message"),
         confidence=action_data.get("confidence", 1.0),
@@ -198,6 +203,29 @@ def _extract_action_json(content: str) -> dict:
 
     print(f"[modal] WARNING: Could not parse action JSON:\n  {content[:300]}")
     return {"action": {"type": "screenshot"}, "done": False, "confidence": 0.5}
+
+
+def _sanitize_action(data: dict) -> dict:
+    """Enforce one-action-per-response; strip batched keys and unwrap nested actions."""
+    for key in ("next", "next_action", "actions", "step2", "then", "followup"):
+        if key in data:
+            print(f"[modal] WARN: stripped batched key '{key}' from response")
+            del data[key]
+
+    fm = data.get("final_message")
+    if isinstance(fm, str) and fm.strip().startswith("{"):
+        try:
+            inner = json.loads(fm)
+            if isinstance(inner, dict) and "action" in inner:
+                print(f"[modal] WARN: final_message contained nested action — extracting")
+                data["action"] = inner["action"]
+                data["done"] = inner.get("done", False)
+                data["confidence"] = inner.get("confidence", data.get("confidence", 1.0))
+                data["final_message"] = inner.get("final_message")
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return data
 
 
 def _repair_json(text: str) -> str:

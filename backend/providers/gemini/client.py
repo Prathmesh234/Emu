@@ -202,9 +202,14 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     # No tool calls — parse JSON desktop action from text
     content = "".join(text_parts) or (resp.text or "")
     data = _extract_json(content)
+    data = _sanitize_action(data)
+
+    raw_action = data.get("action", {"type": "done"})
+    if isinstance(raw_action, str):
+        raw_action = {"type": raw_action}
 
     return AgentResponse(
-        action=Action(**(data.get("action", {"type": "done"}) if isinstance(data.get("action", {"type": "done"}), dict) else {"type": data.get("action", "done")})),
+        action=Action(**raw_action),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
@@ -243,3 +248,26 @@ def _extract_json(content: str) -> dict:
 
     print(f"[gemini] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
     return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}
+
+
+def _sanitize_action(data: dict) -> dict:
+    """Enforce one-action-per-response; strip batched keys and unwrap nested actions."""
+    for key in ("next", "next_action", "actions", "step2", "then", "followup"):
+        if key in data:
+            print(f"[gemini] WARN: stripped batched key '{key}' from response")
+            del data[key]
+
+    fm = data.get("final_message")
+    if isinstance(fm, str) and fm.strip().startswith("{"):
+        try:
+            inner = json.loads(fm)
+            if isinstance(inner, dict) and "action" in inner:
+                print(f"[gemini] WARN: final_message contained nested action — extracting")
+                data["action"] = inner["action"]
+                data["done"] = inner.get("done", False)
+                data["confidence"] = inner.get("confidence", data.get("confidence", 1.0))
+                data["final_message"] = inner.get("final_message")
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return data
