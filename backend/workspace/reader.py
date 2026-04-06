@@ -26,6 +26,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
+from skills import format_skills_for_prompt
+
 
 # .emu/ is at the project root, one directory above backend/
 _BACKEND_DIR   = Path(__file__).resolve().parent.parent
@@ -283,6 +285,14 @@ def build_workspace_context() -> str:
             sections.append(f"┌─ {label} ─┐")
             sections.append(content)
             sections.append("")
+
+    # Skills — always present (names + descriptions only, bodies loaded on demand)
+    skills_block = format_skills_for_prompt()
+    if skills_block:
+        sections.append("── SKILLS (use use_skill to load) " + "─" * 42)
+        sections.append("")
+        sections.append(skills_block)
+        sections.append("")
 
     # Conditional — memory
     if memory:
