@@ -9,10 +9,9 @@ Injection tiers:
 
   CONDITIONAL (injected at session start, gated):
     MEMORY.md — skip for lightweight tasks; truncate if >2-3k tokens
-    memory/YYYY-MM-DD.md — today + yesterday only
 
-  TOOL-ACCESSIBLE (agent reads via shell_exec when needed):
-    memory/YYYY-MM-DD.md older than yesterday
+  TOOL-ACCESSIBLE (agent reads via read_memory/shell_exec when needed):
+    memory/YYYY-MM-DD.md — all daily logs (not auto-injected)
     sessions/<id>/*
     Older MEMORY.md chunks (future: vector retrieval)
 
@@ -257,15 +256,16 @@ def build_workspace_context() -> str:
     Concatenates:
       1. Firmware files (always)
       2. MEMORY.md (conditional)
-      3. Today + yesterday daily logs (conditional)
+
+    Daily logs are NOT auto-injected — the agent reads them
+    on demand via read_memory tool or shell_exec.
 
     Returns empty string if nothing is available.
     """
     firmware = read_firmware()
     memory = read_memory()
-    dailies = read_recent_daily_memories()
 
-    if not firmware and not memory and not dailies:
+    if not firmware and not memory:
         return ""
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -300,15 +300,6 @@ def build_workspace_context() -> str:
         sections.append("")
         sections.append(memory)
         sections.append("")
-
-    # Conditional — recent daily logs
-    if dailies:
-        sections.append("── RECENT DAILY LOGS " + "─" * 54)
-        sections.append("")
-        for label, content in dailies.items():
-            sections.append(f"┌─ {label} ─┐")
-            sections.append(content)
-            sections.append("")
 
     sections.append("═" * 75)
     sections.append("END WORKSPACE CONTEXT")

@@ -2,11 +2,7 @@
 // Uses PowerShell CopyFromScreen + cursor compositing so the system cursor
 // is visible in captures (desktopCapturer excludes it on Windows).
 const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
 const psProcess = require('../process/psProcess');
-
-const SCREENSHOTS_DIR = path.join(__dirname, '..', '..', 'backend', 'emulation_screen_shots');
 
 // Scale factors for coordinate translation (image coords → screen coords)
 // Updated after each screenshot capture
@@ -45,8 +41,7 @@ async function captureScreenshot() {
  *
  * JPEG quality 80 + resize keeps output under Claude's 5MB limit.
  */
-function buildCaptureCommand(filepath) {
-    const psPath = filepath.replace(/\.png$/, '.jpg').replace(/\\/g, '\\\\');
+function buildCaptureCommand() {
     return [
         `Add-Type -AssemblyName System.Drawing`,
         // Get true physical pixel dimensions via GDI (DPI-safe)
@@ -94,11 +89,10 @@ function buildCaptureCommand(filepath) {
             ` $gr.Dispose();` +
             ` $bmp.Dispose()` +
         ` }`,
-        // Save as JPEG quality 60 (smaller file, faster inference)
+        // Encode as JPEG quality 60 (smaller file, faster inference)
         `$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }`,
         `$encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)`,
         `$encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 60L)`,
-        `$finalBmp.Save('${psPath}', $codec, $encParams)`,
         `$ms = New-Object System.IO.MemoryStream`,
         `$finalBmp.Save($ms, $codec, $encParams)`,
         // Output format: "width,height|base64data" so JS can parse dimensions
@@ -108,16 +102,11 @@ function buildCaptureCommand(filepath) {
 }
 
 function register(ipcMain, { screen }) {
-    if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-
     ipcMain.handle('screenshot:capture', async () => {
         try {
             const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().size;
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `screenshot_${timestamp}.png`;
-            const filepath = path.join(SCREENSHOTS_DIR, filename);
 
-            const output = await psProcess.run(buildCaptureCommand(filepath));
+            const output = await psProcess.run(buildCaptureCommand());
 
             // Parse output format: "imageWidth,imageHeight|base64data"
             const pipeIdx = output.indexOf('|');
@@ -129,11 +118,8 @@ function register(ipcMain, { screen }) {
             const imageHeight = parseInt(dims[1], 10);
             const base64 = output.slice(pipeIdx + 1).trim();
 
-            console.log(`[screenshot] saved ${filepath} (image: ${imageWidth}×${imageHeight}, screen: ${screenWidth}×${screenHeight})`);
             return {
                 success: true,
-                filename,
-                path: filepath,
                 screenWidth,
                 screenHeight,
                 imageWidth,

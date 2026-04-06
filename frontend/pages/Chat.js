@@ -39,7 +39,8 @@ function scrollToBottom() {
 
 function syncGeneratingUI(generating) {
     store.setGenerating(generating);
-    ipcRenderer.send('set-generating', generating);
+    // Border is always-on — don't toggle it based on generating state.
+    // It's managed separately via set-border (typing hide/show).
     if (generating) {
         chatInput.setMode('stop');
         chatInput.setTooltip('Click to stop the agent');
@@ -848,7 +849,19 @@ function mount(appEl) {
         }
     };
 
-    // Boot
+    // Boot — show border glow immediately (always-on)
+    ipcRenderer.send('set-border', true);
+
+    // Hide border while user is typing, re-show after they stop
+    let _borderTypingTimer = null;
+    chatInput.textarea.addEventListener('input', () => {
+        ipcRenderer.send('set-border', false);
+        clearTimeout(_borderTypingTimer);
+        _borderTypingTimer = setTimeout(() => {
+            ipcRenderer.send('set-border', true);
+        }, 800);
+    });
+
     newChat();
     chatInput.textarea.focus();
     initSession();
