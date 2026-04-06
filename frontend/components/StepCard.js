@@ -1,7 +1,6 @@
 // StepCard component - displays agent step with step number, reasoning, and action
 
 const { describeAction, actionIcon } = require('../actions/actionProxy');
-const { renderMarkdown } = require('./markdown');
 
 function StepCard(data, stepNum) {
     const card = document.createElement('div');
@@ -65,15 +64,15 @@ function StepCard(data, stepNum) {
         // Truncate long reasoning with expand toggle
         const MAX_CHARS = 300;
         if (reasoningText.length > MAX_CHARS) {
-            renderMarkdown(reasonEl, reasoningText.slice(0, MAX_CHARS) + '…');
+            reasonEl.textContent = reasoningText.slice(0, MAX_CHARS) + '…';
             reasonEl.style.cursor = 'pointer';
             let expanded = false;
             reasonEl.onclick = () => {
                 expanded = !expanded;
-                renderMarkdown(reasonEl, expanded ? reasoningText : reasoningText.slice(0, MAX_CHARS) + '…');
+                reasonEl.textContent = expanded ? reasoningText : reasoningText.slice(0, MAX_CHARS) + '…';
             };
         } else {
-            renderMarkdown(reasonEl, reasoningText);
+            reasonEl.textContent = reasoningText;
         }
         reasonBlock.appendChild(reasonEl);
 
@@ -140,7 +139,7 @@ function StepCard(data, stepNum) {
     if (data.done && data.final_message) {
         const doneBlock = document.createElement('div');
         doneBlock.className = 'step-done';
-        renderMarkdown(doneBlock, data.final_message);
+        doneBlock.textContent = data.final_message;
         card.appendChild(doneBlock);
     }
 
@@ -152,7 +151,7 @@ function DoneCard(message) {
     card.className = 'step-card';
     const doneBlock = document.createElement('div');
     doneBlock.className = 'step-done';
-    renderMarkdown(doneBlock, message);
+    doneBlock.textContent = message;
     card.appendChild(doneBlock);
     return { element: card };
 }
