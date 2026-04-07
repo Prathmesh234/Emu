@@ -22,10 +22,10 @@ from pathlib import Path
 from typing import Optional
 
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-_PROJECT_ROOT = _BACKEND_DIR.parent
+from utilities.paths import get_emu_path
+
 _BUNDLED_DIR = Path(__file__).resolve().parent / "bundled"
-_USER_SKILLS_DIR = _PROJECT_ROOT / ".emu" / "skills"
+_USER_SKILLS_DIR = get_emu_path() / "skills"
 
 
 @dataclass

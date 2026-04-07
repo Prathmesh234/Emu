@@ -14,22 +14,11 @@ The prompt is built dynamically:
 """
 
 from datetime import datetime
-from pathlib import Path
-import re
 
-# Absolute path to .emu/ — injected into the prompt so shell commands always resolve.
-# If running under WSL, convert /mnt/<drive>/... to <DRIVE>:\... so PowerShell can use it.
-def _wsl_to_windows(p: str) -> str:
-    m = re.match(r"^/mnt/([a-zA-Z])/(.*)", p)
-    if m:
-        drive = m.group(1).upper()
-        rest = m.group(2).replace("/", "\\")
-        return f"{drive}:\\{rest}"
-    return p
+from utilities.paths import get_emu_path_str, get_project_root_str
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_PROJECT_ROOT_STR = _wsl_to_windows(str(_PROJECT_ROOT))
-_EMU_ABS = _wsl_to_windows(str(_PROJECT_ROOT / ".emu"))
+_PROJECT_ROOT_STR = get_project_root_str()
+_EMU_ABS = get_emu_path_str()
 
 
 def build_system_prompt(
@@ -220,9 +209,13 @@ Full reference:
 SHELL_EXEC RULES:
   • NEVER use -Recurse or -r in Get-ChildItem — it is BLOCKED and will always fail.
     List one specific directory at a time instead.
-  • Prefer agent tools over shell_exec for .emu files:
-    read_memory(daily_log, date) for daily logs, read_plan() for plan.md,
-    read_session_file(name) for session files.
+  • ⚠️ NEVER use shell_exec to read .emu files. Use these function tools instead:
+      read_memory(target, date) — MEMORY.md, preferences, or daily logs
+      read_plan()              — your current session plan
+      read_session_file(name)  — files you wrote this session
+      list_session_files()     — see what's in your session
+    The .emu path is already resolved for you by these tools.
+    Do NOT try to discover or navigate .emu/ with PowerShell commands.
   screenshot   → {{"action": {{"type": "screenshot"}}}}
   wait         → {{"action": {{"type": "wait",         "ms": 1000}}}}
   done         → {{"action": {{"type": "done"}}, "done": true, "final_message": "Task complete."}}
@@ -389,7 +382,9 @@ Emu dir: {emu_dir}
 Session dir: {emu_dir}\\sessions\\{session_id}\\
 Plan: {emu_dir}\\sessions\\{session_id}\\plan.md
 
-IMPORTANT: When using shell_exec to access .emu files, always use the
-absolute emu dir path above — never a relative ".emu/" path.
+IMPORTANT: All .emu file reads are handled by your function tools
+(read_plan, read_memory, read_session_file, list_session_files).
+Do NOT use shell_exec or PowerShell to read .emu files — the tools
+already know the correct path. Only use shell_exec for non-.emu operations.
 </session>
 """

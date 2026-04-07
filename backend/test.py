@@ -16,10 +16,11 @@ from pathlib import Path
 import requests
 
 from prompts.system_prompt import SYSTEM_PROMPT
+from utilities.paths import get_emu_path
 
 # --- Configuration ---
 MODAL_URL = os.getenv("MODAL_VLM_URL", "")
-SCREENSHOT_DIR = Path(__file__).parent.parent / ".emu" / "sessions"
+SCREENSHOT_DIR = get_emu_path() / "sessions"
 
 
 def get_latest_screenshot(directory: Path) -> Path:

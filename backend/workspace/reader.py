@@ -29,9 +29,10 @@ from skills import format_skills_for_prompt
 
 
 # .emu/ is at the project root, one directory above backend/
-_BACKEND_DIR   = Path(__file__).resolve().parent.parent
-_PROJECT_ROOT  = _BACKEND_DIR.parent
-_EMU_DIR       = _PROJECT_ROOT / ".emu"
+from utilities.paths import get_emu_path, get_project_root
+
+_PROJECT_ROOT  = get_project_root()
+_EMU_DIR       = get_emu_path()
 _WORKSPACE_DIR = _EMU_DIR / "workspace"
 _GLOBAL_DIR    = _EMU_DIR / "global"
 _SESSIONS_DIR  = _EMU_DIR / "sessions"
