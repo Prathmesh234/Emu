@@ -23,7 +23,13 @@ async def execute_agent_tool(
         return handle_read_plan(session_id)
 
     elif name == "use_skill":
-        return handle_use_skill(args.get("skill_name", ""))
+        skill_name = args.get("skill_name", "")
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "skill_used",
+            "skill_name": skill_name,
+        })
+        return handle_use_skill(skill_name)
 
     elif name == "read_memory":
         return handle_read_memory(target=args.get("target", "long_term"))
@@ -31,18 +37,18 @@ async def execute_agent_tool(
     elif name == "write_session_file":
         filename = args.get("filename", "")
         existing = read_session_file(session_id, filename) is not None
-        result = write_session_file(session_id, filename, args.get("content", ""))
-        if "written" in result:
-            sanitized = filename.strip().replace("/", "").replace("\\", "")
-            if not sanitized.endswith(".md"):
-                sanitized += ".md"
-            await manager.send(session_id, {
-                "type": "tool_event",
-                "event": "file_written",
-                "filename": sanitized,
-                "action": "edited" if existing else "created",
-            })
-        return result
+        sanitized = filename.strip().replace("/", "").replace("\\", "")
+        if not sanitized.endswith(".md"):
+            sanitized += ".md"
+        file_path = write_session_file(session_id, sanitized, args.get("content", ""))
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "file_written",
+            "filename": sanitized,
+            "filepath": str(file_path),
+            "action": "edited" if existing else "created",
+        })
+        return f"File '{sanitized}' written successfully."
 
     elif name == "read_session_file":
         result = read_session_file(session_id, args.get("filename", ""))
