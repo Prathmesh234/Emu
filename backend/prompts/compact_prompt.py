@@ -175,7 +175,7 @@ INSTRUCTIONS — follow these EXACTLY:
 5. Do NOT restart from the beginning — continue from where you left off
 6. Do NOT ask the user to repeat anything — all their messages are in USER TRANSCRIPT
 7. Do NOT write a new plan.md — it already exists
-8. If confused, read the plan.md via shell_exec using the absolute emu dir path from your <session> block
+8. If confused, use read_plan() (function tool) to re-read your plan
 9. Your next response MUST be a JSON action continuing the task
 
 ━━━━━━━━━━ STATE SNAPSHOT ━━━━━━━━━━

@@ -53,6 +53,17 @@ Do not extract anything the agent decided on its own without user feedback.
 Rank by: severity of correction first, then recency. Newer entries go at the top.
 Drop any learning that is directly superseded by a newer one on the same topic.
 
+**PRUNING IS MANDATORY.** You are not an append-only logger. Every time you
+process AGENTS.md, actively review ALL existing entries and:
+- REMOVE entries that are now redundant (covered by a newer, better rule)
+- REMOVE entries that are obsolete (the workflow or tool no longer applies)
+- MERGE entries that say the same thing in different words into ONE concise rule
+- REMOVE entries the agent invented on its own that were never user-validated
+- KEEP the file under ~1,500 tokens total. If it exceeds this, cut the oldest
+  and least-impactful entries first.
+
+The goal is a lean, high-signal ruleset — not a growing changelog.
+
 ### Step 4 — Extract facts for MEMORY.md
 From all unprocessed sessions, extract only:
 - Facts about the user's role, environment, tools, and ongoing projects
@@ -60,6 +71,10 @@ From all unprocessed sessions, extract only:
 - Context about ongoing work that would be lost otherwise
 
 Strict limit: 3,000 characters total. If over, cut the oldest or least relevant facts first.
+
+**PRUNING applies here too.** Review existing MEMORY.md entries and remove any that
+are outdated, duplicated, or no longer relevant. This file is injected into context
+every session — every wasted token here costs real inference budget.
 
 ### Step 5 — Check USER.md and IDENTITY.md
 Only update if a session contains a direct, explicit factual change:
@@ -81,6 +96,7 @@ Write all files using the output format below.
 - **Be concise.** Dense factual bullets. No filler, no summaries of summaries.
 - **Do not touch SOUL.md** under any circumstances.
 - **Do not invent session IDs, dates, or outcomes** not present in the data.
+- **You are a CURATOR, not a logger.** Deleting outdated or redundant information is just as important as adding new information. Every file you manage has a token budget — treat it like a fixed-size cache where new entries must evict stale ones.
 
 ---
 
