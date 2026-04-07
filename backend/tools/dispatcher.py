@@ -1,9 +1,22 @@
 import json
+import platform
+import re
+from pathlib import Path
 from utilities.connection import ConnectionManager
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory
 from .compaction import handle_compact_context
+
+
+def _to_windows_path(p: str) -> str:
+    """Convert a WSL /mnt/<drive>/... path to a Windows path if needed."""
+    m = re.match(r"^/mnt/([a-zA-Z])/(.*)", p)
+    if m:
+        drive = m.group(1).upper()
+        rest = m.group(2).replace("/", "\\")
+        return f"{drive}:\\{rest}"
+    return p
 
 
 async def execute_agent_tool(
@@ -32,7 +45,7 @@ async def execute_agent_tool(
         return handle_use_skill(skill_name)
 
     elif name == "read_memory":
-        return handle_read_memory(target=args.get("target", "long_term"))
+        return handle_read_memory(target=args.get("target", "long_term"), date=args.get("date", ""))
 
     elif name == "write_session_file":
         filename = args.get("filename", "")
@@ -45,7 +58,7 @@ async def execute_agent_tool(
             "type": "tool_event",
             "event": "file_written",
             "filename": sanitized,
-            "filepath": str(file_path),
+            "filepath": _to_windows_path(str(file_path)),
             "action": "edited" if existing else "created",
         })
         return f"File '{sanitized}' written successfully."

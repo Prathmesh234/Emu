@@ -30,16 +30,53 @@ async function captureScreenshot() {
         _screenWidth = result.screenWidth;
         _screenHeight = result.screenHeight;
         console.log(`[screenshot] scale factors updated: ${_scaleX.toFixed(2)}x, ${_scaleY.toFixed(2)}y | screen: ${_screenWidth}x${_screenHeight}`);
+
+        // Convert JPEG → WebP for smaller payload and faster inference
+        try {
+            const webpBase64 = await convertToWebP(result.base64);
+            const savings = Math.round((1 - webpBase64.length / result.base64.length) * 100);
+            console.log(`[screenshot] WebP conversion: ${Math.round(result.base64.length / 1024)}KB → ${Math.round(webpBase64.length / 1024)}KB (${savings}% smaller)`);
+            result.base64 = webpBase64;
+        } catch (err) {
+            console.warn(`[screenshot] WebP conversion failed, using JPEG: ${err.message}`);
+        }
     }
     return result;
 }
 
 /**
+ * Convert a JPEG base64 string to WebP via Chromium's native canvas encoder.
+ * Falls back gracefully — if canvas doesn't support WebP the caller keeps JPEG.
+ */
+function convertToWebP(jpegBase64, quality = 0.60) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const dataUrl = canvas.toDataURL('image/webp', quality);
+            const base64 = dataUrl.split(',')[1];
+            if (!base64) {
+                reject(new Error('Canvas toDataURL returned empty'));
+                return;
+            }
+            resolve(base64);
+        };
+        img.onerror = () => reject(new Error('Failed to load image for WebP conversion'));
+        img.src = `data:image/jpeg;base64,${jpegBase64}`;
+    });
+}
+
+/**
  * Build the PowerShell command that captures the primary screen at true
  * physical resolution (via GetDeviceCaps), draws a cursor-shaped arrow
- * overlay, resizes to max 1920px width, saves as JPEG, and returns base64.
+ * overlay, resizes to max 768px width, saves as JPEG, and returns base64.
  *
- * JPEG quality 80 + resize keeps output under Claude's 5MB limit.
+ * JPEG quality 60 + resize to 768px. JS-side converts to WebP for
+ * ~25-30% smaller payload and faster TTFT.
  */
 function buildCaptureCommand() {
     return [
@@ -76,8 +113,8 @@ function buildCaptureCommand() {
         `$g.DrawPolygon($pen, $pts)`,
         `$pen.Dispose()`,
         `$g.Dispose()`,
-        // Resize to max 1280px width to keep well under 5MB API limit
-        `$maxW = 1280`,
+        // Resize to max 768px width — LLMs internally tile to ~768px anyway
+        `$maxW = 768`,
         `$finalBmp = $bmp`,
         `if ($bmp.Width -gt $maxW) {` +
             ` $ratio = $maxW / $bmp.Width;` +

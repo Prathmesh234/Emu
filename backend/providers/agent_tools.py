@@ -129,7 +129,7 @@ AGENT_TOOLS_OPENAI = [
             "description": (
                 "Read a memory file from the .emu workspace. "
                 "Use to recall past learnings, preferences, or daily logs. "
-                "Target: long_term (MEMORY.md), preferences (preferences.md), daily_log (today's log)."
+                "Target: long_term (MEMORY.md), preferences (preferences.md), daily_log (daily log — pass date for past days)."
             ),
             "parameters": {
                 "type": "object",
@@ -138,7 +138,11 @@ AGENT_TOOLS_OPENAI = [
                         "type": "string",
                         "enum": ["long_term", "preferences", "daily_log"],
                         "description": "Which memory to read (default: long_term)",
-                    }
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Date for daily_log in YYYY-MM-DD format (default: today). Ignored for other targets.",
+                    },
                 },
             },
         },

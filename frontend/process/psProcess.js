@@ -17,6 +17,10 @@
  */
 
 const { spawn } = require('child_process');
+const path = require('path');
+
+// Project root is two levels above this file (process/ → frontend/ → root)
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
 let ps = null;
 let buffer = '';
@@ -66,7 +70,8 @@ function start() {
     if (ps) return;
 
     ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', '-'], {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: PROJECT_ROOT,
     });
 
     ps.stdout.on('data', chunk => {

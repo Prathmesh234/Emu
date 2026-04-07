@@ -41,7 +41,7 @@ app.whenReady().then(() => {
   initEmu(pkg.version);
 
   // Set up IPC for the desktop border
-  // The border is always-on by default; only hidden while the user is typing.
+  // Border is shown only while the agent is executing.
   function ensureBorderWindow() {
     if (!borderWindow) {
       const primaryDisplay = screen.getPrimaryDisplay();
@@ -74,10 +74,12 @@ app.whenReady().then(() => {
     }
   });
 
-  // Legacy handler — no longer hides the border on generating=false
   ipcMain.on('set-generating', (event, generating) => {
-    if (generating) ensureBorderWindow().show();
-    // Do NOT hide on generating=false — border stays always-on
+    if (generating) {
+      ensureBorderWindow().show();
+    } else {
+      if (borderWindow) borderWindow.hide();
+    }
   });
 
   // Register IPC handlers AFTER app is ready (desktopCapturer + screen need this)

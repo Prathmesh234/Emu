@@ -14,6 +14,22 @@ The prompt is built dynamically:
 """
 
 from datetime import datetime
+from pathlib import Path
+import re
+
+# Absolute path to .emu/ — injected into the prompt so shell commands always resolve.
+# If running under WSL, convert /mnt/<drive>/... to <DRIVE>:\... so PowerShell can use it.
+def _wsl_to_windows(p: str) -> str:
+    m = re.match(r"^/mnt/([a-zA-Z])/(.*)", p)
+    if m:
+        drive = m.group(1).upper()
+        rest = m.group(2).replace("/", "\\")
+        return f"{drive}:\\{rest}"
+    return p
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT_STR = _wsl_to_windows(str(_PROJECT_ROOT))
+_EMU_ABS = _wsl_to_windows(str(_PROJECT_ROOT / ".emu"))
 
 
 def build_system_prompt(
@@ -71,6 +87,8 @@ def build_system_prompt(
         date=today,
         time=now,
         session_id=session_id or "unknown",
+        project_root=_PROJECT_ROOT_STR,
+        emu_dir=_EMU_ABS,
     )
     prompt += session_block
 
@@ -198,6 +216,13 @@ Full reference:
   scroll       → {{"action": {{"type": "scroll",       "direction": "down", "amount": 5}}}}
   drag         → {{"action": {{"type": "drag",         "coordinates": {{"x": 0.3, "y": 0.5}}, "end_coordinates": {{"x": 0.7, "y": 0.5}}}}}}
   shell_exec   → {{"action": {{"type": "shell_exec",   "command": "Start-Process notepad"}}}}
+
+SHELL_EXEC RULES:
+  • NEVER use -Recurse or -r in Get-ChildItem — it is BLOCKED and will always fail.
+    List one specific directory at a time instead.
+  • Prefer agent tools over shell_exec for .emu files:
+    read_memory(daily_log, date) for daily logs, read_plan() for plan.md,
+    read_session_file(name) for session files.
   screenshot   → {{"action": {{"type": "screenshot"}}}}
   wait         → {{"action": {{"type": "wait",         "ms": 1000}}}}
   done         → {{"action": {{"type": "done"}}, "done": true, "final_message": "Task complete."}}
@@ -280,7 +305,7 @@ Call them like normal tool/function calls — NOT as JSON actions:
   read_session_file(name)  — Read a scratchpad file you saved earlier
   list_session_files()     — See what temporary files exist in your session
   use_skill(skill_name)    — Load a skill's full instructions by name
-  read_memory(target)      — Read long_term (MEMORY.md), preferences, or daily_log
+  read_memory(target, date)  — Read long_term (MEMORY.md), preferences, or daily_log (pass date as YYYY-MM-DD for past days)
   compact_context(focus)   — Compress your conversation history when it gets long
 
 MEMORY: At task start, read_memory(long_term) for past learnings.
@@ -353,7 +378,12 @@ _SESSION_BLOCK = """\
 
 <session>
 Today: {date} | Time: {time} | Session: {session_id}
-Session dir: .emu/sessions/{session_id}/
-Plan: .emu/sessions/{session_id}/plan.md
+Project root: {project_root}
+Emu dir: {emu_dir}
+Session dir: {emu_dir}\\sessions\\{session_id}\\
+Plan: {emu_dir}\\sessions\\{session_id}\\plan.md
+
+IMPORTANT: When using shell_exec to access .emu files, always use the
+absolute emu dir path above — never a relative ".emu/" path.
 </session>
 """
