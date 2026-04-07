@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator } = require('../components');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
@@ -693,11 +693,18 @@ async function handleWsMessage(data) {
                 }
 
                 if (data.event === 'file_written') {
-                    const fileCard = FileCard(data.filename, data.action);
+                    const fileCard = FileCard(data.filename, data.action, data.filepath);
                     if (container) {
                         container.appendChild(fileCard.element);
                     } else {
                         state.currentAssistantEl.appendChild(fileCard.element);
+                    }
+                } else if (data.event === 'skill_used') {
+                    const skillCard = SkillCard(data.skill_name);
+                    if (container) {
+                        container.appendChild(skillCard.element);
+                    } else {
+                        state.currentAssistantEl.appendChild(skillCard.element);
                     }
                 }
             }

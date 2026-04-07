@@ -7,6 +7,7 @@ const { Sidebar, HistoryItem } = require('./Sidebar');
 const { StepCard, DoneCard, ErrorCard } = require('./StepCard');
 const { PlanCard } = require('./PlanCard');
 const { FileCard } = require('./FileCard');
+const { SkillCard } = require('./SkillCard');
 const { Tooltip } = require('./Tooltip');
 const { Header } = require('./Header');
 const { EmptyState } = require('./EmptyState');
@@ -24,6 +25,7 @@ module.exports = {
     ErrorCard,
     PlanCard,
     FileCard,
+    SkillCard,
     Tooltip,
     Header,
     EmptyState,
