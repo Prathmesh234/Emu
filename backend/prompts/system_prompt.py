@@ -14,6 +14,10 @@ The prompt is built dynamically:
 """
 
 from datetime import datetime
+from pathlib import Path
+
+# Absolute path to .emu/ — injected into the prompt so shell commands always resolve.
+_EMU_ABS = str(Path(__file__).resolve().parent.parent.parent / ".emu")
 
 
 def build_system_prompt(
@@ -71,6 +75,7 @@ def build_system_prompt(
         date=today,
         time=now,
         session_id=session_id or "unknown",
+        emu_dir=_EMU_ABS,
     )
     prompt += session_block
 
@@ -195,24 +200,30 @@ you better at specific tasks. Don't guess when a skill has the answer.
 </skills_system>
 
 <agent_tools>
-You have function-calling tools that don't require desktop interaction.
-Call them like normal tool/function calls — NOT as JSON actions:
-  update_plan(content)     — Write or update your session plan (MANDATORY before desktop actions)
+You have two COMPLETELY SEPARATE output channels. Using the wrong one WILL fail.
+
+═══ FUNCTION TOOLS (call via the tool/function-calling API) ═══
+  update_plan(content)     — Write or update your session plan
   read_plan()              — Re-read your current plan to re-orient
-  write_session_file(name, content) — Save intermediate research/notes to a scratchpad file
+  write_session_file(name, content) — Save intermediate research/notes
   read_session_file(name)  — Read a scratchpad file you saved earlier
-  list_session_files()     — See what temporary files exist in your session
+  list_session_files()     — See what files exist in your session
   use_skill(skill_name)    — Load a skill's full instructions by name
-  read_memory(target)      — Read long_term (MEMORY.md), preferences, or daily_log
-  compact_context(focus)   — Compress your conversation history when it gets long
+  read_memory(target, date)  — Read MEMORY.md, preferences, or daily_log
+  compact_context(focus)   — Compress your conversation history
+
+═══ DESKTOP ACTIONS (return as a raw JSON text response — NEVER as function calls) ═══
+  mouse_move, left_click, right_click, double_click, triple_click,
+  type_text, key_press, scroll, drag, shell_exec, screenshot, wait, done
+
+⚠️  shell_exec, type_text, screenshot, done ARE DESKTOP ACTIONS.
+    Do NOT call them as function tools — they will error every time.
+    Return them as: {{"action": {{"type": "shell_exec", "command": "..."}}}}
 
 MEMORY: At task start, read_memory(long_term) for past learnings.
 
 SKILLS: Check <skills> in workspace context. If a skill matches the task,
 load it with use_skill BEFORE attempting the task.
-
-These are separate from desktop actions. Use function calls for planning/memory,
-use JSON responses for desktop actions (click, type, scroll, etc.).
 </agent_tools>
 
 {vision_block}
@@ -272,7 +283,11 @@ _SESSION_BLOCK = """\
 
 <session>
 Today: {date} | Time: {time} | Session: {session_id}
-Session dir: .emu/sessions/{session_id}/
-Plan: .emu/sessions/{session_id}/plan.md
+Emu dir: {emu_dir}
+Session dir: {emu_dir}/sessions/{session_id}/
+Plan: {emu_dir}/sessions/{session_id}/plan.md
+
+IMPORTANT: When using shell_exec to access .emu files, always use the
+absolute emu dir path above — never a relative ".emu/" path.
 </session>
 """

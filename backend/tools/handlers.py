@@ -19,7 +19,7 @@ def handle_update_plan(session_id: str, content: str) -> str:
     return "Plan updated successfully."
 
 
-def handle_read_memory(target: str = "long_term") -> str:
+def handle_read_memory(target: str = "long_term", date: str = "") -> str:
     """Handle the model's read_memory tool call."""
     try:
         if target == "long_term":
@@ -37,10 +37,11 @@ def handle_read_memory(target: str = "long_term") -> str:
                     return f"[preferences.md]\n{content}"
             return "preferences.md is empty or does not exist yet."
         elif target == "daily_log":
-            content = read_daily_memory()
+            content = read_daily_memory(date=date if date else None)
+            label = date if date else "today"
             if content:
-                return f"[Today's daily log]\n{content}"
-            return "No daily log for today yet."
+                return f"[Daily log for {label}]\n{content}"
+            return f"No daily log found for {label}."
         else:
             return f"Unknown memory target: {target}. Use long_term, preferences, or daily_log."
     except Exception as e:
