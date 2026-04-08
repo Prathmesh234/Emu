@@ -1,12 +1,12 @@
 // Action: Left Click
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function leftClick(x, y) {
     return await ipcRenderer.invoke('mouse:left-click', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:left-click', async (_event, { x, y }) => {
         try {
             await psProcess.run(

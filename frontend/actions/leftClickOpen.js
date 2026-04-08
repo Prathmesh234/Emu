@@ -2,13 +2,13 @@
 // Both clicks run inside the persistent psProcess — no spawn overhead,
 // so they reliably land within Windows' double-click time window.
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function leftClickOpen(x, y) {
     return await ipcRenderer.invoke('mouse:double-click', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:double-click', async (_event, { x, y }) => {
         try {
             await psProcess.run(

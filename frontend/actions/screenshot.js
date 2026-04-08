@@ -2,7 +2,6 @@
 // Uses PowerShell CopyFromScreen + cursor compositing so the system cursor
 // is visible in captures (desktopCapturer excludes it on Windows).
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 // Scale factors for coordinate translation (image coords → screen coords)
 // Updated after each screenshot capture
@@ -139,6 +138,7 @@ function buildCaptureCommand() {
 }
 
 function register(ipcMain, { screen }) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('screenshot:capture', async () => {
         try {
             const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().size;

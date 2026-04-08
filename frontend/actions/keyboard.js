@@ -4,9 +4,8 @@
 // type_text:  Type a string via SendKeys.
 //
 // Both use the persistent psProcess to avoid spawn overhead.
-
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
+
 
 // ── Virtual-key code lookup ──────────────────────────────────────────────
 
@@ -64,9 +63,10 @@ async function typeText(text) {
     return await ipcRenderer.invoke('keyboard:type', { text });
 }
 
-// ── Main-process IPC registration ────────────────────────────────────────
+// ── Main-process IPC registration ────────────────────────────────────
 
 function register(ipcMain) {
+    const psProcess = require('../process/psProcess');
 
     // ── key_press ────────────────────────────────────────────────────────
     ipcMain.handle('keyboard:key-press', async (_event, { key, modifiers = [] }) => {

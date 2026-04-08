@@ -1,12 +1,12 @@
 // Action: Navigate (mouse move)
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function navigateMouse(x, y) {
     return await ipcRenderer.invoke('mouse:move', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:move', async (_event, { x, y }) => {
         console.log(`[navigate] mouse:move invoked x=${x} y=${y}`);
         try {

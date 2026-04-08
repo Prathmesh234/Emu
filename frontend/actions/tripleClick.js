@@ -1,13 +1,13 @@
 // Action: Triple Click (select entire line/paragraph)
 // Three rapid mouse_event pairs inside the persistent psProcess.
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function tripleClick() {
     return await ipcRenderer.invoke('mouse:triple-click');
 }
 
 function register(ipcMain) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:triple-click', async () => {
         try {
             await psProcess.run(

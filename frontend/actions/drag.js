@@ -4,13 +4,13 @@
 // the target coordinates, then release. A smooth interpolated movement
 // is performed to ensure drag-sensitive UI elements register the drag.
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function drag(startX, startY, endX, endY) {
     return await ipcRenderer.invoke('mouse:drag', { startX, startY, endX, endY });
 }
 
 function register(ipcMain) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:drag', async (_event, { startX, startY, endX, endY }) => {
         try {
             // Move to start position, press left button down, interpolate

@@ -5,13 +5,13 @@
 // direction: 'up' | 'down'
 // amount:    number of "notches" to scroll (1 notch = WHEEL_DELTA = 120 units)
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function scroll(direction = 'down', amount = 3) {
     return await ipcRenderer.invoke('mouse:scroll', { direction, amount });
 }
 
 function register(ipcMain, BACKEND_URL) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:scroll', async (_event, { direction = 'down', amount = 3 }) => {
         try {
             // WHEEL_DELTA = 120 per notch; positive = up, negative = down

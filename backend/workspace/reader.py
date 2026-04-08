@@ -199,6 +199,10 @@ def read_bootstrap() -> Optional[str]:
 
 def ensure_session_dir(session_id: str) -> Path:
     """Create and return the session directory: .emu/sessions/<id>/."""
+    # Validate session_id format (UUID) to prevent path traversal
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise ValueError(f"Invalid session_id format: {session_id}")
     session_dir = _SESSIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "screenshots").mkdir(exist_ok=True)
@@ -230,14 +234,22 @@ def append_session_notes(session_id: str, note: str) -> Path:
 def write_session_file(session_id: str, filename: str, content: str) -> Path:
     """Write an arbitrary file into the session directory."""
     session_dir = ensure_session_dir(session_id)
-    file_path = session_dir / filename
+    file_path = (session_dir / filename).resolve()
+    # Prevent path traversal — resolved path must stay within session dir
+    if not str(file_path).startswith(str(session_dir.resolve())):
+        raise ValueError(f"Path traversal blocked: {filename}")
     file_path.write_text(content, encoding="utf-8")
     return file_path
 
 
 def read_session_file(session_id: str, filename: str) -> Optional[str]:
     """Read an arbitrary file from the session directory."""
-    return _read_file(_SESSIONS_DIR / session_id / filename)
+    session_dir = _SESSIONS_DIR / session_id
+    file_path = (session_dir / filename).resolve()
+    # Prevent path traversal — resolved path must stay within session dir
+    if not str(file_path).startswith(str(session_dir.resolve())):
+        return None
+    return _read_file(file_path)
 
 
 def list_session_files(session_id: str) -> list[str]:

@@ -1,0 +1,84 @@
+/**
+ * preload.js — Secure bridge between main and renderer processes.
+ *
+ * With contextIsolation: true and nodeIntegration: false, the renderer
+ * cannot access Node.js APIs directly.  This preload script exposes only
+ * the specific IPC channels the renderer needs via contextBridge.
+ */
+
+const { contextBridge, ipcRenderer } = require('electron');
+const fs = require('fs');
+const path = require('path');
+
+// ── Allowed IPC channels ───────────────────────────────────────────────────
+// Only these channels can be invoked / sent from the renderer.
+
+const ALLOWED_INVOKE_CHANNELS = new Set([
+    'screenshot:capture',
+    'screenshot:fullCapture',
+    'mouse:move',
+    'mouse:left-click',
+    'mouse:right-click',
+    'mouse:double-click',
+    'mouse:triple-click',
+    'mouse:drag',
+    'mouse:scroll',
+    'keyboard:key-press',
+    'keyboard:type',
+    'shell:exec',
+    'memory:read',
+    'window:side-panel',
+    'window:centered',
+    'window:blur',
+]);
+
+const ALLOWED_SEND_CHANNELS = new Set([
+    'set-border',
+    'set-generating',
+]);
+
+// ── Read auth token for API calls ──────────────────────────────────────────
+const PROJECT_ROOT = path.resolve(__dirname);
+const TOKEN_PATH = path.join(PROJECT_ROOT, '.emu', '.auth_token');
+
+function readAuthToken() {
+    try {
+        return fs.readFileSync(TOKEN_PATH, 'utf8').trim();
+    } catch {
+        console.warn('[preload] Could not read auth token from', TOKEN_PATH);
+        return '';
+    }
+}
+
+// ── Expose safe API to renderer ────────────────────────────────────────────
+contextBridge.exposeInMainWorld('electronAPI', {
+    /**
+     * Invoke an IPC handler in the main process and await the result.
+     * Only allowed channels are permitted.
+     */
+    invoke(channel, data) {
+        if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
+            return Promise.reject(new Error(`IPC channel not allowed: ${channel}`));
+        }
+        return ipcRenderer.invoke(channel, data);
+    },
+
+    /**
+     * Send a one-way message to the main process.
+     * Only allowed channels are permitted.
+     */
+    send(channel, data) {
+        if (!ALLOWED_SEND_CHANNELS.has(channel)) {
+            console.warn(`[preload] Blocked send to disallowed channel: ${channel}`);
+            return;
+        }
+        ipcRenderer.send(channel, data);
+    },
+
+    /**
+     * Get the per-launch auth token for backend API calls.
+     */
+    getAuthToken() {
+        return readAuthToken();
+    },
+});

@@ -1,12 +1,12 @@
 // Action: Right Click
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function rightClick(x, y) {
     return await ipcRenderer.invoke('mouse:right-click', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:right-click', async (_event, { x, y }) => {
         try {
             await psProcess.run(

@@ -2,7 +2,6 @@
 // Moves the window off-screen, captures via PowerShell CopyFromScreen
 // (which includes the cursor), then restores the window.
 const { ipcRenderer } = require('electron');
-const psProcess = require('../process/psProcess');
 
 async function fullCapture() {
     return await ipcRenderer.invoke('screenshot:fullCapture');
@@ -46,6 +45,7 @@ function buildCaptureCommand() {
 }
 
 function register(ipcMain, { screen, getMainWindow }) {
+    const psProcess = require('../process/psProcess');
     ipcMain.handle('screenshot:fullCapture', async () => {
         try {
             const win = getMainWindow();

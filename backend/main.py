@@ -1,3 +1,5 @@
+import os
+import secrets
 import uuid
 
 from dotenv import load_dotenv
@@ -5,6 +7,8 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 import json
 
@@ -25,21 +29,55 @@ from tools import execute_agent_tool, auto_compact
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
 from context_manager.context import USE_OMNI_PARSER
+from utilities.paths import get_emu_path
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
 
 print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
 
+# ── Per-launch auth token ────────────────────────────────────────────────────
+# Shared with the Electron frontend via .emu/.auth_token file.
+AUTH_TOKEN = os.environ.get("EMU_AUTH_TOKEN") or secrets.token_hex(32)
+_token_path = get_emu_path() / ".auth_token"
+_token_path.parent.mkdir(parents=True, exist_ok=True)
+_token_path.write_text(AUTH_TOKEN)
+print(f"[security] Auth token written to {_token_path}")
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Reject HTTP requests that don't carry a valid X-Emu-Token header."""
+
+    async def dispatch(self, request, call_next):
+        # CORS preflight and health checks are exempt
+        if request.method == "OPTIONS" or request.url.path == "/health":
+            return await call_next(request)
+        # WebSocket upgrades are validated in the endpoint itself
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+        token = request.headers.get("x-emu-token", "")
+        if not token or not secrets.compare_digest(token, AUTH_TOKEN):
+            print(f"[security] 401 on {request.method} {request.url.path} — token len={len(token)} expected len={len(AUTH_TOKEN)} match={token == AUTH_TOKEN}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing auth token"},
+            )
+        return await call_next(request)
+
+
 app = FastAPI(title="Emulation Agent API")
 
+# Middleware execution order in Starlette: LAST added = OUTERMOST.
+# We need CORS to be outermost so its headers appear on ALL responses
+# (including 401s from TokenAuth). So add CORS LAST.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=r"^(null|http://(127\.0\.0\.1|localhost)(:\d+)?)$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Emu-Token"],
 )
+app.add_middleware(TokenAuthMiddleware)
 
 manager = ConnectionManager()
 context_manager = ContextManager()
@@ -403,6 +441,11 @@ async def compact_context(req: CompactRequest):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(ws: WebSocket, session_id: str):
+    # Validate auth token from query parameter before accepting
+    token = ws.query_params.get("token", "")
+    if not secrets.compare_digest(token, AUTH_TOKEN):
+        await ws.close(code=4001, reason="Invalid auth token")
+        return
     await manager.connect(session_id, ws)
     try:
         while True:

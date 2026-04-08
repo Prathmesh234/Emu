@@ -34,7 +34,13 @@ async function _processQueue() {
 
 // ── Public API ────────────────────────────────────────────────────────
 function initWebSocket(sessionId) {
-    const ws = new WebSocket(`${WS_URL}/ws/${sessionId}`);
+    const fs = require('fs');
+    const path = require('path');
+    let token = '';
+    try {
+        token = fs.readFileSync(path.join(__dirname, '..', '..', '.emu', '.auth_token'), 'utf8').trim();
+    } catch { /* token file may not exist yet */ }
+    const ws = new WebSocket(`${WS_URL}/ws/${sessionId}?token=${encodeURIComponent(token)}`);
 
     ws.onopen = () => console.log('[ws] connected');
 
