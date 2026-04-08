@@ -34,11 +34,11 @@ USE_OMNI_PARSER = (
 SCREENSHOT_PREFIX = "data:image/"
 
 # Maximum messages before middle-trimming (safety net)
-MAX_CHAIN_LENGTH = 60
+MAX_CHAIN_LENGTH = 105
 
 # Auto-compaction safety net — only fires if model doesn't self-compact.
 # Set high: the model should call compact_context before this triggers.
-AUTO_COMPACT_THRESHOLD = 55
+AUTO_COMPACT_THRESHOLD = 100
 
 # Plan auto-injection interval (every N assistant turns)
 PLAN_INJECT_INTERVAL = 10
@@ -124,7 +124,12 @@ class ContextManager:
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """Append a screenshot as a user message, optionally via OmniParser."""
         if not base64_screenshot.startswith("data:"):
-            mime = "image/jpeg" if base64_screenshot.startswith("/9j") else "image/png"
+            if base64_screenshot.startswith("/9j"):
+                mime = "image/jpeg"
+            elif base64_screenshot.startswith("UklGR"):
+                mime = "image/webp"
+            else:
+                mime = "image/png"
             base64_screenshot = f"data:{mime};base64,{base64_screenshot}"
 
         annotations = None

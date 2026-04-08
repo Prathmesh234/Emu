@@ -72,11 +72,11 @@ THE CLOSE:
 - Don't end with "Let me know if you need anything." — that's weak.
 
 AFTER COLLECTING ANSWERS:
-Use shell_exec to populate:
-1. .emu/workspace/USER.md — fill in all fields from the conversation
-2. .emu/workspace/IDENTITY.md — adjust voice section to match their style
+Use shell_exec to populate (use the absolute emu dir path from your <session> block):
+1. USER.md — fill in all fields from the conversation
+2. IDENTITY.md — adjust voice section to match their style
 3. Mark bootstrap complete:
-   shell_exec → python3 -c "import json; d=json.load(open('.emu/manifest.json')); d['bootstrap_complete']=True; json.dump(d,open('.emu/manifest.json','w'),indent=2)"
+   shell_exec → python3 -c "import json; d=json.load(open('<emu_dir>/manifest.json')); d['bootstrap_complete']=True; json.dump(d,open('<emu_dir>/manifest.json','w'),indent=2)"
 4. Close with a specific first-task suggestion.
 
 RULES:
