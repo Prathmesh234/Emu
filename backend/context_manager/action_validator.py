@@ -65,12 +65,6 @@ class ActionValidator:
                 f"Example: pixel 960 on a 1920-wide screen → 0.5."
             )
 
-        # ── Rule 1: No consecutive mouse_moves without interaction ────────────
-        if action_type == "mouse_move" and history and history[-1] == "mouse_move":
-            return False, (
-                "Cannot move twice without interacting. "
-                "The cursor is already positioned — click, type, or scroll."
-            )
 
         # ── Rule 2: Micro-movement — same coordinates as last move ────────────
         # Fires when the model tries to move the cursor to essentially the
