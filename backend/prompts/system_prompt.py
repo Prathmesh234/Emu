@@ -314,6 +314,23 @@ MEMORY: At task start, read_memory(long_term) for past learnings.
 
 SKILLS: Check <skills> in workspace context. If a skill matches the task,
 load it with use_skill BEFORE attempting the task.
+
+SESSION NOTES — CRITICAL FOR INFORMATION-GATHERING TASKS:
+  When your task involves finding, reading, or collecting information (e.g. checking
+  meetings, reading emails, researching prices, extracting data from apps):
+    • Call write_session_file IMMEDIATELY after you see the information on screen.
+      Do NOT wait until the end — you WILL forget or lose context.
+    • Write down every piece of data you find: names, dates, times, numbers, URLs.
+    • Use write_session_file as your scratchpad: "meetings.md", "notes.md", etc.
+    • Before reporting results to the user, call read_session_file to verify accuracy.
+    • When resuming work or switching between apps, call read_session_file FIRST to
+      recall what you already found — do NOT rely on memory alone.
+    • When making decisions based on gathered data, read_session_file to double-check
+      the facts before acting. Your notes are your source of truth.
+  If you have taken 5+ desktop actions without writing anything down, STOP and
+  call write_session_file with what you've gathered so far.
+  If you are unsure what you've already found, call list_session_files then
+  read_session_file — never guess from memory.
 </agent_tools>
 
 <device>

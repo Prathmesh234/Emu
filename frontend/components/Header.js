@@ -10,25 +10,6 @@ function Header({ onExpand, onClose, onNewTask }) {
     const leftGroup = document.createElement('div');
     leftGroup.className = 'header-left';
 
-    // + New Task button
-    const newTaskBtn = document.createElement('button');
-    newTaskBtn.className = 'new-task-btn';
-    newTaskBtn.textContent = '+';
-    newTaskBtn.title = 'Start a new task';
-    newTaskBtn.onclick = () => {
-        if (store.state.isGenerating) {
-            // Show disclaimer tooltip that the task will be queued
-            const disclaimer = document.createElement('div');
-            disclaimer.className = 'queue-disclaimer';
-            disclaimer.textContent = 'A task is currently running. Your new task will be queued and start after the current one finishes.';
-            newTaskBtn.parentElement.appendChild(disclaimer);
-            // Auto-remove after 4s
-            setTimeout(() => disclaimer.remove(), 4000);
-        }
-        if (onNewTask) onNewTask();
-    };
-    leftGroup.appendChild(newTaskBtn);
-
     const h1 = document.createElement('h1');
     const emuSvg = document.createElement('span');
     emuSvg.className = 'emu-icon';

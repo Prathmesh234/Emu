@@ -27,9 +27,9 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     width: 100%;
     height: 100vh;
     background: #ffffff;
-    border-radius: 4px;
+    border-radius: 12px;
     overflow: hidden;
-    border: 2px solid #111111;
+    border: 1px solid #e0e0e0;
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────── */
@@ -39,8 +39,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 /* ── Header ──────────────────────────────────────────────────────────── */
 
 .header {
-    padding: 8px 12px;
-    border-bottom: 2px solid #111111;
+    padding: 8px 16px;
+    border-bottom: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -68,10 +68,10 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .emu-static-svg .emu-main-stroke { stroke: #111111; }
 .emu-static-svg .emu-accent-fill { fill: #333333; }
 .emu-static-svg .emu-accent-stroke { stroke: #333333; }
-.empty-state-emoji .emu-static-svg .emu-main-fill { fill: #888888; }
-.empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #888888; }
-.empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #888888; }
-.empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #888888; }
+.empty-state-emoji .emu-static-svg .emu-main-fill { fill: #555555; }
+.empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #555555; }
+.empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #777777; }
+.empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #777777; }
 
 .header-actions { display: flex; gap: 6px; -webkit-app-region: no-drag; align-items: center; flex-shrink: 0; }
 
@@ -114,13 +114,14 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .expand-btn {
     width: 28px; height: 28px;
-    border: 2px solid #111111; border-radius: 4px;
-    background: #ffffff; cursor: pointer;
+    border: none; border-radius: 8px;
+    background: transparent; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    color: #111111;
+    color: #888;
     -webkit-app-region: no-drag;
+    transition: background 0.15s, color 0.15s;
 }
-.expand-btn:hover { background: #f0f0f0; }
+.expand-btn:hover { background: #f0f0f0; color: #111; }
 
 /* Dangerous mode toggle */
 .danger-toggle {
@@ -159,18 +160,21 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .empty-state {
     text-align: center;
     color: #888888;
-    padding: 48px 16px;
+    padding: 80px 16px 48px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
 }
-.empty-state-emoji { font-size: 2.5rem; margin-bottom: 8px; }
+.empty-state-emoji { font-size: 2.5rem; margin-bottom: 12px; }
 .empty-state h2 {
     color: #111111;
     margin-bottom: 4px;
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 .empty-state p { font-size: 13px; color: #888888; }
 
@@ -188,14 +192,14 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     color: #111111;
 }
 .message.user .message-content {
-    background: #f0f0f0;
-    border: 1px solid #111111;
-    border-radius: 4px;
-    padding: 8px 12px;
+    background: #f5f5f5;
+    border: none;
+    border-radius: 18px;
+    padding: 10px 16px;
 }
-.message.user .message-content:hover { background: #e0e0e0; }
-.message.assistant .message-content { padding: 4px; border-radius: 4px; }
-.message.assistant .message-content:hover { background: #f0f0f0; }
+.message.user .message-content:hover { background: #ebebeb; }
+.message.assistant .message-content { padding: 4px 8px; border-radius: 12px; }
+.message.assistant .message-content:hover { background: #f8f8f8; }
 
 /* ── Status indicator (semantic badge) ────────────────────────────────── */
 
@@ -204,14 +208,14 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     align-items: center;
     gap: 8px;
     padding: 4px 12px;
-    background: #ffffff;
-    border: 2px solid #111111;
-    border-radius: 2px;
+    background: #f8f8f8;
+    border: 1px solid #e0e0e0;
+    border-radius: 20px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #111111;
+    color: #555;
     margin-bottom: 8px;
 }
 .status-indicator .dot {
@@ -225,26 +229,47 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Input ───────────────────────────────────────────────────────────── */
 
-.input-container { padding: 12px 16px; border-top: 2px solid #111111; position: relative; }
-.input-wrapper { display: flex; gap: 8px; align-items: flex-end; }
+.input-container { padding: 12px 20px 16px; border-top: none; position: relative; }
+.input-wrapper {
+    display: flex;
+    gap: 0;
+    align-items: flex-end;
+    border: 1.5px solid #d0d0d0;
+    border-radius: 20px;
+    padding: 4px 4px 4px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #ffffff;
+    max-height: 180px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.input-wrapper:focus-within {
+    border-color: #999;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+.input-wrapper::-webkit-scrollbar { width: 5px; }
+.input-wrapper::-webkit-scrollbar-track { background: transparent; }
+.input-wrapper::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 4px; }
+.input-wrapper::-webkit-scrollbar-thumb:hover { background: #aaa; }
 
 /* ── Close button ────────────────────────────────────────────────────── */
 
 .close-btn {
     width: 28px;
     height: 28px;
-    border: 2px solid #111111;
-    border-radius: 4px;
-    background: #ffffff;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
     cursor: pointer;
     font-size: 14px;
-    color: #111111;
+    color: #888;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-app-region: no-drag;
+    transition: background 0.15s, color 0.15s;
 }
-.close-btn:hover { border-color: #dc2626; color: #dc2626; }
+.close-btn:hover { background: #f0f0f0; color: #dc2626; }
 
 /* ── Step number badge ───────────────────────────────────────────────── */
 
@@ -282,33 +307,34 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .chat-input {
     flex: 1;
-    padding: 8px 12px;
-    border: 2px solid #111111;
-    border-radius: 4px;
-    font-size: 13px;
+    min-width: 0;
+    padding: 8px 0;
+    border: none;
+    border-radius: 0;
+    font-size: 14px;
     font-family: inherit;
-    line-height: 1.4;
+    line-height: 1.5;
     resize: none;
     outline: none;
-    min-height: 44px;
-    max-height: 150px;
+    min-height: 40px;
+    max-height: none;
+    overflow: hidden;
     color: #111111;
-    background: #ffffff;
+    background: transparent;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
-.chat-input:focus { border-color: #111111; }
-.chat-input::placeholder { color: #888888; }
-.chat-input::-webkit-scrollbar { width: 4px; }
-.chat-input::-webkit-scrollbar-track { background: transparent; }
-.chat-input::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 4px; }
+.chat-input:focus { border-color: transparent; outline: none; box-shadow: none; }
+.chat-input::placeholder { color: #aaa; }
 .chat-input::-webkit-scrollbar-thumb:hover { background: #999999; }
 
 /* ── Send button — filled primary ────────────────────────────────────── */
 
 .send-btn {
-    width: 44px;
-    height: 44px;
-    border: 2px solid #111111;
-    border-radius: 4px;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
     background: #111111;
     color: #ffffff;
     cursor: pointer;
@@ -316,13 +342,16 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transition: background 0.15s;
+    position: sticky;
+    bottom: 4px;
 }
 .send-btn:hover:not(:disabled) { background: #333333; }
 .send-btn:disabled {
     cursor: not-allowed;
-    border-color: #cccccc;
-    background: #ffffff;
-    color: #cccccc;
+    border: none;
+    background: #e8e8e8;
+    color: #bbb;
 }
 .send-btn.stop-mode { background: #dc2626; border-color: #dc2626; color: #ffffff; }
 .send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
@@ -408,8 +437,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     flex-direction: column;
     gap: 8px;
     background: #ffffff;
-    border: 2px solid #111111;
-    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
     padding: 14px;
     font-size: 13px;
     max-width: 100%;
@@ -892,7 +921,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     min-width: 44px;
     height: 100%;
     background: #fafafa;
-    border-right: 2px solid #111111;
+    border-right: 1px solid #e8e8e8;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1123,7 +1152,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
      Paper Alt  #141414    (was #fafafa)
    ══════════════════════════════════════════════════════════════════════ */
 
-#app.dark { background: #1a1a1a; border-color: #e0e0e0; color: #e0e0e0; }
+#app.dark { background: #1a1a1a; border-color: #333; color: #e0e0e0; }
 #app.dark .main { background: #1a1a1a; }
 
 /* Header */
@@ -1142,16 +1171,18 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .new-task-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
 #app.dark .new-task-btn:hover { background: #2a2a2a; }
 #app.dark .queue-disclaimer { background: #1a1a1a; }
-#app.dark .expand-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
-#app.dark .expand-btn:hover { background: #2a2a2a; }
+#app.dark .expand-btn { border: none; background: transparent; color: #888; }
+#app.dark .expand-btn:hover { background: #2a2a2a; color: #e0e0e0; }
 #app.dark .theme-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
 #app.dark .theme-btn:hover { background: #2a2a2a; }
-#app.dark .close-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
-#app.dark .close-btn:hover { border-color: #dc2626; color: #dc2626; background: #1a1a1a; }
+#app.dark .close-btn { border: none; background: transparent; color: #888; }
+#app.dark .close-btn:hover { border: none; color: #dc2626; background: #2a2a2a; }
 
 /* Danger toggle */
 #app.dark .danger-slider { background: #3a3a3a; }
 #app.dark .danger-slider::after { background: #e0e0e0; }
+#app.dark .danger-toggle.active .danger-slider { background: #dc2626; }
+#app.dark .danger-toggle.active .danger-label { color: #dc2626; }
 #app.dark .danger-label { color: #666666; }
 
 /* Empty state */
@@ -1161,24 +1192,26 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* Messages */
 #app.dark .message-content { color: #e0e0e0; }
-#app.dark .message.user .message-content { background: #2a2a2a; border-color: #e0e0e0; }
+#app.dark .message.user .message-content { background: #2a2a2a; border: none; }
 #app.dark .message.user .message-content:hover { background: #333333; }
 #app.dark .message.assistant .message-content:hover { background: #2a2a2a; }
 
 /* Status indicator */
-#app.dark .status-indicator { background: #1a1a1a; border-color: #e0e0e0; color: #e0e0e0; }
+#app.dark .status-indicator { background: #2a2a2a; border-color: #3a3a3a; color: #aaa; }
 
 /* Input area */
-#app.dark .input-container { border-top-color: #e0e0e0; }
-#app.dark .chat-input { border-color: #e0e0e0; color: #e0e0e0; background: #1a1a1a; }
+#app.dark .input-container { border-top-color: transparent; }
+#app.dark .input-wrapper { border-color: #3a3a3a; background: #1a1a1a; }
+#app.dark .input-wrapper:focus-within { border-color: #555; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04); }
+#app.dark .input-wrapper::-webkit-scrollbar-thumb { background: #3a3a3a; }
+#app.dark .input-wrapper::-webkit-scrollbar-thumb:hover { background: #555; }
+#app.dark .chat-input { color: #e0e0e0; background: transparent; }
 #app.dark .chat-input::placeholder { color: #666666; }
-#app.dark .chat-input::-webkit-scrollbar-thumb { background: #3a3a3a; }
-#app.dark .chat-input::-webkit-scrollbar-thumb:hover { background: #555555; }
 
 /* Send button (inverted — was black fill) */
-#app.dark .send-btn { border-color: #e0e0e0; background: #e0e0e0; color: #1a1a1a; }
+#app.dark .send-btn { border: none; background: #e0e0e0; color: #1a1a1a; }
 #app.dark .send-btn:hover:not(:disabled) { background: #cccccc; }
-#app.dark .send-btn:disabled { border-color: #3a3a3a; background: #1a1a1a; color: #3a3a3a; }
+#app.dark .send-btn:disabled { border: none; background: #2a2a2a; color: #3a3a3a; }
 
 /* Emu runner animation */
 #app.dark .emu-runner-svg .emu-main-fill { fill: #e0e0e0; }
@@ -1188,7 +1221,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .typing .thinking-dots span { background: #666666; }
 
 /* Step cards */
-#app.dark .step-card { background: #1a1a1a; border-color: #e0e0e0; }
+#app.dark .step-card { background: #1a1a1a; border-color: #333; }
 #app.dark .step-screenshot { border-color: #3a3a3a; }
 #app.dark .step-label { color: #aaaaaa; }
 #app.dark .step-header { color: #e0e0e0; border-bottom-color: #e0e0e0; }
