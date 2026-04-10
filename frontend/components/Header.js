@@ -78,6 +78,20 @@ function Header({ onExpand, onClose, onNewTask }) {
     if (onExpand) expandBtn.onclick = onExpand;
     actions.appendChild(expandBtn);
 
+    // Dark mode toggle button (moon = light mode active, sun = dark mode active)
+    const themeBtn = document.createElement('button');
+    themeBtn.className = 'theme-btn';
+    themeBtn.title = store.state.darkMode ? 'Switch to light mode' : 'Switch to dark mode';
+    themeBtn.textContent = store.state.darkMode ? '\u2600\uFE0F' : '\uD83C\uDF19';
+    themeBtn.onclick = () => {
+        const newDark = !store.state.darkMode;
+        store.setDarkMode(newDark);
+        document.getElementById('app').classList.toggle('dark', newDark);
+        themeBtn.textContent = newDark ? '\u2600\uFE0F' : '\uD83C\uDF19';
+        themeBtn.title = newDark ? 'Switch to light mode' : 'Switch to dark mode';
+    };
+    actions.appendChild(themeBtn);
+
     // Close button
     const closeBtn = document.createElement('button');
     closeBtn.className = 'close-btn';
