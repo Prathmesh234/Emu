@@ -1089,3 +1089,188 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     z-index: 10;
     letter-spacing: 0.02em;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Theme toggle button
+   ══════════════════════════════════════════════════════════════════════ */
+
+.theme-btn {
+    width: 28px;
+    height: 28px;
+    border: 2px solid #111111;
+    border-radius: 4px;
+    background: #ffffff;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+    line-height: 1;
+    padding: 0;
+}
+.theme-btn:hover { background: #f0f0f0; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Dark Mode Overrides
+   Dark palette:
+     Ink        #e0e0e0    (was #111111)
+     Secondary  #aaaaaa    (was #333333)
+     Muted      #666666    (was #888888)
+     Disabled   #3a3a3a    (was #cccccc)
+     Divider    #2a2a2a    (was #f0f0f0)
+     Paper      #1a1a1a    (was #ffffff)
+     Paper Alt  #141414    (was #fafafa)
+   ══════════════════════════════════════════════════════════════════════ */
+
+#app.dark { background: #1a1a1a; border-color: #e0e0e0; color: #e0e0e0; }
+#app.dark .main { background: #1a1a1a; }
+
+/* Header */
+#app.dark .header { border-bottom-color: #e0e0e0; }
+#app.dark .header h1 { color: #e0e0e0; }
+#app.dark .emu-static-svg .emu-main-fill { fill: #e0e0e0; }
+#app.dark .emu-static-svg .emu-main-stroke { stroke: #e0e0e0; }
+#app.dark .emu-static-svg .emu-accent-fill { fill: #aaaaaa; }
+#app.dark .emu-static-svg .emu-accent-stroke { stroke: #aaaaaa; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-main-fill { fill: #666666; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #666666; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #666666; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #666666; }
+
+/* Header buttons */
+#app.dark .new-task-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .new-task-btn:hover { background: #2a2a2a; }
+#app.dark .queue-disclaimer { background: #1a1a1a; }
+#app.dark .expand-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .expand-btn:hover { background: #2a2a2a; }
+#app.dark .theme-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .theme-btn:hover { background: #2a2a2a; }
+#app.dark .close-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .close-btn:hover { border-color: #dc2626; color: #dc2626; background: #1a1a1a; }
+
+/* Danger toggle */
+#app.dark .danger-slider { background: #3a3a3a; }
+#app.dark .danger-slider::after { background: #e0e0e0; }
+#app.dark .danger-label { color: #666666; }
+
+/* Empty state */
+#app.dark .empty-state { color: #666666; }
+#app.dark .empty-state h2 { color: #e0e0e0; }
+#app.dark .empty-state p { color: #666666; }
+
+/* Messages */
+#app.dark .message-content { color: #e0e0e0; }
+#app.dark .message.user .message-content { background: #2a2a2a; border-color: #e0e0e0; }
+#app.dark .message.user .message-content:hover { background: #333333; }
+#app.dark .message.assistant .message-content:hover { background: #2a2a2a; }
+
+/* Status indicator */
+#app.dark .status-indicator { background: #1a1a1a; border-color: #e0e0e0; color: #e0e0e0; }
+
+/* Input area */
+#app.dark .input-container { border-top-color: #e0e0e0; }
+#app.dark .chat-input { border-color: #e0e0e0; color: #e0e0e0; background: #1a1a1a; }
+#app.dark .chat-input::placeholder { color: #666666; }
+#app.dark .chat-input::-webkit-scrollbar-thumb { background: #3a3a3a; }
+#app.dark .chat-input::-webkit-scrollbar-thumb:hover { background: #555555; }
+
+/* Send button (inverted — was black fill) */
+#app.dark .send-btn { border-color: #e0e0e0; background: #e0e0e0; color: #1a1a1a; }
+#app.dark .send-btn:hover:not(:disabled) { background: #cccccc; }
+#app.dark .send-btn:disabled { border-color: #3a3a3a; background: #1a1a1a; color: #3a3a3a; }
+
+/* Emu runner animation */
+#app.dark .emu-runner-svg .emu-main-fill { fill: #e0e0e0; }
+#app.dark .emu-runner-svg .emu-main-stroke { stroke: #e0e0e0; }
+#app.dark .emu-runner-svg .emu-accent-fill { fill: #aaaaaa; }
+#app.dark .emu-runner-svg .emu-accent-stroke { stroke: #aaaaaa; }
+#app.dark .typing .thinking-dots span { background: #666666; }
+
+/* Step cards */
+#app.dark .step-card { background: #1a1a1a; border-color: #e0e0e0; }
+#app.dark .step-screenshot { border-color: #3a3a3a; }
+#app.dark .step-label { color: #aaaaaa; }
+#app.dark .step-header { color: #e0e0e0; border-bottom-color: #e0e0e0; }
+#app.dark .step-number { border-color: #e0e0e0; background: #e0e0e0; color: #1a1a1a; }
+#app.dark .step-reasoning { background: #141414; border-color: #3a3a3a; border-left-color: #e0e0e0; }
+#app.dark .step-reasoning-text { color: #aaaaaa; }
+#app.dark .step-action { background: #141414; border-color: #3a3a3a; border-left-color: #e0e0e0; }
+#app.dark .step-action-desc { color: #e0e0e0; }
+#app.dark .step-confidence.high { background: #1a1a1a; }
+#app.dark .step-confidence.mid  { background: #1a1a1a; }
+#app.dark .step-confidence.low  { background: #1a1a1a; }
+#app.dark .step-action-status.pending { color: #666666; }
+#app.dark .step-confirm-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .step-confirm-btn.allow:hover:not(:disabled) { background: #2a2a2a; }
+#app.dark .step-confirm-btn.deny:hover:not(:disabled) { background: #2a2a2a; }
+#app.dark .step-confirm-btn.chosen { background: #2a2a2a; }
+#app.dark .step-done { background: #1a1a1a; color: #e0e0e0; }
+#app.dark .step-card.step-error { background: #1a1a1a; }
+
+/* Plan card */
+#app.dark .plan-card { border-left-color: #e0e0e0; }
+#app.dark .plan-card-content { color: #e0e0e0; background: #141414; border-color: #3a3a3a; }
+#app.dark .plan-card-content::-webkit-scrollbar-track { background: #2a2a2a; }
+#app.dark .plan-card-content::-webkit-scrollbar-thumb { background: #3a3a3a; }
+
+/* File card */
+#app.dark .file-card-name { color: #e0e0e0; }
+#app.dark .file-card-view-btn { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .file-card-view-btn:hover { background: #2a2a2a; }
+
+/* File dialog */
+#app.dark .file-dialog-overlay { background: rgba(0, 0, 0, 0.7); }
+#app.dark .file-dialog { background: #1a1a1a; border-color: #e0e0e0; }
+#app.dark .file-dialog-header { border-bottom-color: #e0e0e0; }
+#app.dark .file-dialog-title { color: #e0e0e0; }
+#app.dark .file-dialog-close { border-color: #e0e0e0; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .file-dialog-close:hover { border-color: #dc2626; color: #dc2626; }
+#app.dark .file-dialog-body { color: #e0e0e0; }
+#app.dark .file-dialog-body::-webkit-scrollbar-track { background: #2a2a2a; }
+#app.dark .file-dialog-body::-webkit-scrollbar-thumb { background: #3a3a3a; }
+
+/* Skill card */
+#app.dark .skill-card-name { color: #e0e0e0; }
+
+/* Tooltip */
+#app.dark .tooltip { background: #e0e0e0; color: #1a1a1a; }
+#app.dark .tooltip::after { border-top-color: #e0e0e0; }
+
+/* Markdown */
+#app.dark .md-h1 { color: #e0e0e0; }
+#app.dark .md-h2 { color: #e0e0e0; }
+#app.dark .md-h3 { color: #e0e0e0; }
+#app.dark .md-h4 { color: #aaaaaa; }
+#app.dark .md-inline-code { background: #2a2a2a; border-color: #3a3a3a; color: #e0e0e0; }
+#app.dark .md-hr { border-top-color: #3a3a3a; }
+#app.dark .md-check-item.checked { color: #666666; }
+
+/* Scrollbar */
+#app.dark .chat-container::-webkit-scrollbar-track { background: #1a1a1a; }
+#app.dark .chat-container::-webkit-scrollbar-thumb { background: #3a3a3a; }
+#app.dark .chat-container::-webkit-scrollbar-thumb:hover { background: #555555; }
+
+/* History panel */
+#app.dark .history-panel { background: #141414; border-right-color: #e0e0e0; }
+#app.dark .history-panel-header { border-bottom-color: #2a2a2a; }
+#app.dark .history-panel-title { color: #e0e0e0; }
+#app.dark .history-panel-hamburger { color: #e0e0e0; }
+#app.dark .history-panel-hamburger:hover { background: #2a2a2a; }
+#app.dark .history-new-chat { border-color: #2a2a2a; background: #1a1a1a; color: #e0e0e0; }
+#app.dark .history-new-chat:hover { border-color: #e0e0e0; background: #2a2a2a; }
+#app.dark .history-new-chat svg { color: #666666; }
+#app.dark .history-section-label { color: #666666; }
+#app.dark .history-empty { color: #666666; }
+#app.dark .history-list::-webkit-scrollbar-thumb { background: #2a2a2a; }
+#app.dark .history-list::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+#app.dark .panel-button { color: #aaaaaa; }
+#app.dark .panel-button:hover { background: #2a2a2a; }
+#app.dark .panel-button.active { background: #2d2d2d; color: #e0e0e0; }
+#app.dark .panel-button-icon { color: #666666; }
+#app.dark .panel-button.active .panel-button-icon { color: #e0e0e0; }
+
+/* Disabled input overlay */
+#app.dark .input-container.input-disabled .chat-input { background: #141414; color: #3a3a3a; }
+#app.dark .input-container.input-disabled .send-btn { border-color: #3a3a3a; background: #1a1a1a; color: #3a3a3a; }
+#app.dark .input-overlay { color: #666666; }
