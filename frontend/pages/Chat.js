@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel, PanelToggle } = require('../components');
+const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel } = require('../components');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
@@ -14,7 +14,7 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 
 // ── DOM refs (populated in mount) ────────────────────────────────────────
 
-let chatContainer, chatWrapper, chatInput, header, historyPanel, panelToggle;
+let chatContainer, chatWrapper, chatInput, header, historyPanel;
 let _historyPanelOpen = false;
 let _viewingPastSession = false;
 
@@ -1043,7 +1043,7 @@ function mount(appEl) {
         onSelectSession: (sessionId) => {
             loadPastSession(sessionId);
         },
-        onClose: () => {
+        onToggle: () => {
             toggleHistoryPanel();
         },
     });
@@ -1053,20 +1053,11 @@ function mount(appEl) {
     const main = document.createElement('div');
     main.className = 'main';
 
-    // Header (component)
-    panelToggle = PanelToggle(toggleHistoryPanel);
-
     header = Header({
         onExpand: toggleWindow,
         onClose: () => window.close(),
         onNewTask: newChat,
     });
-
-    // Insert toggle button at the start of the header left group
-    const headerLeft = header.element.querySelector('.header-left');
-    if (headerLeft) {
-        headerLeft.insertBefore(panelToggle.element, headerLeft.firstChild);
-    }
 
     main.appendChild(header.element);
 
