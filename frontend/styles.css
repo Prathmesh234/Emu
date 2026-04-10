@@ -114,7 +114,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .expand-btn {
     width: 28px; height: 28px;
-    border: none; border-radius: 8px;
+    border: none; border-radius: 6px;
     background: transparent; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     color: #888;
@@ -152,7 +152,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Chat area ───────────────────────────────────────────────────────── */
 
-.chat-container { flex: 1; overflow-y: auto; }
+.chat-container { flex: 1; overflow-y: auto; min-height: 0; }
 .chat-wrapper { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ── Empty state ─────────────────────────────────────────────────────── */
@@ -258,7 +258,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     width: 28px;
     height: 28px;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     background: transparent;
     cursor: pointer;
     font-size: 14px;
@@ -353,8 +353,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     background: #e8e8e8;
     color: #bbb;
 }
-.send-btn.stop-mode { background: #dc2626; border-color: #dc2626; color: #ffffff; }
-.send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
+.send-btn.stop-mode { background: #dc2626; color: #ffffff; }
+.send-btn.stop-mode:hover { background: #b91c1c; }
 
 /* ── Emu running / thinking animation ────────────────────────────────── */
 
@@ -460,7 +460,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .step-screenshot img {
     width: 100%;
     max-height: 140px;
-    object-fit: cover;
+    object-fit: contain;
+    background: #f8f8f8;
     display: block;
     transition: max-height 0.3s ease;
 }
@@ -957,7 +958,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     white-space: nowrap;
     overflow: hidden;
     opacity: 0;
-    transition: opacity 0.18s ease;
+    transition: opacity 0.22s ease;
     padding-left: 4px;
 }
 .history-panel.open .history-panel-title {
@@ -991,7 +992,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.18s ease;
+    transition: opacity 0.22s ease;
 }
 .history-panel.open .history-panel-body {
     opacity: 1;
@@ -1094,6 +1095,12 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Input disabled overlay (past sessions) ──────────────────────────── */
 
+.input-container.input-disabled {
+    position: relative;
+}
+.input-container.input-disabled .input-wrapper {
+    max-height: none;
+}
 .input-container.input-disabled .chat-input {
     background: #f5f5f5;
     color: #cccccc;
@@ -1117,6 +1124,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     pointer-events: none;
     z-index: 10;
     letter-spacing: 0.02em;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 20px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -1126,9 +1135,9 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .theme-btn {
     width: 28px;
     height: 28px;
-    border: 2px solid #111111;
-    border-radius: 4px;
-    background: #ffffff;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
     cursor: pointer;
     font-size: 14px;
     display: flex;
@@ -1137,6 +1146,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     -webkit-app-region: no-drag;
     line-height: 1;
     padding: 0;
+    color: #111111;
+    transition: background 0.15s;
 }
 .theme-btn:hover { background: #f0f0f0; }
 
@@ -1176,12 +1187,12 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .new-task-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
 #app.dark .new-task-btn:hover { background: #1d3461; }
 #app.dark .queue-disclaimer { background: #112240; border-color: #d97706; }
-#app.dark .expand-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #8892b0; }
+#app.dark .expand-btn { border: none; border-radius: 6px; background: transparent; color: #8892b0; }
 #app.dark .expand-btn:hover { background: #1d3461; color: #ccd6f6; }
-#app.dark .theme-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
+#app.dark .theme-btn { border: none; border-radius: 6px; background: transparent; color: #ccd6f6; }
 #app.dark .theme-btn:hover { background: #1d3461; }
-#app.dark .close-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #8892b0; }
-#app.dark .close-btn:hover { border-color: #dc2626; color: #dc2626; background: #0d1b2a; }
+#app.dark .close-btn { border: none; border-radius: 6px; background: transparent; color: #8892b0; }
+#app.dark .close-btn:hover { border: none; background: #1d3461; color: #dc2626; }
 
 /* Danger toggle */
 #app.dark .danger-slider { background: #1e3a5f; }
@@ -1206,13 +1217,13 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* Input area — separate bordered input and square send btn matching linux branch */
 #app.dark .input-container { border-top: 2px solid #1e3a5f; padding: 12px 16px; }
-#app.dark .input-wrapper { gap: 8px; border: none; border-radius: 0; padding: 0; background: transparent; max-height: none; overflow: visible; box-shadow: none; }
-#app.dark .input-wrapper:focus-within { border: none; box-shadow: none; }
-#app.dark .input-wrapper::-webkit-scrollbar-thumb { background: transparent; }
-#app.dark .chat-input { border: 2px solid #1e3a5f; border-radius: 4px; padding: 8px 12px; background: #112240; color: #ccd6f6; min-height: 44px; max-height: 150px; overflow-y: auto; }
+#app.dark .input-wrapper { gap: 0; border: 2px solid #1e3a5f; border-radius: 4px; padding: 4px 4px 4px 16px; background: #112240; max-height: 180px; overflow-x: hidden; overflow-y: auto; }
+#app.dark .input-wrapper:focus-within { border: 2px solid #2a4a7f; box-shadow: none; }
+#app.dark .input-wrapper::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .chat-input { border: none; border-radius: 0; padding: 8px 0; background: transparent; color: #ccd6f6; min-height: 40px; max-height: none; overflow: hidden; }
 #app.dark .chat-input:focus { border-color: #2a4a7f; outline: none; box-shadow: none; }
 #app.dark .chat-input::placeholder { color: #4a6285; }
-#app.dark .send-btn { width: 44px; height: 44px; border: 2px solid #1e3a5f; border-radius: 4px; background: #1e3a5f; color: #ccd6f6; position: static; }
+#app.dark .send-btn { width: 36px; height: 36px; border: 2px solid #1e3a5f; border-radius: 50%; background: #1e3a5f; color: #ccd6f6; position: sticky; bottom: 4px; }
 #app.dark .send-btn:hover:not(:disabled) { background: #2a4a7f; border-color: #2a4a7f; }
 #app.dark .send-btn:disabled { border: 2px solid #1e3a5f; background: #0d1b2a; color: #1e3a5f; }
 
@@ -1309,6 +1320,84 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .panel-button.active .panel-button-icon { color: #ccd6f6; }
 
 /* Disabled input overlay */
+#app.dark .input-container.input-disabled {
+    position: relative;
+}
+#app.dark .input-container.input-disabled .input-wrapper {
+    max-height: none;
+}
 #app.dark .input-container.input-disabled .chat-input { background: #0a192f; color: #1e3a5f; }
 #app.dark .input-container.input-disabled .send-btn { border-color: #1e3a5f; background: #0d1b2a; color: #1e3a5f; }
-#app.dark .input-overlay { color: #4a6285; }
+#app.dark .input-overlay { color: #4a6285; background: rgba(10, 25, 47, 0.5); border-radius: 4px; }
+
+/* Dark mode stop button — ensure red border overrides the default navy border */
+#app.dark .send-btn.stop-mode { background: #dc2626; border-color: #dc2626; color: #ffffff; }
+#app.dark .send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
+
+/* Dark mode code blocks — use navy palette instead of pure black */
+#app.dark .md-code-block { background: #0a192f; color: #ccd6f6; border: 1px solid #1e3a5f; }
+#app.dark .step-cmd-preview { background: #0a192f; color: #ccd6f6; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-track { background: #112240; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+
+/* Dark mode screenshot error text — fix low contrast */
+#app.dark .step-screenshot-error { color: #4a6285; }
+#app.dark .step-screenshot img { background: #0a192f; }
+
+/* Dark mode input wrapper scrollbar — add hover state */
+#app.dark .input-wrapper::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Accessibility — focus-visible outlines
+   ══════════════════════════════════════════════════════════════════════ */
+
+.send-btn:focus-visible,
+.expand-btn:focus-visible,
+.close-btn:focus-visible,
+.theme-btn:focus-visible,
+.new-task-btn:focus-visible,
+.step-confirm-btn:focus-visible,
+.file-card-view-btn:focus-visible,
+.file-dialog-close:focus-visible,
+.history-panel-hamburger:focus-visible,
+.history-new-chat:focus-visible,
+.panel-button:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+#app.dark .send-btn:focus-visible,
+#app.dark .expand-btn:focus-visible,
+#app.dark .close-btn:focus-visible,
+#app.dark .theme-btn:focus-visible,
+#app.dark .new-task-btn:focus-visible,
+#app.dark .step-confirm-btn:focus-visible,
+#app.dark .file-card-view-btn:focus-visible,
+#app.dark .file-dialog-close:focus-visible,
+#app.dark .history-panel-hamburger:focus-visible,
+#app.dark .history-new-chat:focus-visible,
+#app.dark .panel-button:focus-visible {
+    outline: 2px solid #4a90d9;
+    outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Panel toggle button (standalone hamburger, used by PanelToggle.js)
+   ══════════════════════════════════════════════════════════════════════ */
+
+.panel-toggle {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    transition: background 0.15s, color 0.15s;
+}
+.panel-toggle:hover { background: #f0f0f0; color: #111; }
+#app.dark .panel-toggle { color: #8892b0; }
+#app.dark .panel-toggle:hover { background: #1d3461; color: #ccd6f6; }

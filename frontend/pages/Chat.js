@@ -368,7 +368,7 @@ function editMessage(index) {
 
     chatInput.textarea.value = content;
     chatInput.textarea.style.height = 'auto';
-    chatInput.textarea.style.height = Math.min(chatInput.textarea.scrollHeight, 150) + 'px';
+    chatInput.textarea.style.height = Math.min(chatInput.textarea.scrollHeight, 160) + 'px';
     chatInput.sendBtn.disabled = false;
     chatInput.textarea.focus();
 }
