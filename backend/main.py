@@ -221,7 +221,12 @@ async def agent_step(req: AgentRequest):
                 )
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
-                await log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}", manager)
+                await log_and_send(
+                    session_id,
+                    f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}",
+                    manager,
+                    metadata={"tool_name": tc.name, "args": json.dumps(args, ensure_ascii=False)[:500], "result": result[:500]},
+                )
 
                 # If update_plan was called, capture the plan content for review
                 if tc.name == "update_plan":
@@ -300,9 +305,24 @@ async def agent_step(req: AgentRequest):
     # Log the assistant's action/response
     reasoning_preview = (response.reasoning_content or "")[:200]
     if response.done:
-        await log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}", manager)
+        await log_and_send(
+            session_id,
+            f"[assistant] DONE — {response.final_message or 'Task complete.'}",
+            manager,
+            metadata={"done": True, "final_message": response.final_message or "Task complete."},
+        )
     else:
-        await log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}", manager)
+        await log_and_send(
+            session_id,
+            f"[action] {action_type}  confidence={response.confidence}  reasoning={reasoning_preview}",
+            manager,
+            metadata={
+                "action_type": action_type,
+                "confidence": response.confidence,
+                "reasoning": (response.reasoning_content or "")[:500],
+                "action": action_payload,
+            },
+        )
 
     # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)
@@ -437,6 +457,66 @@ async def compact_context(req: CompactRequest):
         "previous_length": chain_len,
         "new_length": new_len,
     }
+
+
+@app.get("/sessions/history")
+async def sessions_history():
+    """Return all sessions with their first user message for the history sidebar."""
+    from workspace import get_sessions_dir
+    sessions_dir = get_sessions_dir()
+    results = []
+
+    if not sessions_dir.is_dir():
+        return {"sessions": []}
+
+    for session_dir in sessions_dir.iterdir():
+        if not session_dir.is_dir():
+            continue
+        conv_path = session_dir / "logs" / "conversation.json"
+        if not conv_path.exists():
+            continue
+        try:
+            with open(conv_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            messages = data.get("messages", [])
+            if not messages:
+                continue
+            # Find the first user message for the preview
+            first_user = next((m for m in messages if m.get("role") == "user" and m.get("content", "").strip() and m["content"] != "<screenshot>"), None)
+            if not first_user:
+                continue
+            # Use directory mtime as a rough "last active" timestamp
+            mtime = session_dir.stat().st_mtime
+            results.append({
+                "session_id": session_dir.name,
+                "preview": first_user["content"][:80],
+                "message_count": len(messages),
+                "last_active": mtime,
+            })
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    # Sort by last_active descending (most recent first)
+    results.sort(key=lambda s: s["last_active"], reverse=True)
+    return {"sessions": results}
+
+
+@app.get("/sessions/{session_id}/messages")
+async def session_messages(session_id: str):
+    """Return the full conversation.json for a given session."""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid session_id"})
+    from workspace import get_sessions_dir
+    conv_path = get_sessions_dir() / session_id / "logs" / "conversation.json"
+    if not conv_path.exists():
+        return {"messages": []}
+    try:
+        with open(conv_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except (json.JSONDecodeError, KeyError):
+        return {"messages": []}
 
 
 @app.websocket("/ws/{session_id}")

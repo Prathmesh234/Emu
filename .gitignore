@@ -23,9 +23,6 @@ build/
 .pytest_cache/
 .uv/
 
-# ── Screenshots (runtime output) ──────────────────────────────────
-backend/emulation_screen_shots/
-
 # ── .emu workspace (user-specific, runtime) ───────────────────────
 .emu/
 

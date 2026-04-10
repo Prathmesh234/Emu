@@ -99,6 +99,12 @@ function Header({ onExpand, onClose, onNewTask }) {
             toggleInput.disabled = disabled;
             toggleWrap.classList.toggle('disabled', disabled);
         },
+        setCompact(compact) {
+            // In compact/side-panel mode, hide title text and toggle label
+            emuText.style.display = compact ? 'none' : '';
+            emuSvg.style.display = compact ? 'none' : '';
+            toggleLabel.style.display = compact ? 'none' : '';
+        },
     };
 }
 

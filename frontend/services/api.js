@@ -78,4 +78,22 @@ async function compactContext(sessionId) {
     return res.json();
 }
 
-module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent, compactContext };
+async function fetchSessionHistory() {
+    const res = await fetch(`${BACKEND_URL}/sessions/history`, {
+        headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.sessions || [];
+}
+
+async function fetchSessionMessages(sessionId) {
+    const res = await fetch(`${BACKEND_URL}/sessions/${encodeURIComponent(sessionId)}/messages`, {
+        headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.messages || [];
+}
+
+module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages };

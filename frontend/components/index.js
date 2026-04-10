@@ -12,6 +12,9 @@ const { Tooltip } = require('./Tooltip');
 const { Header } = require('./Header');
 const { EmptyState } = require('./EmptyState');
 const { StatusIndicator } = require('./StatusIndicator');
+const { HistoryPanel } = require('./HistoryPanel');
+const { PanelButton } = require('./PanelButton');
+const { PanelToggle } = require('./PanelToggle');
 
 module.exports = {
     Button,
@@ -30,4 +33,7 @@ module.exports = {
     Header,
     EmptyState,
     StatusIndicator,
+    HistoryPanel,
+    PanelButton,
+    PanelToggle,
 };
