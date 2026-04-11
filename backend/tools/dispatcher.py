@@ -1,4 +1,5 @@
 import json
+import platform
 from utilities.connection import ConnectionManager
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
