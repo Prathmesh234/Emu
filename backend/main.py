@@ -1,3 +1,5 @@
+import os
+import secrets
 import uuid
 
 from dotenv import load_dotenv
@@ -5,6 +7,8 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 import json
 
@@ -19,27 +23,61 @@ from models import (
 )
 from context_manager import ContextManager
 from workspace import ensure_session_dir
-from utilities import ConnectionManager, log_entry, log_and_send
+from utilities import ConnectionManager, log_entry, log_and_send, ipc_to_action_label, interpret_action_error
 from tools import execute_agent_tool, auto_compact
 
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
 from context_manager.context import USE_OMNI_PARSER
+from utilities.paths import get_emu_path
 
 call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
 
 print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
 
+# ── Per-launch auth token ────────────────────────────────────────────────────
+# Shared with the Electron frontend via .emu/.auth_token file.
+AUTH_TOKEN = os.environ.get("EMU_AUTH_TOKEN") or secrets.token_hex(32)
+_token_path = get_emu_path() / ".auth_token"
+_token_path.parent.mkdir(parents=True, exist_ok=True)
+_token_path.write_text(AUTH_TOKEN)
+print(f"[security] Auth token written to {_token_path}")
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Reject HTTP requests that don't carry a valid X-Emu-Token header."""
+
+    async def dispatch(self, request, call_next):
+        # CORS preflight and health checks are exempt
+        if request.method == "OPTIONS" or request.url.path == "/health":
+            return await call_next(request)
+        # WebSocket upgrades are validated in the endpoint itself
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+        token = request.headers.get("x-emu-token", "")
+        if not token or not secrets.compare_digest(token, AUTH_TOKEN):
+            print(f"[security] 401 on {request.method} {request.url.path} — token len={len(token)} expected len={len(AUTH_TOKEN)}")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing auth token"},
+            )
+        return await call_next(request)
+
+
 app = FastAPI(title="Emulation Agent API")
 
+# Middleware execution order in Starlette: LAST added = OUTERMOST.
+# We need CORS to be outermost so its headers appear on ALL responses
+# (including 401s from TokenAuth). So add CORS LAST.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=r"^(null|http://(127\.0\.0\.1|localhost)(:\d+)?)$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Emu-Token"],
 )
+app.add_middleware(TokenAuthMiddleware)
 
 manager = ConnectionManager()
 context_manager = ContextManager()
@@ -316,7 +354,8 @@ async def action_complete(req: ActionCompleteRequest):
         if req.output:
             text_parts.append(f"[shell_exec output]\n{req.output}")
         if req.error and not req.success:
-            text_parts.append(f"[shell_exec error]\n{req.error}")
+            action_label = ipc_to_action_label(req.ipc_channel)
+            text_parts.append(interpret_action_error(req.error, action_label))
         context_manager.add_user_message(req.session_id, "\n".join(text_parts))
         print(f"[action/complete] injected shell output ({len(req.output or '')} chars) into context")
 
@@ -388,8 +427,73 @@ async def compact_context(req: CompactRequest):
     }
 
 
+@app.get("/sessions/history")
+async def sessions_history():
+    """Return all sessions with their first user message for the history sidebar."""
+    from workspace import get_sessions_dir
+    sessions_dir = get_sessions_dir()
+    results = []
+
+    if not sessions_dir.is_dir():
+        return {"sessions": []}
+
+    for session_dir in sessions_dir.iterdir():
+        if not session_dir.is_dir():
+            continue
+        conv_path = session_dir / "logs" / "conversation.json"
+        if not conv_path.exists():
+            continue
+        try:
+            with open(conv_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            messages = data.get("messages", [])
+            if not messages:
+                continue
+            # Find the first user message for the preview
+            first_user = next((m for m in messages if m.get("role") == "user" and m.get("content", "").strip() and m["content"] != "<screenshot>"), None)
+            if not first_user:
+                continue
+            # Use directory mtime as a rough "last active" timestamp
+            mtime = session_dir.stat().st_mtime
+            results.append({
+                "session_id": session_dir.name,
+                "preview": first_user["content"][:80],
+                "message_count": len(messages),
+                "last_active": mtime,
+            })
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    # Sort by last_active descending (most recent first)
+    results.sort(key=lambda s: s["last_active"], reverse=True)
+    return {"sessions": results}
+
+
+@app.get("/sessions/{session_id}/messages")
+async def session_messages(session_id: str):
+    """Return the full conversation.json for a given session."""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid session_id"})
+    from workspace import get_sessions_dir
+    conv_path = get_sessions_dir() / session_id / "logs" / "conversation.json"
+    if not conv_path.exists():
+        return {"messages": []}
+    try:
+        with open(conv_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except (json.JSONDecodeError, KeyError):
+        return {"messages": []}
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(ws: WebSocket, session_id: str):
+    # Validate auth token from query parameter before accepting
+    token = ws.query_params.get("token", "")
+    if not secrets.compare_digest(token, AUTH_TOKEN):
+        await ws.close(code=4001, reason="Invalid auth token")
+        return
     await manager.connect(session_id, ws)
     try:
         while True:
