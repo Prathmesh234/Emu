@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator } = require('../components');
+const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel, PanelToggle } = require('../components');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
@@ -14,7 +14,9 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 
 // ── DOM refs (populated in mount) ────────────────────────────────────────
 
-let chatContainer, chatWrapper, chatInput, header;
+let chatContainer, chatWrapper, chatInput, header, historyPanel, panelToggle;
+let _historyPanelOpen = false;
+let _viewingPastSession = false;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -60,10 +62,12 @@ async function toggleWindow() {
         await ipcRenderer.invoke('window:centered');
         store.setSidePanel(false);
         header.setExpandVisible(false);
+        header.setCompact(false);
     } else {
         await ipcRenderer.invoke('window:side-panel');
         store.setSidePanel(true);
         header.setExpandVisible(true);
+        header.setCompact(true);
     }
 }
 
@@ -72,6 +76,7 @@ async function moveToSidePanel() {
         await ipcRenderer.invoke('window:side-panel');
         store.setSidePanel(true);
         header.setExpandVisible(true);
+        header.setCompact(true);
     }
 }
 
@@ -132,7 +137,219 @@ function selectChat(id) {
 
 function newChat() {
     const id = store.createChat();
+    _viewingPastSession = false;
+    enableInput();
     selectChat(id);
+    if (historyPanel) historyPanel.setActive(null);
+}
+
+// ── History panel ────────────────────────────────────────────────────────
+
+function toggleHistoryPanel() {
+    _historyPanelOpen = !_historyPanelOpen;
+    const panel = historyPanel ? historyPanel.element : null;
+    if (panel) {
+        panel.classList.toggle('open', _historyPanelOpen);
+    }
+    if (_historyPanelOpen) {
+        refreshHistory();
+    }
+}
+
+async function refreshHistory() {
+    try {
+        const sessions = await api.fetchSessionHistory();
+        if (historyPanel) historyPanel.populate(sessions);
+    } catch (err) {
+        console.warn('[history] failed to load:', err.message);
+    }
+}
+
+async function loadPastSession(sessionId) {
+    try {
+        const messages = await api.fetchSessionMessages(sessionId);
+        if (!messages || messages.length === 0) return;
+
+        _viewingPastSession = true;
+        disableInput();
+
+        chatWrapper.innerHTML = '';
+
+        // Group consecutive non-user messages into assistant "turns"
+        // so tool/action/done cards appear inside step containers just like live sessions
+        let stepNum = 0;
+        let currentAssistantBubble = null;
+        let currentStepContainer = null;
+
+        function ensureAssistantBubble() {
+            if (!currentAssistantBubble) {
+                currentAssistantBubble = document.createElement('div');
+                currentAssistantBubble.className = 'message assistant';
+                const content = document.createElement('div');
+                content.className = 'message-content';
+                currentAssistantBubble.appendChild(content);
+                currentStepContainer = document.createElement('div');
+                currentStepContainer.className = 'step-container';
+                content.appendChild(currentStepContainer);
+                chatWrapper.appendChild(currentAssistantBubble);
+            }
+            return currentStepContainer;
+        }
+
+        function flushAssistantBubble() {
+            currentAssistantBubble = null;
+            currentStepContainer = null;
+        }
+
+        messages.forEach(msg => {
+            const role = msg.role;
+            const content = msg.content || '';
+            const meta = msg.metadata || {};
+
+            // Skip screenshot entries
+            if (content === '<screenshot>') return;
+
+            if (role === 'user') {
+                flushAssistantBubble();
+                addMessage('user', content);
+                return;
+            }
+
+            if (role === 'assistant') {
+                // Done message — render as DoneCard or plain text
+                const finalMsg = meta.final_message || content.replace(/^DONE\s*—?\s*/, '');
+                if (finalMsg) {
+                    const container = ensureAssistantBubble();
+                    stepNum++;
+                    const doneCard = StepCard({
+                        action: { type: 'done' },
+                        done: true,
+                        final_message: finalMsg,
+                        confidence: 1.0,
+                    }, stepNum);
+                    container.appendChild(doneCard.element);
+                }
+                flushAssistantBubble();
+                return;
+            }
+
+            if (role === 'tool') {
+                const container = ensureAssistantBubble();
+                stepNum++;
+
+                const toolName = meta.tool_name || '';
+                const toolResult = meta.result || content;
+
+                // Render skill cards for use_skill
+                if (toolName === 'use_skill') {
+                    let skillName = 'Unknown';
+                    try {
+                        const parsed = JSON.parse(meta.args || '{}');
+                        skillName = parsed.skill_name || 'Unknown';
+                    } catch (_) {}
+                    const skillCard = SkillCard(skillName);
+                    container.appendChild(skillCard.element);
+                    return;
+                }
+
+                // Render file cards for write_session_file
+                if (toolName === 'write_session_file') {
+                    let filename = 'file';
+                    try {
+                        const parsed = JSON.parse(meta.args || '{}');
+                        filename = parsed.filename || 'file';
+                    } catch (_) {}
+                    const fileCard = FileCard(filename, 'created', null);
+                    container.appendChild(fileCard.element);
+                    return;
+                }
+
+                // Generic tool card
+                const toolCard = document.createElement('div');
+                toolCard.className = 'step-card';
+
+                const toolBlock = document.createElement('div');
+                toolBlock.className = 'step-action';
+
+                const toolLabel = document.createElement('div');
+                toolLabel.className = 'step-label';
+                toolLabel.textContent = `🔧 Tool: ${toolName || 'unknown'}`;
+                toolBlock.appendChild(toolLabel);
+
+                const toolDesc = document.createElement('div');
+                toolDesc.className = 'step-action-desc';
+                toolDesc.textContent = toolResult.length > 200 ? toolResult.slice(0, 200) + '…' : toolResult;
+                toolBlock.appendChild(toolDesc);
+
+                const badge = document.createElement('div');
+                badge.className = 'step-action-status success';
+                badge.textContent = '✓ Done';
+                toolBlock.appendChild(badge);
+
+                toolCard.appendChild(toolBlock);
+                container.appendChild(toolCard);
+                return;
+            }
+
+            if (role === 'action') {
+                const container = ensureAssistantBubble();
+                stepNum++;
+
+                const actionType = meta.action_type || content.split(/\s+/)[0] || 'unknown';
+                const confidence = meta.confidence != null ? meta.confidence : null;
+                const reasoning = meta.reasoning || '';
+                const actionPayload = meta.action || { type: actionType };
+
+                const stepCard = StepCard({
+                    action: actionPayload,
+                    done: false,
+                    confidence: confidence,
+                    reasoning_content: reasoning,
+                }, stepNum);
+
+                // Mark as completed (not executing)
+                const badge = stepCard.element.querySelector('.step-action-status');
+                if (badge) {
+                    badge.className = 'step-action-status success';
+                    badge.textContent = '✓ Done';
+                }
+
+                container.appendChild(stepCard.element);
+                return;
+            }
+        });
+
+        scrollToBottom();
+    } catch (err) {
+        console.warn('[history] failed to load session:', err.message);
+    }
+}
+
+function disableInput() {
+    const container = chatInput.element;
+    container.classList.add('input-disabled');
+    chatInput.textarea.disabled = true;
+    chatInput.textarea.placeholder = '';
+    chatInput.sendBtn.disabled = true;
+
+    // Add overlay if not present
+    if (!container.querySelector('.input-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.className = 'input-overlay';
+        overlay.textContent = 'Past sessions cannot be continued';
+        container.appendChild(overlay);
+    }
+}
+
+function enableInput() {
+    const container = chatInput.element;
+    container.classList.remove('input-disabled');
+    chatInput.textarea.disabled = false;
+    chatInput.textarea.placeholder = 'Ask anything...';
+    chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
+
+    const overlay = container.querySelector('.input-overlay');
+    if (overlay) overlay.remove();
 }
 
 // ── Message actions ──────────────────────────────────────────────────────
@@ -228,6 +445,7 @@ async function stopAgent() {
 }
 
 async function sendMessage() {
+    if (_viewingPastSession) return;
     const text = chatInput.textarea.value.trim();
     if (!text) return;
 
@@ -815,15 +1033,32 @@ function mount(appEl) {
     // Wire up WS handler
     setMessageHandler(handleWsMessage);
 
+    // Outer wrapper: row layout for history panel + main
+    const appWrapper = document.createElement('div');
+    appWrapper.className = 'app-wrapper';
+
+    // History panel (left sidebar)
+    historyPanel = HistoryPanel({
+        onNewChat: newChat,
+        onSelectSession: (sessionId) => {
+            loadPastSession(sessionId);
+        },
+        onClose: toggleHistoryPanel,
+    });
+    appWrapper.appendChild(historyPanel.element);
+
     // Main wrapper
     const main = document.createElement('div');
     main.className = 'main';
 
-    // Header (component)
+    // Panel toggle + Header (component)
+    panelToggle = PanelToggle(toggleHistoryPanel);
+
     header = Header({
         onExpand: toggleWindow,
         onClose: () => window.close(),
         onNewTask: newChat,
+        panelToggle: panelToggle.element,
     });
     main.appendChild(header.element);
 
@@ -843,7 +1078,8 @@ function mount(appEl) {
     chatInput = ChatInput(sendMessage, stopAgent);
     main.appendChild(chatInput.element);
 
-    appEl.appendChild(main);
+    appWrapper.appendChild(main);
+    appEl.appendChild(appWrapper);
 
     // Keyboard shortcuts
     document.onkeydown = (e) => {

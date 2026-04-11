@@ -107,7 +107,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  // Close WebSocket first to prevent reconnect loop, then kill shell process
+  // Close WebSocket first to prevent reconnect loop, then kill the shell process
   try { require('./frontend/services/websocket').closeWebSocket(); } catch (_) {}
   psProcess.stop();
 });
