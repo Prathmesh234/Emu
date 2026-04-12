@@ -323,6 +323,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     background: transparent;
     word-break: break-word;
     overflow-wrap: break-word;
+    padding-right: 8px;
 }
 .chat-input:focus { border-color: transparent; outline: none; box-shadow: none; }
 .chat-input::placeholder { color: #aaa; }

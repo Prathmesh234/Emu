@@ -59,11 +59,21 @@ def _load_conversation(path: Path) -> dict:
 
 
 def _save_conversation(path: Path, data: dict) -> None:
-    """Atomically write the conversation JSON."""
+    """Write the conversation JSON (atomic where possible, fallback on NTFS/WSL)."""
     tmp = path.with_suffix(".json.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    tmp.replace(path)
+    try:
+        tmp.replace(path)
+    except PermissionError:
+        # os.replace fails on NTFS mounts (WSL /mnt/c) when file is locked
+        # by OneDrive or another process — fall back to direct overwrite.
+        import shutil
+        shutil.copy2(tmp, path)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def log_entry(session_id: str, entry: str, metadata: dict | None = None) -> None:

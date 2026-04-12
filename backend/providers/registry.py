@@ -19,7 +19,8 @@ Detection order:
     8. AWS_ACCESS_KEY_ID          → Amazon Bedrock
     9. FIREWORKS_API_KEY          → Fireworks AI
    10. TOGETHER_API_KEY           → Together AI
-   11. Modal fallback             → Modal GPU (no key needed)
+   11. BASETEN_API_KEY            → Baseten
+   12. Modal fallback             → Modal GPU (no key needed)
 """
 
 import os
@@ -37,6 +38,7 @@ _PROVIDER_MAP = {
     "bedrock":           "providers.bedrock",
     "fireworks":         "providers.fireworks",
     "together_ai":       "providers.together_ai",
+    "baseten":           "providers.baseten",
 }
 
 
@@ -78,6 +80,9 @@ def _detect_provider() -> str:
 
     if os.environ.get("TOGETHER_API_KEY"):
         return "together_ai"
+
+    if os.environ.get("BASETEN_API_KEY"):
+        return "baseten"
 
     # Fallback
     return "modal"
