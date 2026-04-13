@@ -39,7 +39,7 @@ A desktop application that uses computer vision and LLM reasoning to emulate hum
 | Package manager | `uv` | **All** Python packages must use `uv`. No pip/poetry/conda. |
 | Primary model | OpenAI API (GPT-4o) | Vision + reasoning — not yet integrated |
 | Screen capture | Electron `desktopCapturer` | Avoids X display limit in backend by running capture in Node |
-| Mouse/keyboard | `cliclick` / `xdotool` | Single persistent bash/zsh process, managed by Node |
+| Mouse/keyboard | PowerShell Win32 API | Single persistent PowerShell process, managed by Node |
 | IPC | Electron `ipcMain` / `ipcRenderer` | `invoke`/`handle` async pattern |
 | WebSocket (planned) | FastAPI WebSocket | For real-time agent → frontend command streaming |
 
@@ -60,7 +60,7 @@ emulation-agent/
 │   ├── styles.css                   # App styles
 │   │
 │   ├── process/
-│   │   └── psProcess.js             # Persistent Shell process manager (bash/zsh)
+│   │   └── psProcess.js             # Persistent PowerShell process manager
 │   │
 │   ├── actions/
 │   │   ├── index.js                 # Barrel: exports all actions + registerAll()
@@ -135,10 +135,10 @@ ipcRenderer.invoke('mouse:left-click', { x, y })
 ipcMain.handle in leftClick.js
         │
         ▼
-psProcess.run('cliclick c:.')   ← stdin pipe, ~3ms
+psProcess.run('[W.U32]::mouse_event(2,0,0,0,0); ...')   ← stdin pipe, ~3ms
         │
         ▼
-cliclick fires the click on the OS
+Win32 mouse_event fires the click on the OS
         │
         ├──► fetch POST /click/left/...  (fire-and-forget log to backend)
         │
@@ -217,13 +217,13 @@ For an agent loop running 20–50 steps, this is several seconds of pure overhea
 
 ### Solution
 
-One `/bin/bash` or `/bin/zsh` process started at app launch, kept alive for the duration of the session. Commands are piped via stdin (base64-encoded to avoid syntax errors); output is read from stdout using a sentinel string `##PS_DONE##` to detect completion.
+One `powershell.exe` process started at app launch, kept alive for the duration of the session. Commands are piped via stdin (base64-encoded to avoid syntax errors); output is read from stdout using a sentinel string `##PS_DONE##` to detect completion. Win32 assemblies (System.Windows.Forms, user32.dll P/Invoke, GDI) are pre-loaded at startup.
 
 ```
 App start → psProcess.start()
                 │
                 ▼
-         spawn('zsh' or 'bash', ['-f' or '--norc'])
+         spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', '-'])
                 │
          Ready. Per-action cost: ~2–8ms (stdin write + stdout read)
 ```
@@ -281,7 +281,7 @@ app.on('will-quit', () => {
 
 The OS sees two isolated clicks, not a double-click. It interprets the first click as "select" and the second as "rename" on desktop icons.
 
-**Fix:** Both click pairs in one `psProcess.run()` call with `cliclick` to click natively without process spawning gaps.
+**Fix:** Both click pairs in one `psProcess.run()` call via Win32 `mouse_event` to click natively without process spawning gaps.
 
 ---
 
@@ -450,7 +450,7 @@ After the IPC refactor, `main.js` had leftover inline IPC handlers and a second 
 
 - Node.js + npm
 - Python 3.12+ with `uv` installed
-- macOS or Linux (actions use `cliclick` or `xdotool`)
+- Windows 10/11 (actions use PowerShell Win32 API)
 
 ### Backend
 

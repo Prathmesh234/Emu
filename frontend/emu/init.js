@@ -73,20 +73,13 @@ function initEmu(appVersion = '0.0.0') {
   const physicalWidth  = Math.round(screenWidth * scaleFactor);
   const physicalHeight = Math.round(screenHeight * scaleFactor);
 
-  // Collect macOS version information
+  // Collect OS version information
   const osVersion = typeof process.getSystemVersion === 'function'
-      ? process.getSystemVersion()     // Electron API: e.g. "14.5.0"
-      : os.release();                  // Fallback: Darwin kernel version
+      ? process.getSystemVersion()     // Electron API
+      : os.release();                  // Fallback: kernel version
 
-  // Map macOS version number to marketing name
-  const macOSNames = {
-    '15': 'Sequoia', '14': 'Sonoma', '13': 'Ventura', '12': 'Monterey',
-    '11': 'Big Sur', '10.15': 'Catalina', '10.14': 'Mojave',
-  };
-  const majorVersion = osVersion.split('.').slice(0, os.platform() === 'darwin' && parseInt(osVersion) >= 11 ? 1 : 2).join('.');
-  const macOSName = macOSNames[majorVersion] || '';
-  const osDisplayName = os.platform() === 'darwin'
-      ? `macOS ${macOSName} ${osVersion}`.trim()
+  const osDisplayName = os.platform() === 'win32'
+      ? `Windows ${osVersion}`
       : `${os.platform()} ${osVersion}`;
 
   const deviceDetails = {
@@ -151,7 +144,7 @@ function initEmu(appVersion = '0.0.0') {
       device_id: deviceId,
       system: {
         uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
-        shell:         process.env.SHELL || process.env.COMSPEC || 'unknown',
+        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
         locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
         timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
       },
@@ -160,7 +153,7 @@ function initEmu(appVersion = '0.0.0') {
   } else {
     // Always update device_details, hardware, and platform on launch (screen or OS may have changed)
     try {
-      const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
+      const existing = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8').replace(/^\uFEFF/, ''));
       existing.device_details = deviceDetails;
       existing.hardware = hardware;
       existing.working_directory = workingDir;
@@ -177,7 +170,7 @@ function initEmu(appVersion = '0.0.0') {
       };
       existing.system = {
         uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
-        shell:         process.env.SHELL || process.env.COMSPEC || 'unknown',
+        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
         locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
         timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
       };

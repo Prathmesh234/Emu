@@ -28,7 +28,7 @@ function ChatInput(onSend, onStop) {
     // Auto-resize
     textarea.oninput = () => {
         textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+        textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
         if (mode === 'send') {
             sendBtn.disabled = !textarea.value.trim();
         }
@@ -55,6 +55,7 @@ function ChatInput(onSend, onStop) {
     };
 
     function setMode(newMode) {
+        if (mode === newMode) return;
         mode = newMode;
         if (mode === 'stop') {
             sendBtn.innerHTML = icons.stop;

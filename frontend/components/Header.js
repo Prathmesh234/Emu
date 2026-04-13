@@ -2,37 +2,13 @@
 
 const store = require('../state/store');
 
-function Header({ onExpand, onClose, onNewTask, panelToggle }) {
+function Header({ onExpand, onClose, onNewTask }) {
     const header = document.createElement('div');
     header.className = 'header';
 
-    // Left side: panel toggle + new task button + title
+    // Left side: new task button + title
     const leftGroup = document.createElement('div');
     leftGroup.className = 'header-left';
-
-    // History panel toggle (hamburger)
-    if (panelToggle) {
-        leftGroup.appendChild(panelToggle);
-    }
-
-    // + New Task button
-    const newTaskBtn = document.createElement('button');
-    newTaskBtn.className = 'new-task-btn';
-    newTaskBtn.textContent = '+';
-    newTaskBtn.title = 'Start a new task';
-    newTaskBtn.onclick = () => {
-        if (store.state.isGenerating) {
-            // Show disclaimer tooltip that the task will be queued
-            const disclaimer = document.createElement('div');
-            disclaimer.className = 'queue-disclaimer';
-            disclaimer.textContent = 'A task is currently running. Your new task will be queued and start after the current one finishes.';
-            newTaskBtn.parentElement.appendChild(disclaimer);
-            // Auto-remove after 4s
-            setTimeout(() => disclaimer.remove(), 4000);
-        }
-        if (onNewTask) onNewTask();
-    };
-    leftGroup.appendChild(newTaskBtn);
 
     const h1 = document.createElement('h1');
     const emuSvg = document.createElement('span');
@@ -83,6 +59,20 @@ function Header({ onExpand, onClose, onNewTask, panelToggle }) {
     if (onExpand) expandBtn.onclick = onExpand;
     actions.appendChild(expandBtn);
 
+    // Dark mode toggle button (moon = light mode active, sun = dark mode active)
+    const themeBtn = document.createElement('button');
+    themeBtn.className = 'theme-btn';
+    themeBtn.title = store.state.darkMode ? 'Switch to light mode' : 'Switch to dark mode';
+    themeBtn.textContent = store.state.darkMode ? '\u2600\uFE0F' : '\uD83C\uDF19';
+    themeBtn.onclick = () => {
+        const newDark = !store.state.darkMode;
+        store.setDarkMode(newDark);
+        document.getElementById('app').classList.toggle('dark', newDark);
+        themeBtn.textContent = newDark ? '\u2600\uFE0F' : '\uD83C\uDF19';
+        themeBtn.title = newDark ? 'Switch to light mode' : 'Switch to dark mode';
+    };
+    actions.appendChild(themeBtn);
+
     // Close button
     const closeBtn = document.createElement('button');
     closeBtn.className = 'close-btn';
@@ -105,7 +95,10 @@ function Header({ onExpand, onClose, onNewTask, panelToggle }) {
             toggleWrap.classList.toggle('disabled', disabled);
         },
         setCompact(compact) {
-            header.classList.toggle('compact', compact);
+            // In compact/side-panel mode, hide title text and toggle label
+            emuText.style.display = compact ? 'none' : '';
+            emuSvg.style.display = compact ? 'none' : '';
+            toggleLabel.style.display = compact ? 'none' : '';
         },
     };
 }

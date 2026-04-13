@@ -4,7 +4,7 @@
 // WebSocket message handling, and action execution.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel, PanelToggle } = require('../components');
+const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel } = require('../components');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
@@ -14,7 +14,7 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 
 // ── DOM refs (populated in mount) ────────────────────────────────────────
 
-let chatContainer, chatWrapper, chatInput, header, historyPanel, panelToggle;
+let chatContainer, chatWrapper, chatInput, header, historyPanel;
 let _historyPanelOpen = false;
 let _viewingPastSession = false;
 
@@ -368,7 +368,7 @@ function editMessage(index) {
 
     chatInput.textarea.value = content;
     chatInput.textarea.style.height = 'auto';
-    chatInput.textarea.style.height = Math.min(chatInput.textarea.scrollHeight, 150) + 'px';
+    chatInput.textarea.style.height = Math.min(chatInput.textarea.scrollHeight, 160) + 'px';
     chatInput.sendBtn.disabled = false;
     chatInput.textarea.focus();
 }
@@ -1020,6 +1020,8 @@ async function initSession() {
         store.setSession(id);
         initWebSocket(id);
         console.log('[session] created successfully:', id);
+        // Backend is up — load session history for the sidebar
+        refreshHistory();
     } catch (err) {
         console.warn('[session] failed:', err.message);
         console.log('[session] retrying in 2s... (is backend running on localhost:8000?)');
@@ -1033,33 +1035,30 @@ function mount(appEl) {
     // Wire up WS handler
     setMessageHandler(handleWsMessage);
 
-    // Outer wrapper: row layout for history panel + main
-    const appWrapper = document.createElement('div');
-    appWrapper.className = 'app-wrapper';
-
-    // History panel (left sidebar)
+    // ── History sidebar ─────────────────────────────────────────────────
     historyPanel = HistoryPanel({
-        onNewChat: newChat,
+        onNewChat: () => {
+            newChat();
+        },
         onSelectSession: (sessionId) => {
             loadPastSession(sessionId);
         },
-        onClose: toggleHistoryPanel,
+        onToggle: () => {
+            toggleHistoryPanel();
+        },
     });
-    appWrapper.appendChild(historyPanel.element);
+    appEl.appendChild(historyPanel.element);
 
     // Main wrapper
     const main = document.createElement('div');
     main.className = 'main';
 
-    // Panel toggle + Header (component)
-    panelToggle = PanelToggle(toggleHistoryPanel);
-
     header = Header({
         onExpand: toggleWindow,
         onClose: () => window.close(),
         onNewTask: newChat,
-        panelToggle: panelToggle.element,
     });
+
     main.appendChild(header.element);
 
     // Chat area
@@ -1078,8 +1077,7 @@ function mount(appEl) {
     chatInput = ChatInput(sendMessage, stopAgent);
     main.appendChild(chatInput.element);
 
-    appWrapper.appendChild(main);
-    appEl.appendChild(appWrapper);
+    appEl.appendChild(main);
 
     // Keyboard shortcuts
     document.onkeydown = (e) => {

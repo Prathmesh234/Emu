@@ -57,7 +57,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         token = request.headers.get("x-emu-token", "")
         if not token or not secrets.compare_digest(token, AUTH_TOKEN):
-            print(f"[security] 401 on {request.method} {request.url.path} — token len={len(token)} expected len={len(AUTH_TOKEN)}")
+            print(f"[security] 401 on {request.method} {request.url.path} — token len={len(token)} expected len={len(AUTH_TOKEN)} match={token == AUTH_TOKEN}")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing auth token"},
@@ -221,7 +221,12 @@ async def agent_step(req: AgentRequest):
                 )
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
-                await log_and_send(session_id, f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}", manager)
+                await log_and_send(
+                    session_id,
+                    f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}",
+                    manager,
+                    metadata={"tool_name": tc.name, "args": json.dumps(args, ensure_ascii=False)[:500], "result": result[:500]},
+                )
 
                 # If update_plan was called, capture the plan content for review
                 if tc.name == "update_plan":
@@ -300,9 +305,24 @@ async def agent_step(req: AgentRequest):
     # Log the assistant's action/response
     reasoning_preview = (response.reasoning_content or "")[:200]
     if response.done:
-        await log_and_send(session_id, f"[assistant] DONE — {response.final_message or 'Task complete.'}", manager)
+        await log_and_send(
+            session_id,
+            f"[assistant] DONE — {response.final_message or 'Task complete.'}",
+            manager,
+            metadata={"done": True, "final_message": response.final_message or "Task complete."},
+        )
     else:
-        await log_and_send(session_id, f"[assistant] action={action_type}  confidence={response.confidence}  reasoning={reasoning_preview}", manager)
+        await log_and_send(
+            session_id,
+            f"[action] {action_type}  confidence={response.confidence}  reasoning={reasoning_preview}",
+            manager,
+            metadata={
+                "action_type": action_type,
+                "confidence": response.confidence,
+                "reasoning": (response.reasoning_content or "")[:500],
+                "action": action_payload,
+            },
+        )
 
     # Safety-net auto-compaction
     needs_compact = context_manager.needs_compaction(session_id)
@@ -349,17 +369,29 @@ async def action_complete(req: ActionCompleteRequest):
     """Electron notifies backend that a dispatched action has finished."""
     print(f"[action/complete] session={req.session_id} channel={req.ipc_channel} ok={req.success}")
 
-    if req.output or req.error:
-        text_parts = []
+    text_parts = []
+
+    is_shell = req.ipc_channel in ("shell:exec", "shell_exec")
+
+    if is_shell:
+        # Shell exec: always inject stdout; inject stderr on failure
         if req.output:
             text_parts.append(f"[shell_exec output]\n{req.output}")
         if req.error and not req.success:
-            action_label = ipc_to_action_label(req.ipc_channel)
-            text_parts.append(interpret_action_error(req.error, action_label))
+            text_parts.append(f"[shell_exec error]\n{req.error}")
+    elif not req.success and req.error:
+        # Non-shell actions: only inject on failure with interpreted guidance
+        action_label = ipc_to_action_label(req.ipc_channel)
+        text_parts.append(interpret_action_error(req.error, action_label))
+
+    if text_parts:
         context_manager.add_user_message(req.session_id, "\n".join(text_parts))
-        print(f"[action/complete] injected shell output ({len(req.output or '')} chars) into context")
+        print(f"[action/complete] injected feedback into context ({len(' '.join(text_parts))} chars)")
 
     return {"acknowledged": True}
+
+
+
 
 
 @app.post("/agent/stop")

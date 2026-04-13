@@ -9,10 +9,9 @@ Injection tiers:
 
   CONDITIONAL (injected at session start, gated):
     MEMORY.md — skip for lightweight tasks; truncate if >2-3k tokens
-    memory/YYYY-MM-DD.md — today + yesterday only
 
-  TOOL-ACCESSIBLE (agent reads via shell_exec when needed):
-    memory/YYYY-MM-DD.md older than yesterday
+  TOOL-ACCESSIBLE (agent reads via read_memory/shell_exec when needed):
+    memory/YYYY-MM-DD.md — all daily logs (not auto-injected)
     sessions/<id>/*
     Older MEMORY.md chunks (future: vector retrieval)
 
@@ -21,27 +20,32 @@ Missing files are silently skipped.
 """
 
 import json
+import platform
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
+from skills import format_skills_for_prompt
+
 
 # .emu/ is at the project root, one directory above backend/
-_BACKEND_DIR   = Path(__file__).resolve().parent.parent
-_PROJECT_ROOT  = _BACKEND_DIR.parent
-_EMU_DIR       = _PROJECT_ROOT / ".emu"
+from utilities.paths import get_emu_path, get_project_root
+
+_PROJECT_ROOT  = get_project_root()
+_EMU_DIR       = get_emu_path()
 _WORKSPACE_DIR = _EMU_DIR / "workspace"
 _GLOBAL_DIR    = _EMU_DIR / "global"
 _SESSIONS_DIR  = _EMU_DIR / "sessions"
 _MANIFEST_PATH = _EMU_DIR / "manifest.json"
 
 # ── Tier 1: Firmware (always injected) ──────────────────────────────────────
+# Ordered for cache efficiency: static files first, user-dependent files last.
+# The system prompt + early firmware form a stable prefix that LLMs can cache.
 FIRMWARE_FILES = [
     ("SOUL.md",        _WORKSPACE_DIR / "SOUL.md"),
     ("AGENTS.md",      _WORKSPACE_DIR / "AGENTS.md"),
-    ("TOOLS.md",       _WORKSPACE_DIR / "TOOLS.md"),
-    ("USER.md",        _WORKSPACE_DIR / "USER.md"),
     ("IDENTITY.md",    _WORKSPACE_DIR / "IDENTITY.md"),
+    ("USER.md",        _WORKSPACE_DIR / "USER.md"),
     ("preferences.md", _GLOBAL_DIR / "preferences.md"),
 ]
 
@@ -99,11 +103,22 @@ def get_sessions_dir() -> Path:
     return _SESSIONS_DIR
 
 
+def get_device_details() -> dict:
+    """Return basic device info for injection into the system prompt."""
+    os_name = platform.system()  # 'Windows', 'Darwin', 'Linux'
+    if os_name == "Darwin":
+        os_name = "macOS"
+    return {
+        "os_name": os_name,
+        "arch": platform.machine(),
+    }
+
+
 def _read_file(filepath: Path) -> Optional[str]:
     """Read a file, return content or None.
 
-    Falls back to cp1252 if UTF-8 decoding fails — handles files that
-    may have been created with non-UTF-8 encoding.
+    Falls back to cp1252 (Windows default) if UTF-8 decoding fails —
+    PowerShell's Set-Content writes ANSI by default.
     """
     try:
         return filepath.read_text(encoding="utf-8").strip()
@@ -168,7 +183,7 @@ def read_recent_daily_memories() -> dict[str, str]:
 def is_bootstrap_needed() -> bool:
     """Check if the first-launch interview hasn't been completed yet."""
     try:
-        manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+        manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8-sig"))
         return not manifest.get("bootstrap_complete", False)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         # If manifest is missing or corrupt, assume bootstrap is needed
@@ -184,10 +199,12 @@ def read_bootstrap() -> Optional[str]:
 
 def ensure_session_dir(session_id: str) -> Path:
     """Create and return the session directory: .emu/sessions/<id>/."""
+    # Validate session_id format (UUID) to prevent path traversal
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise ValueError(f"Invalid session_id format: {session_id}")
     session_dir = _SESSIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
-    (session_dir / "screenshots").mkdir(exist_ok=True)
-    (session_dir / "logs").mkdir(exist_ok=True)
     return session_dir
 
 
@@ -213,91 +230,33 @@ def append_session_notes(session_id: str, note: str) -> Path:
     return notes_path
 
 
-def write_session_file(session_id: str, filename: str, content: str) -> str:
-    """Create or overwrite a .md file in the session directory.
-
-    Returns a success message or error string.
-    """
-    if not filename or not filename.strip():
-        return "No filename provided."
-
-    # Sanitize: strip path separators, enforce .md extension
-    name = filename.strip().replace("/", "").replace("\\", "")
-    if not name.endswith(".md"):
-        name = name + ".md"
-
-    # Block overwriting plan.md through this tool
-    if name == "plan.md":
-        return "Cannot write plan.md — use update_plan instead."
-
-    if not content:
-        return "No content provided."
-
+def write_session_file(session_id: str, filename: str, content: str) -> Path:
+    """Write an arbitrary file into the session directory."""
     session_dir = ensure_session_dir(session_id)
-    filepath = session_dir / name
-    filepath.write_text(content, encoding="utf-8")
-    return f"File '{name}' written ({len(content)} chars)."
+    file_path = (session_dir / filename).resolve()
+    # Prevent path traversal — resolved path must stay within session dir
+    if not str(file_path).startswith(str(session_dir.resolve())):
+        raise ValueError(f"Path traversal blocked: {filename}")
+    file_path.write_text(content, encoding="utf-8")
+    return file_path
 
 
 def read_session_file(session_id: str, filename: str) -> Optional[str]:
-    """Read a .md file from the session directory. Returns content or None."""
-    if not filename or not filename.strip():
+    """Read an arbitrary file from the session directory."""
+    session_dir = _SESSIONS_DIR / session_id
+    file_path = (session_dir / filename).resolve()
+    # Prevent path traversal — resolved path must stay within session dir
+    if not str(file_path).startswith(str(session_dir.resolve())):
         return None
-
-    name = filename.strip().replace("/", "").replace("\\", "")
-    if not name.endswith(".md"):
-        name = name + ".md"
-
-    return _read_file(_SESSIONS_DIR / session_id / name)
+    return _read_file(file_path)
 
 
 def list_session_files(session_id: str) -> list[str]:
-    """List all .md files in a session directory."""
+    """List filenames in a session directory."""
     session_dir = _SESSIONS_DIR / session_id
     if not session_dir.is_dir():
         return []
-    return sorted(f.name for f in session_dir.glob("*.md"))
-
-
-# ── Manifest / Device Details ────────────────────────────────────────────────
-
-def read_manifest() -> Optional[dict]:
-    """Read manifest.json and return the parsed dict, or None."""
-    try:
-        return json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-
-
-def get_device_details() -> dict:
-    """Extract platform, hardware, and environment details from manifest.json for system prompt injection."""
-    manifest = read_manifest()
-    if not manifest:
-        return {}
-    result = {}
-    platform = manifest.get("platform", {})
-    if platform:
-        result["os_name"] = platform.get("os_name", "unknown")
-        result["arch"] = platform.get("arch", "unknown")
-    device = manifest.get("device_details", {})
-    if device:
-        result["screen_width"] = device.get("screen_width")
-        result["screen_height"] = device.get("screen_height")
-        result["scale_factor"] = device.get("scale_factor")
-    hardware = manifest.get("hardware", {})
-    if hardware:
-        result["cpu_model"] = hardware.get("cpu_model")
-        result["cpu_cores"] = hardware.get("cpu_cores")
-        result["total_memory_gb"] = hardware.get("total_memory_gb")
-    working_dir = manifest.get("working_directory", {})
-    if working_dir:
-        result["folder_name"] = working_dir.get("folder_name")
-    system = manifest.get("system", {})
-    if system:
-        result["locale"] = system.get("locale")
-        result["timezone"] = system.get("timezone")
-        result["shell"] = system.get("shell")
-    return result
+    return [f.name for f in session_dir.iterdir() if f.is_file()]
 
 
 # ── Builder ─────────────────────────────────────────────────────────────────
@@ -308,22 +267,17 @@ def build_workspace_context() -> str:
 
     Concatenates:
       1. Firmware files (always)
-      2. Skills metadata (always — lightweight name+description only)
-      3. MEMORY.md (conditional)
-      4. Today + yesterday daily logs (conditional)
+      2. MEMORY.md (conditional)
+
+    Daily logs are NOT auto-injected — the agent reads them
+    on demand via read_memory tool or shell_exec.
 
     Returns empty string if nothing is available.
     """
     firmware = read_firmware()
     memory = read_memory()
-    dailies = read_recent_daily_memories()
 
-    # Load skills metadata (lightweight — only name + description)
-    from skills import load_skills, format_skills_for_prompt
-    skills = load_skills()
-    skills_block = format_skills_for_prompt(skills)
-
-    if not firmware and not memory and not dailies and not skills_block:
+    if not firmware and not memory:
         return ""
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -344,14 +298,12 @@ def build_workspace_context() -> str:
             sections.append(content)
             sections.append("")
 
-    # Skills — always present (metadata only, token-light)
+    # Skills — always present (names + descriptions only, bodies loaded on demand)
+    skills_block = format_skills_for_prompt()
     if skills_block:
-        sections.append("── SKILLS (available capabilities) " + "─" * 41)
+        sections.append("── SKILLS (use use_skill to load) " + "─" * 42)
         sections.append("")
         sections.append(skills_block)
-        sections.append("")
-        sections.append("To use a skill, call use_skill with the skill name.")
-        sections.append("The skill's full instructions will be loaded into context.")
         sections.append("")
 
     # Conditional — memory
@@ -360,15 +312,6 @@ def build_workspace_context() -> str:
         sections.append("")
         sections.append(memory)
         sections.append("")
-
-    # Conditional — recent daily logs
-    if dailies:
-        sections.append("── RECENT DAILY LOGS " + "─" * 54)
-        sections.append("")
-        for label, content in dailies.items():
-            sections.append(f"┌─ {label} ─┐")
-            sections.append(content)
-            sections.append("")
 
     sections.append("═" * 75)
     sections.append("END WORKSPACE CONTEXT")

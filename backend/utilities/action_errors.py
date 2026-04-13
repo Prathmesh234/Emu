@@ -21,27 +21,24 @@ def interpret_action_error(error: str, action_label: str) -> str:
     """Convert raw OS/IPC errors into actionable guidance for the model."""
     el = error.lower()
 
-    if any(kw in el for kw in ("permission denied", "operation not permitted",
-                                "accessibility", "axerror", "not trusted",
-                                "requires permission", "privacy", "sudo")):
+    if any(kw in el for kw in ("access is denied", "permission", "privileged",
+                                "uac", "administrator", "elevated", "requires elevation")):
         return (
             f"[ACTION FAILED: {action_label}] Permission denied — {error}\n"
-            f"This action requires elevated or accessibility permissions. Your options:\n"
-            f"  1. Inform the user they need to grant Accessibility access to Emu in:\n"
-            f"     System Settings → Privacy & Security → Accessibility.\n"
-            f"  2. For filesystem operations use shell_exec with sudo if needed:\n"
-            f"     sudo <command>\n"
-            f"  3. Choose an approach that doesn't require elevated privileges."
+            f"This action requires elevated privileges. Your options:\n"
+            f"  1. Inform the user they need to run Emu as Administrator.\n"
+            f"  2. Use shell_exec with -Verb RunAs to request elevation:\n"
+            f"     Start-Process 'app.exe' -Verb RunAs\n"
+            f"  3. Choose an approach that doesn't require admin rights."
         )
 
     if any(kw in el for kw in ("not found", "no such file", "cannot find",
-                                "does not exist", "path not found",
-                                "command not found")):
+                                "does not exist", "path not found")):
         return (
             f"[ACTION FAILED: {action_label}] Target not found — {error}\n"
             f"The file, app, or element doesn't exist at the expected location.\n"
             f"Try: use shell_exec to verify the path exists, or search for the "
-            f"correct location with ls / find / which."
+            f"correct location with Get-ChildItem / Get-Command."
         )
 
     if "timed out" in el:
@@ -49,12 +46,12 @@ def interpret_action_error(error: str, action_label: str) -> str:
             f"[ACTION FAILED: {action_label}] Timed out after 30s — the app may be "
             f"unresponsive.\n"
             f"Take a screenshot to assess the current state. If the app is frozen, "
-            f"use shell_exec to kill and relaunch it: killall 'AppName'"
+            f"use shell_exec to kill and relaunch it: Stop-Process -Name 'appname'"
         )
 
-    if any(kw in el for kw in ("shell", "process exited", "bash", "zsh", "spawn")):
+    if any(kw in el for kw in ("powershell", "process exited", "ps exited")):
         return (
-            f"[ACTION FAILED: {action_label}] Shell process error — {error}\n"
+            f"[ACTION FAILED: {action_label}] PowerShell process error — {error}\n"
             f"The automation shell encountered an error. Take a screenshot to "
             f"re-orient, then try a simpler action or use shell_exec directly."
         )

@@ -55,8 +55,7 @@ export EMU_PROVIDER=modal                   # Modal GPU (no key needed)
 - [Node.js](https://nodejs.org/) v18+
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **Linux**: `sudo apt install scrot imagemagick xdotool xclip`
-- **macOS**: `brew install cliclick`
+- **Windows**: PowerShell 5.1+ (included with Windows 10/11)
 
 ---
 
@@ -68,8 +67,8 @@ export EMU_PROVIDER=modal                   # Modal GPU (no key needed)
 | Backend | Python + FastAPI |
 | Package manager | `uv` |
 | Vision + reasoning | Claude / OpenAI / Gemini / Modal / Self-hosted |
-| Action execution | `xdotool` (Linux), `cliclick` + AppleScript (macOS) |
-| Screen capture | `scrot` (Linux), `screencapture` (macOS) |
+| Action execution | PowerShell Win32 API (`mouse_event`, `keybd_event`) |
+| Screen capture | PowerShell GDI `CopyFromScreen` |
 | IPC | Electron `ipcMain` / `ipcRenderer` |
 
 ---
@@ -272,5 +271,4 @@ Emu/
 | [DOCUMENTATION.md](DOCUMENTATION.md) | IPC patterns, persistent shell, performance |
 | [BACKEND.md](backend/BACKEND.md) | Backend architecture, Modal GPU, agent loop |
 | [FRONTEND.md](frontend/FRONTEND.md) | Component architecture, services, state |
-| [CONTEXT_CHAIN.md](CONTEXT_CHAIN.md) | Context management design and limitations |
-| [LEARNINGS.md](LEARNINGS.md) | Engineering decisions: OmniParser, cursor capture |
+| | |

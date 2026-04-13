@@ -1,35 +1,11 @@
 // StepCard component - displays agent step with step number, reasoning, and action
 
 const { describeAction, actionIcon } = require('../actions/actionProxy');
+const { renderMarkdown } = require('./markdown');
 
 function StepCard(data, stepNum) {
     const card = document.createElement('div');
     card.className = 'step-card';
-
-    // Step header with number
-    const header = document.createElement('div');
-    header.className = 'step-header';
-
-    const numBadge = document.createElement('span');
-    numBadge.className = 'step-number';
-    numBadge.textContent = stepNum || '?';
-    header.appendChild(numBadge);
-
-    const headerLabel = document.createElement('span');
-    headerLabel.textContent = data.done ? 'Complete' : `Step ${stepNum || '?'}`;
-    header.appendChild(headerLabel);
-
-    // Confidence pill (inline in header)
-    if (data.confidence != null && !data.done) {
-        const pill = document.createElement('span');
-        pill.className = 'step-confidence';
-        const pct = Math.round(data.confidence * 100);
-        pill.textContent = `${pct}%`;
-        pill.classList.add(pct >= 80 ? 'high' : pct >= 50 ? 'mid' : 'low');
-        header.appendChild(pill);
-    }
-
-    card.appendChild(header);
 
     // Screenshot thumbnail
     if (data.screenshot) {
@@ -64,15 +40,15 @@ function StepCard(data, stepNum) {
         // Truncate long reasoning with expand toggle
         const MAX_CHARS = 300;
         if (reasoningText.length > MAX_CHARS) {
-            reasonEl.textContent = reasoningText.slice(0, MAX_CHARS) + '…';
+            renderMarkdown(reasonEl, reasoningText.slice(0, MAX_CHARS) + '…');
             reasonEl.style.cursor = 'pointer';
             let expanded = false;
             reasonEl.onclick = () => {
                 expanded = !expanded;
-                reasonEl.textContent = expanded ? reasoningText : reasoningText.slice(0, MAX_CHARS) + '…';
+                renderMarkdown(reasonEl, expanded ? reasoningText : reasoningText.slice(0, MAX_CHARS) + '…');
             };
         } else {
-            reasonEl.textContent = reasoningText;
+            renderMarkdown(reasonEl, reasoningText);
         }
         reasonBlock.appendChild(reasonEl);
 
@@ -139,7 +115,7 @@ function StepCard(data, stepNum) {
     if (data.done && data.final_message) {
         const doneBlock = document.createElement('div');
         doneBlock.className = 'step-done';
-        doneBlock.textContent = data.final_message;
+        renderMarkdown(doneBlock, data.final_message);
         card.appendChild(doneBlock);
     }
 
@@ -151,7 +127,7 @@ function DoneCard(message) {
     card.className = 'step-card';
     const doneBlock = document.createElement('div');
     doneBlock.className = 'step-done';
-    doneBlock.textContent = message;
+    renderMarkdown(doneBlock, message);
     card.appendChild(doneBlock);
     return { element: card };
 }

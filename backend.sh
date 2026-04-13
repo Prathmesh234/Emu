@@ -156,7 +156,7 @@ fi
 
 # ── Build uvicorn args ──────────────────────────────────────────────────────
 
-UVICORN_ARGS="main:app --reload --port 8000"
+UVICORN_ARGS="main:app --reload --host 0.0.0.0 --port 8000"
 
 if omni_enabled; then
     UVICORN_ARGS="$UVICORN_ARGS --use-omni-parser"

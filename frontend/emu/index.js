@@ -4,7 +4,7 @@
  * Public API for the .emu module.
  */
 
-const { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, GLOBAL, MANIFEST } = require('./init');
+const { initEmu, getEmuDir, EMU_DIR, WORKSPACE, SESSIONS, SKILLS, GLOBAL, MANIFEST } = require('./init');
 
 module.exports = {
   initEmu,
@@ -12,6 +12,7 @@ module.exports = {
   EMU_DIR,
   WORKSPACE,
   SESSIONS,
+  SKILLS,
   GLOBAL,
   MANIFEST,
 };
