@@ -55,7 +55,10 @@ def _load_conversation(path: Path) -> dict:
     if path.exists() and path.stat().st_size > 0:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"messages": []}
+    return {
+        "session_date": datetime.now().strftime("%Y-%m-%d"),
+        "messages": [],
+    }
 
 
 def _save_conversation(path: Path, data: dict) -> None:
