@@ -14,14 +14,26 @@ class ActionValidator:
 
     Rules:
       1. No consecutive mouse_moves without an interaction in between.
-      2. Micro-movement detection (cursor already at target).
-      3. Same action 3× with no screen change → force strategy change.
+      2. Micro-movement: trying to move to the same coordinates (±0.01)
+         the cursor was last sent to — signals the cursor didn't move.
+      3. Same action type 5+ consecutive times (more than 4×) → force
+         strategy change. Excludes screenshot and scroll.
       4. Scroll amount must be >= 5.
+      5. Unknown/plain-text action → reject with explicit JSON format hint.
+      6. Absolute coordinate detection: x or y > 1.5 → model forgot to
+         normalize (raw pixels instead of [0,1] ratios).
     """
+
+    # Positions within this fraction of screen size are treated as "same spot"
+    COORD_EPSILON = 0.01
+
+    # Actions that are legitimately repeated many times — don't throttle
+    _NO_THROTTLE = {"screenshot", "scroll"}
 
     def __init__(self):
         self._history: dict[str, list[str]] = {}
-        self._last_coords: dict[str, tuple[float, float]] = {}
+        # Last mouse_move target per session (updated only on valid moves)
+        self._last_move_coords: dict[str, tuple[float, float]] = {}
 
     def validate(
         self,
@@ -36,49 +48,74 @@ class ActionValidator:
         history = self._history.setdefault(session_id, [])
         action_type = action.get("type", "")
 
-        # Rule 1: No consecutive mouse_moves without interaction
-        if action_type == "mouse_move" and history and history[-1] == "mouse_move":
+        # Extract coordinates if present
+        coords = action.get("coordinates") or {}
+        cx = coords.get("x", 0) if isinstance(coords, dict) else 0
+        cy = coords.get("y", 0) if isinstance(coords, dict) else 0
+
+        # ── Rule 6: Absolute coordinate detection ────────────────────────────
+        # Normalized [0,1] coords should never meaningfully exceed 1.0.
+        # x/y > 1.5 almost certainly means the model sent raw pixel values.
+        if action_type == "mouse_move" and (cx > 1.5 or cy > 1.5):
             return False, (
-                "Cannot move twice without interacting. "
-                "The cursor is already positioned — click, type, or scroll."
+                f"Coordinates ({cx:.1f}, {cy:.1f}) look like absolute pixels, not "
+                f"normalized [0,1] ratios. Convert them: "
+                f"x_norm = x_pixels / screen_width, "
+                f"y_norm = y_pixels / screen_height. "
+                f"Example: pixel 960 on a 1920-wide screen → 0.5."
             )
 
-        # Rule 2: Micro-movement detection
+
+        # ── Rule 2: Micro-movement — same coordinates as last move ────────────
+        # Fires when the model tries to move the cursor to essentially the
+        # same pixel it was already sent to, which is a no-op.
         if action_type == "mouse_move":
-            coords = action.get("coordinates", {})
-            x, y = coords.get("x", 0), coords.get("y", 0)
-            prev = self._last_coords.get(session_id)
-            if prev and history and history[-1] == "mouse_move":
+            prev = self._last_move_coords.get(session_id)
+            if prev:
                 lx, ly = prev
-                if abs(x - lx) < 0.01 and abs(y - ly) < 0.01:
+                if abs(cx - lx) < self.COORD_EPSILON and abs(cy - ly) < self.COORD_EPSILON:
                     return False, (
-                        "Cursor is already at this position (within 0.01). Just click."
+                        f"Cursor is already at ({lx:.3f}, {ly:.3f}) — "
+                        f"moving there again is a no-op. Just click, or "
+                        f"move to a different target."
                     )
-            self._last_coords[session_id] = (x, y)
 
-        # Rule 3: Same action repeated 3+ times with no screen change
-        if (
-            len(history) >= 2
-            and all(h == action_type for h in history[-2:])
-            and not screen_changed
-        ):
-            return False, (
-                f"You've performed '{action_type}' 3 times with no visible change. "
-                f"This approach isn't working. Try a completely different strategy: "
-                f"keyboard shortcut, shell_exec, or a different element."
-            )
+        # ── Rule 3: Same action type 5+ consecutive times ─────────────────────
+        # "More than 4×" in a row signals the model is stuck on one approach.
+        # We check the last 4 history entries: if all 4 match the current
+        # action_type, this would be the 5th consecutive identical action.
+        if action_type not in self._NO_THROTTLE and len(history) >= 4:
+            if all(h == action_type for h in history[-4:]):
+                return False, (
+                    f"You've performed '{action_type}' 5 times in a row. "
+                    f"This approach is not working — switch strategy entirely:\n"
+                    f"  • Keyboard: Win key, Alt+Tab, Tab/Enter, keyboard shortcuts\n"
+                    f"  • Shell: shell_exec with Start-Process, Invoke-Item, or "
+                    f"a PowerShell one-liner\n"
+                    f"  • Different element: look for another button, link, or menu"
+                )
 
-        # Rule 4: Minimum scroll amount
+        # ── Rule 4: Minimum scroll amount ─────────────────────────────────────
         if action_type == "scroll":
             amount = action.get("amount", 0)
             if amount and amount < 5:
                 return False, "Minimum scroll amount is 5. Use amount >= 5."
 
-        # Rule 5: Reject unknown/plain text actions
+        # ── Rule 5: Reject unknown / plain-text actions ───────────────────────
         if action_type == "unknown":
-            return False, "Unknown tool call or invalid JSON format. Please choose from the tools available to you."
+            return False, (
+                "Your response was not a valid JSON action. "
+                "Respond with ONLY a raw JSON object — no prose, no markdown fences:\n"
+                '  {"action": {"type": "left_click"}, "done": false, "confidence": 0.9}\n'
+                "Valid types: mouse_move, left_click, right_click, double_click, "
+                "triple_click, type_text, key_press, scroll, drag, shell_exec, "
+                "screenshot, wait, done."
+            )
 
-        # Record and trim history
+        # ── Record action ─────────────────────────────────────────────────────
+        if action_type == "mouse_move":
+            self._last_move_coords[session_id] = (cx, cy)
+
         history.append(action_type)
         if len(history) > 10:
             history[:] = history[-10:]
@@ -86,6 +123,6 @@ class ActionValidator:
         return True, ""
 
     def clear(self, session_id: str):
-        """Reset history for a session."""
+        """Reset all state for a session."""
         self._history.pop(session_id, None)
-        self._last_coords.pop(session_id, None)
+        self._last_move_coords.pop(session_id, None)

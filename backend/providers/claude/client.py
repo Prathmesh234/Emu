@@ -20,7 +20,8 @@ from providers.agent_tools import tools_for_anthropic
 # ── Configuration ────────────────────────────────────────────────────────────
 
 MODEL_NAME = "claude-sonnet-4-5"
-MAX_TOKENS = 1024
+MAX_TOKENS = 8000
+THINKING_BUDGET = 5000  # tokens reserved for extended thinking
 
 SCREENSHOT_PREFIX = "data:image/"
 
@@ -39,6 +40,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         max_tokens=MAX_TOKENS,
         system=system_blocks,
         tools=ANTHROPIC_TOOLS,
+        thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
         messages=messages,
     )
     elapsed_ms = int((time.time() - start) * 1000)
@@ -163,12 +165,15 @@ def _merge_consecutive(messages: list[dict]) -> list[dict]:
 # ── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
-    # Check for tool_use blocks first
+    # Check for tool_use blocks first; also collect thinking and text
     tool_calls = []
     text_parts = []
+    thinking_parts = []
 
     for block in resp.content:
-        if block.type == "tool_use":
+        if block.type == "thinking":
+            thinking_parts.append(block.thinking)
+        elif block.type == "tool_use":
             tool_calls.append(ToolCallInfo(
                 id=block.id,
                 name=block.name,
@@ -177,6 +182,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
         elif block.type == "text":
             text_parts.append(block.text)
 
+    reasoning = "".join(thinking_parts) or None
     content = "".join(text_parts)
 
     if tool_calls:
@@ -184,20 +190,25 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
         return AgentResponse(
             tool_calls=tool_calls,
             done=False,
-            reasoning_content=None,
+            reasoning_content=reasoning,
             inference_time_ms=elapsed_ms,
             model_name=MODEL_NAME,
         )
 
     # No tool calls — parse JSON desktop action from text
     data = _extract_json(content)
+    data = _sanitize_action(data)
+
+    raw_action = data.get("action", {"type": "done"})
+    if isinstance(raw_action, str):
+        raw_action = {"type": raw_action}
 
     return AgentResponse(
-        action=Action(**data.get("action", {"type": "done"})),
+        action=Action(**raw_action),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
-        reasoning_content=None,
+        reasoning_content=reasoning,
         inference_time_ms=elapsed_ms,
         model_name=MODEL_NAME,
     )
@@ -263,3 +274,33 @@ def _extract_json(content: str) -> dict:
 
     print(f"[claude] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
     return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}
+
+
+def _sanitize_action(data: dict) -> dict:
+    """
+    Enforce one-action-per-response and fix common model formatting mistakes.
+
+    Strips batched/nested keys the model sometimes adds (next_action, actions[],
+    step2, etc.) and unwraps any action accidentally nested inside final_message.
+    """
+    # Strip extra action keys the model may batch
+    for key in ("next", "next_action", "actions", "step2", "then", "followup"):
+        if key in data:
+            print(f"[claude] WARN: stripped batched key '{key}' from response")
+            del data[key]
+
+    # Unwrap action accidentally embedded inside final_message
+    fm = data.get("final_message")
+    if isinstance(fm, str) and fm.strip().startswith("{"):
+        try:
+            inner = json.loads(fm)
+            if isinstance(inner, dict) and "action" in inner:
+                print(f"[claude] WARN: final_message contained nested action — extracting")
+                data["action"] = inner["action"]
+                data["done"] = inner.get("done", False)
+                data["confidence"] = inner.get("confidence", data.get("confidence", 1.0))
+                data["final_message"] = inner.get("final_message")
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return data

@@ -2,11 +2,11 @@
 
 const { PanelButton } = require('./PanelButton');
 
-function HistoryPanel({ onNewChat, onSelectSession, onClose }) {
+function HistoryPanel({ onNewChat, onSelectSession, onToggle }) {
     const panel = document.createElement('div');
     panel.className = 'history-panel';
 
-    // ── Header ─────────────────────────────────────────────────────────
+    // ── Header (always visible — contains hamburger) ───────────────────
     const header = document.createElement('div');
     header.className = 'history-panel-header';
 
@@ -14,32 +14,48 @@ function HistoryPanel({ onNewChat, onSelectSession, onClose }) {
     title.className = 'history-panel-title';
     title.textContent = 'Emu';
 
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'history-panel-close';
-    closeBtn.title = 'Close sidebar';
-    closeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-    closeBtn.onclick = () => { if (onClose) onClose(); };
+    const hamburgerBtn = document.createElement('button');
+    hamburgerBtn.className = 'history-panel-hamburger';
+    hamburgerBtn.title = 'Toggle sidebar';
+    hamburgerBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
+    hamburgerBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (onToggle) onToggle();
+    };
 
     header.appendChild(title);
-    header.appendChild(closeBtn);
+    header.appendChild(hamburgerBtn);
     panel.appendChild(header);
+
+    // ── Body (fades in when expanded) ─────────────────────────────────
+    const body = document.createElement('div');
+    body.className = 'history-panel-body';
 
     // ── New Chat button ────────────────────────────────────────────────
     const newChatBtn = document.createElement('button');
     newChatBtn.className = 'history-new-chat';
     newChatBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span>New chat</span>`;
     newChatBtn.onclick = () => { if (onNewChat) onNewChat(); };
-    panel.appendChild(newChatBtn);
+    body.appendChild(newChatBtn);
 
     // ── Sessions list ──────────────────────────────────────────────────
     const sectionLabel = document.createElement('div');
     sectionLabel.className = 'history-section-label';
     sectionLabel.textContent = 'Recents';
-    panel.appendChild(sectionLabel);
+    body.appendChild(sectionLabel);
 
     const list = document.createElement('div');
     list.className = 'history-list';
-    panel.appendChild(list);
+    body.appendChild(list);
+
+    panel.appendChild(body);
+
+    // Clicking anywhere on the collapsed strip expands it
+    panel.onclick = () => {
+        if (!panel.classList.contains('open')) {
+            if (onToggle) onToggle();
+        }
+    };
 
     // ── State ──────────────────────────────────────────────────────────
     let activeSessionId = null;

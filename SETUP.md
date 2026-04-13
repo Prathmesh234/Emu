@@ -14,15 +14,9 @@ Everything you need to get Emu running, from zero to working desktop agent.
 
 ### Platform dependencies
 
-**macOS** — mostly built-in:
-```bash
-brew install cliclick    # mouse/keyboard automation (only extra install)
-```
-
-**Linux**:
-```bash
-sudo apt install scrot imagemagick xdotool xclip
-```
+**Windows** — no extra installs needed:
+- PowerShell 5.1+ (included with Windows 10/11)
+- System.Windows.Forms and GDI assemblies (loaded automatically)
 
 ---
 
@@ -254,5 +248,8 @@ Make sure the backend is running on port 8000 before starting the frontend. The 
 ### OmniParser cold start is slow
 First request after the Modal container idles takes ~15s. Subsequent requests are ~1.5s. The container stays warm for 5 minutes after the last request.
 
-### `pyobjc-framework-quartz` fails on Linux
-This is a macOS-only dependency. It should be skipped automatically on Linux. If it causes issues, it's safe to remove from `pyproject.toml` on Linux-only setups.
+### PowerShell execution policy errors
+If you get execution policy errors, run PowerShell as admin and execute:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```

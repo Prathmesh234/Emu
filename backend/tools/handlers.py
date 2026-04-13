@@ -1,6 +1,6 @@
-from pathlib import Path
 from workspace import read_session_plan, write_session_plan, read_memory, read_daily_memory
 from skills import get_skill_body
+from utilities.paths import get_emu_path
 
 
 def handle_read_plan(session_id: str) -> str:
@@ -28,9 +28,7 @@ def handle_read_memory(target: str = "long_term", date: str = "") -> str:
                 return f"[MEMORY.md]\n{content}"
             return "MEMORY.md is empty or does not exist yet."
         elif target == "preferences":
-            _backend_dir = Path(__file__).parent.parent
-            _project_root = _backend_dir.parent
-            prefs_path = _project_root / ".emu" / "global" / "preferences.md"
+            prefs_path = get_emu_path() / "global" / "preferences.md"
             if prefs_path.exists():
                 content = prefs_path.read_text(encoding="utf-8").strip()
                 if content:

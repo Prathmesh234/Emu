@@ -12,7 +12,6 @@ const WS_URL = 'ws://127.0.0.1:8000';
 let onMessageHandler = null;
 let _closing = false;
 
-
 // ── Serial message queue ──────────────────────────────────────────────
 const _queue = [];
 let _processing = false;

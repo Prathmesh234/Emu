@@ -74,8 +74,11 @@ AGENT_TOOLS_OPENAI = [
             "name": "write_session_file",
             "description": (
                 "Write or overwrite a temporary .md file in the current session. "
-                "Use this heavily to store intermediate research, notes, scraped text, "
-                "or data you need to remember across steps. Just specify a filename (e.g. 'notes.md')."
+                "CRITICAL: Use this aggressively during ANY information-gathering task — "
+                "write down meetings, emails, data, names, dates, numbers IMMEDIATELY "
+                "after seeing them on screen. Do NOT try to remember things across steps. "
+                "Call this every time you find a piece of information worth keeping. "
+                "Just specify a filename (e.g. 'notes.md', 'meetings.md')."
             ),
             "parameters": {
                 "type": "object",

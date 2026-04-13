@@ -106,7 +106,7 @@ Step 5: MODEL RESPONSE
            ▼
 Step 6: EXECUTE ACTION
     Backend sends action to Electron
-    Shell executes: mouse move, click, type, scroll, etc via cliclick/xdotool
+    Shell executes: mouse move, click, type, scroll, etc via PowerShell Win32 API
            │
            ▼
 Step 7: CAPTURE NEW STATE

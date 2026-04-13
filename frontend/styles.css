@@ -27,30 +27,20 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     width: 100%;
     height: 100vh;
     background: #ffffff;
-    border-radius: 4px;
+    border-radius: 12px;
     overflow: hidden;
-    border: 2px solid #111111;
+    border: 1px solid #e0e0e0;
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────── */
-
-/* App wrapper: row — history panel + main side by side */
-.app-wrapper {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-}
 
 .main { flex: 1; display: flex; flex-direction: column; height: 100%; background: #ffffff; min-width: 0; }
 
 /* ── Header ──────────────────────────────────────────────────────────── */
 
 .header {
-    padding: 8px 12px;
-    border-bottom: 2px solid #111111;
+    padding: 8px 16px;
+    border-bottom: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -68,7 +58,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     letter-spacing: 0.06em;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     color: #111111;
 }
 .emu-icon { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
@@ -78,10 +68,10 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .emu-static-svg .emu-main-stroke { stroke: #111111; }
 .emu-static-svg .emu-accent-fill { fill: #333333; }
 .emu-static-svg .emu-accent-stroke { stroke: #333333; }
-.empty-state-emoji .emu-static-svg .emu-main-fill { fill: #888888; }
-.empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #888888; }
-.empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #888888; }
-.empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #888888; }
+.empty-state-emoji .emu-static-svg .emu-main-fill { fill: #555555; }
+.empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #555555; }
+.empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #777777; }
+.empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #777777; }
 
 .header-actions { display: flex; gap: 6px; -webkit-app-region: no-drag; align-items: center; flex-shrink: 0; }
 
@@ -124,18 +114,20 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .expand-btn {
     width: 28px; height: 28px;
-    border: 2px solid #111111; border-radius: 4px;
-    background: #ffffff; cursor: pointer;
+    border: none; border-radius: 6px;
+    background: transparent; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    color: #111111;
+    color: #888;
     -webkit-app-region: no-drag;
+    transition: background 0.15s, color 0.15s;
 }
-.expand-btn:hover { background: #f0f0f0; }
+.expand-btn:hover { background: #f0f0f0; color: #111; }
 
 /* Dangerous mode toggle */
 .danger-toggle {
     display: flex; align-items: center; gap: 4px; cursor: pointer;
     -webkit-app-region: no-drag; user-select: none; font-size: 11px;
+    flex-shrink: 0;
 }
 .danger-toggle input { display: none; }
 .danger-slider {
@@ -160,7 +152,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Chat area ───────────────────────────────────────────────────────── */
 
-.chat-container { flex: 1; overflow-y: auto; }
+.chat-container { flex: 1; overflow-y: auto; min-height: 0; }
 .chat-wrapper { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ── Empty state ─────────────────────────────────────────────────────── */
@@ -168,18 +160,21 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .empty-state {
     text-align: center;
     color: #888888;
-    padding: 48px 16px;
+    padding: 80px 16px 48px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
 }
-.empty-state-emoji { font-size: 2.5rem; margin-bottom: 8px; }
+.empty-state-emoji { font-size: 2.5rem; margin-bottom: 12px; }
 .empty-state h2 {
     color: #111111;
     margin-bottom: 4px;
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 .empty-state p { font-size: 13px; color: #888888; }
 
@@ -197,14 +192,14 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     color: #111111;
 }
 .message.user .message-content {
-    background: #f0f0f0;
-    border: 1px solid #111111;
-    border-radius: 4px;
-    padding: 8px 12px;
+    background: #f5f5f5;
+    border: none;
+    border-radius: 18px;
+    padding: 10px 16px;
 }
-.message.user .message-content:hover { background: #e0e0e0; }
-.message.assistant .message-content { padding: 4px; border-radius: 4px; }
-.message.assistant .message-content:hover { background: #f0f0f0; }
+.message.user .message-content:hover { background: #ebebeb; }
+.message.assistant .message-content { padding: 4px 8px; border-radius: 12px; }
+.message.assistant .message-content:hover { background: #f8f8f8; }
 
 /* ── Status indicator (semantic badge) ────────────────────────────────── */
 
@@ -213,14 +208,14 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     align-items: center;
     gap: 8px;
     padding: 4px 12px;
-    background: #ffffff;
-    border: 2px solid #111111;
-    border-radius: 2px;
+    background: #f8f8f8;
+    border: 1px solid #e0e0e0;
+    border-radius: 20px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #111111;
+    color: #555;
     margin-bottom: 8px;
 }
 .status-indicator .dot {
@@ -234,26 +229,47 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Input ───────────────────────────────────────────────────────────── */
 
-.input-container { padding: 12px 16px; border-top: 2px solid #111111; position: relative; }
-.input-wrapper { display: flex; gap: 8px; align-items: flex-end; }
+.input-container { padding: 12px 20px 16px; border-top: none; position: relative; }
+.input-wrapper {
+    display: flex;
+    gap: 0;
+    align-items: flex-end;
+    border: 1.5px solid #d0d0d0;
+    border-radius: 20px;
+    padding: 4px 4px 4px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #ffffff;
+    max-height: 180px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.input-wrapper:focus-within {
+    border-color: #999;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+.input-wrapper::-webkit-scrollbar { width: 5px; }
+.input-wrapper::-webkit-scrollbar-track { background: transparent; }
+.input-wrapper::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 4px; }
+.input-wrapper::-webkit-scrollbar-thumb:hover { background: #aaa; }
 
 /* ── Close button ────────────────────────────────────────────────────── */
 
 .close-btn {
     width: 28px;
     height: 28px;
-    border: 2px solid #111111;
-    border-radius: 4px;
-    background: #ffffff;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
     cursor: pointer;
     font-size: 14px;
-    color: #111111;
+    color: #888;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-app-region: no-drag;
+    transition: background 0.15s, color 0.15s;
 }
-.close-btn:hover { border-color: #dc2626; color: #dc2626; }
+.close-btn:hover { background: #f0f0f0; color: #dc2626; }
 
 /* ── Step number badge ───────────────────────────────────────────────── */
 
@@ -291,33 +307,35 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .chat-input {
     flex: 1;
-    padding: 8px 12px;
-    border: 2px solid #111111;
-    border-radius: 4px;
-    font-size: 13px;
+    min-width: 0;
+    padding: 8px 0;
+    border: none;
+    border-radius: 0;
+    font-size: 14px;
     font-family: inherit;
-    line-height: 1.4;
+    line-height: 1.5;
     resize: none;
     outline: none;
-    min-height: 44px;
-    max-height: 150px;
+    min-height: 40px;
+    max-height: none;
+    overflow: hidden;
     color: #111111;
-    background: #ffffff;
+    background: transparent;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    padding-right: 8px;
 }
-.chat-input:focus { border-color: #111111; }
-.chat-input::placeholder { color: #888888; }
-.chat-input::-webkit-scrollbar { width: 4px; }
-.chat-input::-webkit-scrollbar-track { background: transparent; }
-.chat-input::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 4px; }
+.chat-input:focus { border-color: transparent; outline: none; box-shadow: none; }
+.chat-input::placeholder { color: #aaa; }
 .chat-input::-webkit-scrollbar-thumb:hover { background: #999999; }
 
 /* ── Send button — filled primary ────────────────────────────────────── */
 
 .send-btn {
-    width: 44px;
-    height: 44px;
-    border: 2px solid #111111;
-    border-radius: 4px;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
     background: #111111;
     color: #ffffff;
     cursor: pointer;
@@ -325,16 +343,19 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transition: background 0.15s;
+    position: sticky;
+    bottom: 4px;
 }
 .send-btn:hover:not(:disabled) { background: #333333; }
 .send-btn:disabled {
     cursor: not-allowed;
-    border-color: #cccccc;
-    background: #ffffff;
-    color: #cccccc;
+    border: none;
+    background: #e8e8e8;
+    color: #bbb;
 }
-.send-btn.stop-mode { background: #dc2626; border-color: #dc2626; color: #ffffff; }
-.send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
+.send-btn.stop-mode { background: #dc2626; color: #ffffff; }
+.send-btn.stop-mode:hover { background: #b91c1c; }
 
 /* ── Emu running / thinking animation ────────────────────────────────── */
 
@@ -417,8 +438,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     flex-direction: column;
     gap: 8px;
     background: #ffffff;
-    border: 2px solid #111111;
-    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
     padding: 14px;
     font-size: 13px;
     max-width: 100%;
@@ -440,7 +461,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .step-screenshot img {
     width: 100%;
     max-height: 140px;
-    object-fit: cover;
+    object-fit: contain;
+    background: #f8f8f8;
     display: block;
     transition: max-height 0.3s ease;
 }
@@ -894,9 +916,59 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
    History Panel (Sidebar)
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ── Panel toggle button (hamburger) ─────────────────────────────────── */
+/* ── History panel container ─────────────────────────────────────────── */
 
-.panel-toggle {
+.history-panel {
+    width: 44px;
+    min-width: 44px;
+    height: 100%;
+    background: #fafafa;
+    border-right: 1px solid #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.history-panel.open {
+    width: 240px;
+    min-width: 240px;
+    cursor: default;
+}
+
+/* ── Panel header (always visible) ──────────────────────────────────── */
+
+.history-panel-header {
+    display: flex;
+    align-items: center;
+    height: 44px;
+    padding: 0 8px;
+    border-bottom: 1px solid #f0f0f0;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+}
+.history-panel-title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 700;
+    color: #111111;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.22s ease;
+    padding-left: 4px;
+}
+.history-panel.open .history-panel-title {
+    opacity: 1;
+}
+
+/* ── Hamburger toggle button (inside panel) ──────────────────────────── */
+
+.history-panel-hamburger {
     width: 28px;
     height: 28px;
     border: none;
@@ -907,62 +979,26 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     align-items: center;
     justify-content: center;
     color: #111111;
-    -webkit-app-region: no-drag;
     flex-shrink: 0;
+    -webkit-app-region: no-drag;
 }
-.panel-toggle:hover { background: #f0f0f0; }
+.history-panel-hamburger:hover { background: #f0f0f0; }
 
-/* ── History panel ───────────────────────────────────────────────────── */
+/* ── Panel body (fades in when expanded) ─────────────────────────────── */
 
-.history-panel {
-    width: 0;
-    min-width: 0;
-    height: 100%;
-    background: #fafafa;
-    border-right: 2px solid #111111;
+.history-panel-body {
     display: flex;
     flex-direction: column;
+    flex: 1;
     overflow: hidden;
-    transition: width 0.2s ease, min-width 0.2s ease;
-    flex-shrink: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
 }
-.history-panel.open {
-    width: 240px;
-    min-width: 240px;
+.history-panel.open .history-panel-body {
+    opacity: 1;
+    pointer-events: auto;
 }
-
-/* ── Panel header ────────────────────────────────────────────────────── */
-
-.history-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-bottom: 1px solid #f0f0f0;
-    -webkit-app-region: drag;
-    flex-shrink: 0;
-}
-.history-panel-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #111111;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-.history-panel-close {
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #888888;
-    -webkit-app-region: no-drag;
-}
-.history-panel-close:hover { background: #f0f0f0; color: #111111; }
 
 /* ── New chat button ─────────────────────────────────────────────────── */
 
@@ -1060,6 +1096,12 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 /* ── Input disabled overlay (past sessions) ──────────────────────────── */
 
+.input-container.input-disabled {
+    position: relative;
+}
+.input-container.input-disabled .input-wrapper {
+    max-height: none;
+}
 .input-container.input-disabled .chat-input {
     background: #f5f5f5;
     color: #cccccc;
@@ -1083,5 +1125,280 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     pointer-events: none;
     z-index: 10;
     letter-spacing: 0.02em;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 20px;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   Theme toggle button
+   ══════════════════════════════════════════════════════════════════════ */
+
+.theme-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+    line-height: 1;
+    padding: 0;
+    color: #111111;
+    transition: background 0.15s;
+}
+.theme-btn:hover { background: #f0f0f0; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Dark Mode — Navy HIGH CONTRAST Design
+   Replicates the linux branch (macos-linux-compatibility) layout:
+   sharp 4px corners, bold 2px borders, boxed inputs, badge status.
+
+   Navy Palette:
+     Deep       #0d1b2a    Main background
+     Surface    #112240    Card / panel background
+     Raised     #0a192f    Inner surfaces (reasoning, action boxes)
+     Border     #1e3a5f    Primary border
+     Strong     #2a4a7f    Strong / hover border
+     Text       #ccd6f6    Primary text
+     Text 2nd   #8892b0    Secondary text
+     Muted      #4a6285    Muted / disabled text
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* App shell — sharp corners and navy border matching linux branch */
+#app.dark { background: #0d1b2a; border: 2px solid #1e3a5f; border-radius: 4px; color: #ccd6f6; }
+#app.dark .main { background: #0d1b2a; }
+
+/* Header — bold border-bottom matching linux branch */
+#app.dark .header { border-bottom: 2px solid #1e3a5f; }
+#app.dark .header h1 { color: #ccd6f6; }
+#app.dark .emu-static-svg .emu-main-fill { fill: #ccd6f6; }
+#app.dark .emu-static-svg .emu-main-stroke { stroke: #ccd6f6; }
+#app.dark .emu-static-svg .emu-accent-fill { fill: #8892b0; }
+#app.dark .emu-static-svg .emu-accent-stroke { stroke: #8892b0; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-main-fill { fill: #4a6285; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-main-stroke { stroke: #4a6285; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #4a6285; }
+#app.dark .empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #4a6285; }
+
+/* Header buttons — square corners, navy borders */
+#app.dark .new-task-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
+#app.dark .new-task-btn:hover { background: #1d3461; }
+#app.dark .queue-disclaimer { background: #112240; border-color: #d97706; }
+#app.dark .expand-btn { border: none; border-radius: 6px; background: transparent; color: #8892b0; }
+#app.dark .expand-btn:hover { background: #1d3461; color: #ccd6f6; }
+#app.dark .theme-btn { border: none; border-radius: 6px; background: transparent; color: #ccd6f6; }
+#app.dark .theme-btn:hover { background: #1d3461; }
+#app.dark .close-btn { border: none; border-radius: 6px; background: transparent; color: #8892b0; }
+#app.dark .close-btn:hover { border: none; background: #1d3461; color: #dc2626; }
+
+/* Danger toggle */
+#app.dark .danger-slider { background: #1e3a5f; }
+#app.dark .danger-slider::after { background: #ccd6f6; }
+#app.dark .danger-toggle.active .danger-slider { background: #dc2626; }
+#app.dark .danger-toggle.active .danger-label { color: #dc2626; }
+#app.dark .danger-label { color: #4a6285; }
+
+/* Empty state */
+#app.dark .empty-state { color: #4a6285; }
+#app.dark .empty-state h2 { color: #ccd6f6; }
+#app.dark .empty-state p { color: #4a6285; }
+
+/* Messages — boxed style matching linux branch */
+#app.dark .message-content { color: #ccd6f6; }
+#app.dark .message.user .message-content { background: #112240; border: 1px solid #1e3a5f; border-radius: 4px; padding: 8px 12px; }
+#app.dark .message.user .message-content:hover { background: #1d3461; }
+#app.dark .message.assistant .message-content:hover { background: #112240; border-radius: 4px; }
+
+/* Status indicator — badge style matching linux branch */
+#app.dark .status-indicator { background: #0d1b2a; border: 2px solid #1e3a5f; border-radius: 2px; color: #8892b0; }
+
+/* Input area — separate bordered input and square send btn matching linux branch */
+#app.dark .input-container { border-top: 2px solid #1e3a5f; padding: 12px 16px; }
+#app.dark .input-wrapper { gap: 0; border: 2px solid #1e3a5f; border-radius: 4px; padding: 4px 4px 4px 16px; background: #112240; max-height: 180px; overflow-x: hidden; overflow-y: auto; }
+#app.dark .input-wrapper:focus-within { border: 2px solid #2a4a7f; box-shadow: none; }
+#app.dark .input-wrapper::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .chat-input { border: none; border-radius: 0; padding: 8px 0; background: transparent; color: #ccd6f6; min-height: 40px; max-height: none; overflow: hidden; }
+#app.dark .chat-input:focus { border-color: #2a4a7f; outline: none; box-shadow: none; }
+#app.dark .chat-input::placeholder { color: #4a6285; }
+#app.dark .send-btn { width: 36px; height: 36px; border: 2px solid #1e3a5f; border-radius: 50%; background: #1e3a5f; color: #ccd6f6; position: sticky; bottom: 4px; }
+#app.dark .send-btn:hover:not(:disabled) { background: #2a4a7f; border-color: #2a4a7f; }
+#app.dark .send-btn:disabled { border: 2px solid #1e3a5f; background: #0d1b2a; color: #1e3a5f; }
+
+/* Emu runner animation */
+#app.dark .emu-runner-svg .emu-main-fill { fill: #ccd6f6; }
+#app.dark .emu-runner-svg .emu-main-stroke { stroke: #ccd6f6; }
+#app.dark .emu-runner-svg .emu-accent-fill { fill: #8892b0; }
+#app.dark .emu-runner-svg .emu-accent-stroke { stroke: #8892b0; }
+#app.dark .typing .thinking-dots span { background: #4a6285; }
+
+/* Step cards — sharp corners and bold navy borders matching linux branch */
+#app.dark .step-card { background: #112240; border: 2px solid #1e3a5f; border-radius: 4px; }
+#app.dark .step-screenshot { border-color: #1e3a5f; }
+#app.dark .step-label { color: #8892b0; }
+#app.dark .step-header { color: #ccd6f6; border-bottom: 2px solid #1e3a5f; }
+#app.dark .step-number { border: 2px solid #ccd6f6; border-radius: 0; background: #ccd6f6; color: #0d1b2a; }
+#app.dark .step-reasoning { background: #0a192f; border: 1px solid #1e3a5f; border-left: 3px solid #ccd6f6; border-radius: 4px; }
+#app.dark .step-reasoning-text { color: #8892b0; }
+#app.dark .step-action { background: #0a192f; border: 1px solid #1e3a5f; border-left: 3px solid #ccd6f6; border-radius: 4px; }
+#app.dark .step-action-desc { color: #ccd6f6; }
+#app.dark .step-confidence.high { background: #0a192f; }
+#app.dark .step-confidence.mid  { background: #0a192f; }
+#app.dark .step-confidence.low  { background: #0a192f; }
+#app.dark .step-action-status.pending { color: #4a6285; }
+#app.dark .step-confirm-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
+#app.dark .step-confirm-btn.allow { border-color: #16a34a; color: #16a34a; }
+#app.dark .step-confirm-btn.allow:hover:not(:disabled) { background: #112240; }
+#app.dark .step-confirm-btn.deny { border-color: #dc2626; color: #dc2626; }
+#app.dark .step-confirm-btn.deny:hover:not(:disabled) { background: #112240; }
+#app.dark .step-confirm-btn.chosen { background: #1d3461; }
+#app.dark .step-done { background: #0d1b2a; color: #ccd6f6; }
+#app.dark .step-card.step-error { background: #0d1b2a; border-color: #dc2626; }
+
+/* Plan card */
+#app.dark .plan-card { border-left-color: #ccd6f6; }
+#app.dark .plan-card-content { color: #ccd6f6; background: #0a192f; border: 1px solid #1e3a5f; border-radius: 4px; }
+#app.dark .plan-card-content::-webkit-scrollbar-track { background: #112240; }
+#app.dark .plan-card-content::-webkit-scrollbar-thumb { background: #1e3a5f; }
+
+/* File card */
+#app.dark .file-card-name { color: #ccd6f6; }
+#app.dark .file-card-view-btn { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
+#app.dark .file-card-view-btn:hover { background: #1d3461; }
+
+/* File dialog */
+#app.dark .file-dialog-overlay { background: rgba(10, 25, 47, 0.8); }
+#app.dark .file-dialog { background: #112240; border: 2px solid #1e3a5f; border-radius: 4px; }
+#app.dark .file-dialog-header { border-bottom: 2px solid #1e3a5f; }
+#app.dark .file-dialog-title { color: #ccd6f6; }
+#app.dark .file-dialog-close { border: 2px solid #1e3a5f; border-radius: 4px; background: #0d1b2a; color: #ccd6f6; }
+#app.dark .file-dialog-close:hover { border-color: #dc2626; color: #dc2626; }
+#app.dark .file-dialog-body { color: #ccd6f6; }
+#app.dark .file-dialog-body::-webkit-scrollbar-track { background: #112240; }
+#app.dark .file-dialog-body::-webkit-scrollbar-thumb { background: #1e3a5f; }
+
+/* Skill card */
+#app.dark .skill-card-name { color: #ccd6f6; }
+
+/* Tooltip */
+#app.dark .tooltip { background: #ccd6f6; color: #0d1b2a; }
+#app.dark .tooltip::after { border-top-color: #ccd6f6; }
+
+/* Markdown */
+#app.dark .md-h1 { color: #ccd6f6; }
+#app.dark .md-h2 { color: #ccd6f6; }
+#app.dark .md-h3 { color: #ccd6f6; }
+#app.dark .md-h4 { color: #8892b0; }
+#app.dark .md-inline-code { background: #0a192f; border-color: #1e3a5f; color: #ccd6f6; }
+#app.dark .md-hr { border-top-color: #1e3a5f; }
+#app.dark .md-check-item.checked { color: #4a6285; }
+
+/* Scrollbar */
+#app.dark .chat-container::-webkit-scrollbar-track { background: #0d1b2a; }
+#app.dark .chat-container::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .chat-container::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+
+/* History panel */
+#app.dark .history-panel { background: #0a192f; border-right: 1px solid #1e3a5f; }
+#app.dark .history-panel-header { border-bottom-color: #1e3a5f; }
+#app.dark .history-panel-title { color: #ccd6f6; }
+#app.dark .history-panel-hamburger { color: #ccd6f6; }
+#app.dark .history-panel-hamburger:hover { background: #1d3461; }
+#app.dark .history-new-chat { border-color: #1e3a5f; background: #112240; color: #ccd6f6; }
+#app.dark .history-new-chat:hover { border-color: #2a4a7f; background: #1d3461; }
+#app.dark .history-new-chat svg { color: #4a6285; }
+#app.dark .history-section-label { color: #4a6285; }
+#app.dark .history-empty { color: #4a6285; }
+#app.dark .history-list::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .history-list::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+#app.dark .panel-button { color: #8892b0; }
+#app.dark .panel-button:hover { background: #1d3461; }
+#app.dark .panel-button.active { background: #1d3461; color: #ccd6f6; }
+#app.dark .panel-button-icon { color: #4a6285; }
+#app.dark .panel-button.active .panel-button-icon { color: #ccd6f6; }
+
+/* Disabled input overlay */
+#app.dark .input-container.input-disabled {
+    position: relative;
+}
+#app.dark .input-container.input-disabled .input-wrapper {
+    max-height: none;
+}
+#app.dark .input-container.input-disabled .chat-input { background: #0a192f; color: #1e3a5f; }
+#app.dark .input-container.input-disabled .send-btn { border-color: #1e3a5f; background: #0d1b2a; color: #1e3a5f; }
+#app.dark .input-overlay { color: #4a6285; background: rgba(10, 25, 47, 0.5); border-radius: 4px; }
+
+/* Dark mode stop button — ensure red border overrides the default navy border */
+#app.dark .send-btn.stop-mode { background: #dc2626; border-color: #dc2626; color: #ffffff; }
+#app.dark .send-btn.stop-mode:hover { background: #b91c1c; border-color: #b91c1c; }
+
+/* Dark mode code blocks — use navy palette instead of pure black */
+#app.dark .md-code-block { background: #0a192f; color: #ccd6f6; border: 1px solid #1e3a5f; }
+#app.dark .step-cmd-preview { background: #0a192f; color: #ccd6f6; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-track { background: #112240; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-thumb { background: #1e3a5f; }
+#app.dark .step-cmd-preview::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+
+/* Dark mode screenshot error text — fix low contrast */
+#app.dark .step-screenshot-error { color: #4a6285; }
+#app.dark .step-screenshot img { background: #0a192f; }
+
+/* Dark mode input wrapper scrollbar — add hover state */
+#app.dark .input-wrapper::-webkit-scrollbar-thumb:hover { background: #2a4a7f; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Accessibility — focus-visible outlines
+   ══════════════════════════════════════════════════════════════════════ */
+
+.send-btn:focus-visible,
+.expand-btn:focus-visible,
+.close-btn:focus-visible,
+.theme-btn:focus-visible,
+.new-task-btn:focus-visible,
+.step-confirm-btn:focus-visible,
+.file-card-view-btn:focus-visible,
+.file-dialog-close:focus-visible,
+.history-panel-hamburger:focus-visible,
+.history-new-chat:focus-visible,
+.panel-button:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+#app.dark .send-btn:focus-visible,
+#app.dark .expand-btn:focus-visible,
+#app.dark .close-btn:focus-visible,
+#app.dark .theme-btn:focus-visible,
+#app.dark .new-task-btn:focus-visible,
+#app.dark .step-confirm-btn:focus-visible,
+#app.dark .file-card-view-btn:focus-visible,
+#app.dark .file-dialog-close:focus-visible,
+#app.dark .history-panel-hamburger:focus-visible,
+#app.dark .history-new-chat:focus-visible,
+#app.dark .panel-button:focus-visible {
+    outline: 2px solid #4a90d9;
+    outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Panel toggle button (standalone hamburger, used by PanelToggle.js)
+   ══════════════════════════════════════════════════════════════════════ */
+
+.panel-toggle {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    transition: background 0.15s, color 0.15s;
+}
+.panel-toggle:hover { background: #f0f0f0; color: #111; }
+#app.dark .panel-toggle { color: #8892b0; }
+#app.dark .panel-toggle:hover { background: #1d3461; color: #ccd6f6; }

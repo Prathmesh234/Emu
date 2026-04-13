@@ -3,6 +3,9 @@
 // Single source of truth for app state.
 // Components read from store and call mutations to update.
 
+let _savedDarkMode = false;
+try { _savedDarkMode = localStorage.getItem('emu-dark-mode') === '1'; } catch(e) {}
+
 const state = {
     chats: [],
     currentChatId: null,
@@ -11,8 +14,8 @@ const state = {
     isSidePanel: false,
     sessionId: null,
     ws: null,
-    dangerousMode: false,
-    darkMode: false,
+    dangerousMode: true,
+    darkMode: _savedDarkMode,
 
     // Transient references (current render cycle)
     currentAssistantEl: null,
@@ -71,7 +74,7 @@ function setDangerousMode(value) {
 
 function setDarkMode(value) {
     state.darkMode = value;
-    document.documentElement.classList.toggle('dark', value);
+    try { localStorage.setItem('emu-dark-mode', value ? '1' : '0'); } catch(e) {}
 }
 
 function setWebSocket(socket) {
