@@ -1,7 +1,7 @@
 /**
- * Persistent PowerShell process — shared by all mouse/keyboard actions.
+ * Persistent shell process — shared by all mouse/keyboard actions.
  *
- * Motivation: spawning a new powershell.exe per action costs 300–700 ms of
+ * Motivation: spawning a new shell per action costs 100–300 ms of
  * process startup. Running a single long-lived process with stdin piping
  * drops that to <5 ms per command.
  *
@@ -10,17 +10,13 @@
  *
  * Usage (from any action register() function):
  *   const { run } = require('../process/psProcess');
- *   await run(`[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(100, 200)`);
+ *   await run(`xdotool mousemove 100 200`);
  *
  * start() is called once in main.js as soon as the app is ready.
  * stop() is called in app 'will-quit'.
  */
 
 const { spawn } = require('child_process');
-const path = require('path');
-
-// Project root is two levels above this file (process/ → frontend/ → root)
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
 let ps = null;
 let buffer = '';
@@ -29,6 +25,8 @@ const cmdQueue = [];        // waiting commands
 const SENTINEL = '##PS_DONE##';
 const ERR_MARKER = '##PS_ERR##';
 const CMD_TIMEOUT_MS = 30_000;  // 30s per-command timeout
+
+const isMac = process.platform === 'darwin';
 
 // ── Internal: dequeue and send the next command ────────────────────────────
 function _flush() {
@@ -50,28 +48,39 @@ function _flush() {
         _flush();
     }, CMD_TIMEOUT_MS);
 
-    // Base64-encode the command so that any quotes, here-strings, or
-    // multi-line content can never interfere with the sentinel line.
-    // On the PowerShell side we decode → create a ScriptBlock → dot-source it
-    // in the current scope (so Add-Type, variable assignments, etc. persist).
+    // Base64-encode the command so that any quotes or multi-line content
+    // can never interfere with the sentinel line.
+    // On the bash side we decode → eval in the current shell.
     const encoded = Buffer.from(pending.cmd, 'utf-8').toString('base64');
-    const wrapped = [
-        `$_enc_ = '${encoded}'`,
-        `$_code_ = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_enc_))`,
-        `try { $_sb_ = [ScriptBlock]::Create($_code_); . $_sb_ } catch { Write-Output "${ERR_MARKER}$($_.Exception.Message)" }`,
-        `Write-Output "${SENTINEL}"`,
+    const decode = isMac
+        ? `_code_=$(echo "$_enc_" | base64 -D)`
+        : `_code_=$(echo "$_enc_" | base64 -d)`;
+
+    // Decode, eval in the current shell, capture exit status.
+    // stderr is sent to a temp file so it doesn't contaminate stdout
+    // (critical for screenshot base64 output). On failure the stderr
+    // contents are surfaced via ERR_MARKER.
+    const safeWrapped = [
+        `_enc_='${encoded}'`,
+        decode,
+        `_stderr_=$(mktemp)`,
+        `eval "$_code_" 2>"$_stderr_"; _rc_=$?`,
+        `if [ $_rc_ -ne 0 ]; then _emsg_=$(cat "$_stderr_" 2>/dev/null); rm -f "$_stderr_"; echo "${ERR_MARKER}$_emsg_"; else rm -f "$_stderr_"; fi`,
+        `echo "${SENTINEL}"`,
     ].join('; ');
 
-    ps.stdin.write(wrapped + '\n');
+    ps.stdin.write(safeWrapped + '\n');
 }
 
 // ── Public: start the persistent process ──────────────────────────────────
 function start() {
     if (ps) return;
 
-    ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', '-'], {
+    const shell = isMac ? '/bin/zsh' : '/bin/bash';
+    const shellArgs = isMac ? ['-f'] : ['--norc', '--noprofile'];
+    ps = spawn(shell, shellArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: PROJECT_ROOT,
+        env: { ...process.env, TERM: 'dumb' }
     });
 
     ps.stdout.on('data', chunk => {
@@ -117,45 +126,21 @@ function start() {
         ps = null;
         if (pending) {
             if (pending.timer) clearTimeout(pending.timer);
-            pending.reject(new Error('PowerShell process exited unexpectedly'));
+            pending.reject(new Error('Shell process exited unexpectedly'));
             pending = null;
         }
-        for (const item of cmdQueue) item.reject(new Error('PowerShell process exited'));
+        for (const item of cmdQueue) item.reject(new Error('Shell process exited'));
         cmdQueue.length = 0;
     });
 
-    // Pre-load assemblies and P/Invoke types used by all actions.
-    const MEMBER_DEF = [
-        '[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);',
-        '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);',
-    ].join(' ');
-
-    const GDI_DEF = [
-        '[DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr hdc, int index);',
-        '[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);',
-        '[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);',
-    ].join(' ');
-
-    run('Add-Type -AssemblyName System.Windows.Forms')
-        .then(() => console.log('[psProcess] Forms assembly loaded'))
-        .catch(err => console.error('[psProcess] Forms load error:', err));
-
-    run(`Add-Type -MemberDefinition '${MEMBER_DEF}' -Name U32 -Namespace W`)
-        .then(() => console.log('[psProcess] U32 type loaded — ready'))
-        .catch(err => console.error('[psProcess] U32 load error:', err));
-
-    run(`Add-Type -MemberDefinition '${GDI_DEF}' -Name GDI -Namespace W`)
-        .then(() => console.log('[psProcess] GDI type loaded'))
-        .catch(err => console.error('[psProcess] GDI load error:', err));
-
-    console.log('[psProcess] started');
+    console.log(`[psProcess] started (${shell})`);
 }
 
-// ── Public: run a PowerShell command, returns a Promise<string> ───────────
+// ── Public: run a shell command, returns a Promise<string> ────────────────
 function run(cmd) {
     return new Promise((resolve, reject) => {
         if (!ps) {
-            return reject(new Error('PowerShell process is not running. Call start() first.'));
+            return reject(new Error('Shell process is not running. Call start() first.'));
         }
         cmdQueue.push({ cmd, resolve, reject });
         _flush();
@@ -173,4 +158,4 @@ function stop() {
     }
 }
 
-module.exports = { start, run, stop };
+module.exports = { start, run, stop, isMac };

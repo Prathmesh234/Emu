@@ -1,80 +1,87 @@
-// Action: Full Capture — screenshot WITHOUT the Electron panel + cursor
-// Moves the window off-screen, captures via PowerShell CopyFromScreen
-// (which includes the cursor), then restores the window.
-const { ipcRenderer } = require('electron');
+// Action: Full Capture — screenshot WITHOUT the Emu panel visible.
+// Moves the window off-screen, captures via desktopCapturer, restores window.
+// Used only when the user explicitly requests a clean capture.
+
+const { ipcRenderer } = require('electron');\n\nlet desktopCapturer = null;
 
 async function fullCapture() {
     return await ipcRenderer.invoke('screenshot:fullCapture');
 }
 
-/** PowerShell capture command — same as screenshot.js */
-function buildCaptureCommand() {
-    return [
-        `Add-Type -AssemblyName System.Drawing`,
-        `$hdc = [W.GDI]::GetDC([IntPtr]::Zero)`,
-        `$w = [W.GDI]::GetDeviceCaps($hdc, 118)`,
-        `$h = [W.GDI]::GetDeviceCaps($hdc, 117)`,
-        `[W.GDI]::ReleaseDC([IntPtr]::Zero, $hdc)`,
-        `$bmp = New-Object System.Drawing.Bitmap($w, $h)`,
-        `$g = [System.Drawing.Graphics]::FromImage($bmp)`,
-        `$g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($w, $h)))`,
-        `$pos = [System.Windows.Forms.Cursor]::Position`,
-        `$dpiScale = $w / [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width`,
-        `$px = [int]($pos.X * $dpiScale)`,
-        `$py = [int]($pos.Y * $dpiScale)`,
-        `$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias`,
-        `$s = 1.8 * $dpiScale`,
-        `$pts = @(`,
-        `  (New-Object System.Drawing.PointF($px, $py)),`,
-        `  (New-Object System.Drawing.PointF($px,                  ($py + [int](20*$s)))),`,
-        `  (New-Object System.Drawing.PointF(($px + [int](4*$s)),  ($py + [int](16*$s)))),`,
-        `  (New-Object System.Drawing.PointF(($px + [int](8*$s)),  ($py + [int](22*$s)))),`,
-        `  (New-Object System.Drawing.PointF(($px + [int](11*$s)), ($py + [int](19*$s)))),`,
-        `  (New-Object System.Drawing.PointF(($px + [int](7*$s)),  ($py + [int](13*$s)))),`,
-        `  (New-Object System.Drawing.PointF(($px + [int](13*$s)), ($py + [int](13*$s))))`,
-        `)`,
-        `$g.FillPolygon([System.Drawing.Brushes]::White, $pts)`,
-        `$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Black, [Math]::Max(2, [int](1.5*$dpiScale)))`,
-        `$g.DrawPolygon($pen, $pts)`,
-        `$pen.Dispose()`,
-        `$ms = New-Object System.IO.MemoryStream`,
-        `$bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)`,
-        `[Convert]::ToBase64String($ms.ToArray())`,
-        `$g.Dispose(); $bmp.Dispose(); $ms.Dispose()`
-    ].join('; ');
-}
-
 function register(ipcMain, { screen, getMainWindow }) {
-    const psProcess = require('../process/psProcess');
+    desktopCapturer = require('electron').desktopCapturer;
+
     ipcMain.handle('screenshot:fullCapture', async () => {
         try {
             const win = getMainWindow();
-            const { width, height } = screen.getPrimaryDisplay().size;
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
+            const scaleFactor = primaryDisplay.scaleFactor || 1;
 
-            // Move window off-screen so it doesn't appear in the capture.
+            // Move window off-screen so it doesn't appear in the capture
             let savedBounds = null;
             if (win) {
                 savedBounds = win.getBounds();
                 win.setBounds({ ...savedBounds, x: -9999 }, false);
             }
 
-            // Tiny delay for the OS to composite the frame without our window
-            await new Promise(r => setTimeout(r, 80));
+            // Wait for the compositor to remove the window from the frame
+            await new Promise(r => setTimeout(r, 100));
 
-            let base64;
+            let result;
             try {
-                base64 = await psProcess.run(buildCaptureCommand());
+                const sources = await desktopCapturer.getSources({
+                    types: ['screen'],
+                    thumbnailSize: {
+                        width: Math.round(screenWidth * scaleFactor),
+                        height: Math.round(screenHeight * scaleFactor),
+                    },
+                });
+
+                if (!sources || sources.length === 0) {
+                    throw new Error('desktopCapturer returned no sources');
+                }
+
+                const nativeImage = sources[0].thumbnail;
+                if (nativeImage.isEmpty()) {
+                    throw new Error('desktopCapturer returned empty image');
+                }
+
+                // Resize to max 1280px width (consistent with screenshot.js)
+                const size = nativeImage.getSize();
+                let finalImage = nativeImage;
+                if (size.width > 1280) {
+                    const newHeight = Math.round((1280 / size.width) * size.height);
+                    finalImage = nativeImage.resize({ width: 1280, height: newHeight, quality: 'good' });
+                }
+                const finalSize = finalImage.getSize();
+
+                // JPEG at 80% quality
+                const jpegBuffer = finalImage.toJPEG(80);
+                const base64 = jpegBuffer.toString('base64');
+
+                console.log(`[fullCapture] captured ${finalSize.width}×${finalSize.height} (screen: ${screenWidth}×${screenHeight})`);
+                result = {
+                    success: true,
+                    screenWidth,
+                    screenHeight,
+                    base64,
+                    imageWidth: finalSize.width,
+                    imageHeight: finalSize.height,
+                };
             } finally {
-                // Restore window immediately after capture — even on error
+                // Restore window immediately — even on error
                 if (win && savedBounds) {
                     win.setBounds(savedBounds, false);
                     win.setAlwaysOnTop(true, 'screen-saver');
                 }
             }
 
-            return { success: true, width, height, base64: base64.trim() };
+            return result;
         } catch (err) {
-            return { success: false, error: err.message };
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[fullCapture] failed:', msg);
+            return { success: false, error: msg };
         }
     });
 }

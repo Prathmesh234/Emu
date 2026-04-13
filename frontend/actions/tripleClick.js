@@ -1,18 +1,21 @@
 // Action: Triple Click (select entire line/paragraph)
-// Three rapid mouse_event pairs inside the persistent psProcess.
+// Uses cliclick on macOS, xdotool on Linux.
 const { ipcRenderer } = require('electron');
+const psProcess = require('../process/psProcess');
+
+const isMac = process.platform === 'darwin';
 
 async function tripleClick() {
     return await ipcRenderer.invoke('mouse:triple-click');
 }
 
 function register(ipcMain) {
-    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:triple-click', async () => {
         try {
-            await psProcess.run(
-                `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 30; [W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 30; [W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
-            );
+            const cmd = isMac
+                ? `cliclick tc:.`   // triple-click at current cursor position
+                : `xdotool click --repeat 3 --delay 30 1`;
+            await psProcess.run(cmd);
             return { success: true };
         } catch (err) {
             return { success: false, error: err.message };

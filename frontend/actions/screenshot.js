@@ -1,16 +1,45 @@
-// Action: Screenshot (default — includes panel + cursor)
-// Uses PowerShell CopyFromScreen + cursor compositing so the system cursor
-// is visible in captures (desktopCapturer excludes it on Windows).
-const { ipcRenderer } = require('electron');
+// Action: Screenshot — captures the full screen INCLUDING the Emu overlay.
+//
+// The model must see the Emu panel so it knows to avoid clicking behind it.
+// Uses Electron's desktopCapturer API (runs in-process, inherits the app's
+// Screen Recording TCC permission — no child-process permission issues).
+//
+// The capture is resized to max 1280px width and JPEG-compressed in-process
+// so there's no shell piping of base64 data.
 
-// Scale factors for coordinate translation (image coords → screen coords)
-// Updated after each screenshot capture
-let _scaleX = 1;
-let _scaleY = 1;
+const { ipcRenderer } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+// desktopCapturer is main-process-only in Electron 12+.
+// Imported lazily inside register() which runs in main process.
+let desktopCapturer = null;
+let nativeImageModule = null;
+
+// Cursor overlay config
+const CURSOR_SCALE = 1.2;  // adjust to make cursor bigger/smaller
+const CURSOR_FILL = { r: 255, g: 255, b: 255 };    // white fill
+const CURSOR_OUTLINE = { r: 255, g: 20, b: 20 };   // bright red outline
+
+// Arrow cursor shape — polygon points relative to tip (0,0), scaled later
+// Classic macOS-style arrow cursor
+const CURSOR_ARROW = [
+    { x: 0,  y: 0 },
+    { x: 0,  y: 20 },
+    { x: 5,  y: 16 },
+    { x: 9,  y: 24 },
+    { x: 12, y: 23 },
+    { x: 8,  y: 15 },
+    { x: 14, y: 15 },
+];
 
 // Screen dimensions for denormalizing [0,1] coordinates → absolute pixels
 let _screenWidth = 1920;
 let _screenHeight = 1080;
+
+// Scale factors for coordinate translation (image coords → screen coords)
+let _scaleX = 1;
+let _scaleY = 1;
 
 function getScaleFactors() {
     return { scaleX: _scaleX, scaleY: _scaleY };
@@ -22,149 +51,219 @@ function getScreenDimensions() {
 
 async function captureScreenshot() {
     const result = await ipcRenderer.invoke('screenshot:capture');
-    // Update scale factors and screen dimensions from the captured image
     if (result.success && result.imageWidth && result.screenWidth) {
         _scaleX = result.screenWidth / result.imageWidth;
         _scaleY = result.screenHeight / result.imageHeight;
         _screenWidth = result.screenWidth;
         _screenHeight = result.screenHeight;
         console.log(`[screenshot] scale factors updated: ${_scaleX.toFixed(2)}x, ${_scaleY.toFixed(2)}y | screen: ${_screenWidth}x${_screenHeight}`);
-
-        // Convert JPEG → WebP for smaller payload and faster inference
-        try {
-            const webpBase64 = await convertToWebP(result.base64);
-            const savings = Math.round((1 - webpBase64.length / result.base64.length) * 100);
-            console.log(`[screenshot] WebP conversion: ${Math.round(result.base64.length / 1024)}KB → ${Math.round(webpBase64.length / 1024)}KB (${savings}% smaller)`);
-            result.base64 = webpBase64;
-        } catch (err) {
-            console.warn(`[screenshot] WebP conversion failed, using JPEG: ${err.message}`);
-        }
     }
     return result;
 }
 
 /**
- * Convert a JPEG base64 string to WebP via Chromium's native canvas encoder.
- * Falls back gracefully — if canvas doesn't support WebP the caller keeps JPEG.
+ * Test if point (px, py) is inside a polygon using ray-casting algorithm.
  */
-function convertToWebP(jpegBase64, quality = 0.60) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const dataUrl = canvas.toDataURL('image/webp', quality);
-            const base64 = dataUrl.split(',')[1];
-            if (!base64) {
-                reject(new Error('Canvas toDataURL returned empty'));
-                return;
-            }
-            resolve(base64);
-        };
-        img.onerror = () => reject(new Error('Failed to load image for WebP conversion'));
-        img.src = `data:image/jpeg;base64,${jpegBase64}`;
-    });
+function pointInPolygon(px, py, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+        if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+    }
+    return inside;
 }
 
 /**
- * Build the PowerShell command that captures the primary screen at true
- * physical resolution (via GetDeviceCaps), draws a cursor-shaped arrow
- * overlay, resizes to max 768px width, saves as JPEG, and returns base64.
- *
- * JPEG quality 60 + resize to 768px. JS-side converts to WebP for
- * ~25-30% smaller payload and faster TTFT.
+ * Minimum distance from point (px, py) to a line segment (ax,ay)-(bx,by).
  */
-function buildCaptureCommand() {
-    return [
-        `Add-Type -AssemblyName System.Drawing`,
-        // Get true physical pixel dimensions via GDI (DPI-safe)
-        `$hdc = [W.GDI]::GetDC([IntPtr]::Zero)`,
-        `$w = [W.GDI]::GetDeviceCaps($hdc, 118)`,   // DESKTOPHORZRES
-        `$h = [W.GDI]::GetDeviceCaps($hdc, 117)`,   // DESKTOPVERTRES
-        `[void][W.GDI]::ReleaseDC([IntPtr]::Zero, $hdc)`,
-        // Capture full physical screen
-        `$bmp = New-Object System.Drawing.Bitmap($w, $h)`,
-        `$g = [System.Drawing.Graphics]::FromImage($bmp)`,
-        `$g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($w, $h)))`,
-        // Convert logical cursor position → physical
-        `$pos = [System.Windows.Forms.Cursor]::Position`,
-        `$dpiScale = $w / [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width`,
-        `$px = [int]($pos.X * $dpiScale)`,
-        `$py = [int]($pos.Y * $dpiScale)`,
-        // Draw a Windows-style arrow cursor (filled white with black border)
-        `$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias`,
-        `$s = 1.8 * $dpiScale`,
-        // Define cursor polygon points - must be single statement to avoid semicolon breaking array syntax
-        `$pts = @(` +
-            `(New-Object System.Drawing.PointF($px, $py)),` +                                    // tip (top-left)
-            `(New-Object System.Drawing.PointF($px, ($py + [int](20*$s)))),` +                   // down left edge
-            `(New-Object System.Drawing.PointF(($px + [int](4*$s)), ($py + [int](16*$s)))),` +   // notch left
-            `(New-Object System.Drawing.PointF(($px + [int](8*$s)), ($py + [int](22*$s)))),` +   // tail bottom-left
-            `(New-Object System.Drawing.PointF(($px + [int](11*$s)), ($py + [int](19*$s)))),` +  // tail bottom-right
-            `(New-Object System.Drawing.PointF(($px + [int](7*$s)), ($py + [int](13*$s)))),` +   // notch right
-            `(New-Object System.Drawing.PointF(($px + [int](13*$s)), ($py + [int](13*$s))))` +   // right wing
-        `)`,
-        `$g.FillPolygon([System.Drawing.Brushes]::White, $pts)`,
-        `$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Black, [Math]::Max(2, [int](1.5*$dpiScale)))`,
-        `$g.DrawPolygon($pen, $pts)`,
-        `$pen.Dispose()`,
-        `$g.Dispose()`,
-        // Resize to max 768px width — LLMs internally tile to ~768px anyway
-        `$maxW = 768`,
-        `$finalBmp = $bmp`,
-        `if ($bmp.Width -gt $maxW) {` +
-            ` $ratio = $maxW / $bmp.Width;` +
-            ` $newH = [int]($bmp.Height * $ratio);` +
-            ` $finalBmp = New-Object System.Drawing.Bitmap($maxW, $newH);` +
-            ` $gr = [System.Drawing.Graphics]::FromImage($finalBmp);` +
-            ` $gr.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;` +
-            ` $gr.DrawImage($bmp, 0, 0, $maxW, $newH);` +
-            ` $gr.Dispose();` +
-            ` $bmp.Dispose()` +
-        ` }`,
-        // Encode as JPEG quality 60 (smaller file, faster inference)
-        `$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }`,
-        `$encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)`,
-        `$encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 60L)`,
-        `$ms = New-Object System.IO.MemoryStream`,
-        `$finalBmp.Save($ms, $codec, $encParams)`,
-        // Output format: "width,height|base64data" so JS can parse dimensions
-        `Write-Output "$($finalBmp.Width),$($finalBmp.Height)|$([Convert]::ToBase64String($ms.ToArray()))"`,
-        `$finalBmp.Dispose(); $ms.Dispose()`
-    ].join('; ');
+function distToSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * Minimum distance from a point to the polygon border (all edges).
+ */
+function distToPolygonEdge(px, py, polygon) {
+    let minD = Infinity;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const d = distToSegment(px, py, polygon[j].x, polygon[j].y, polygon[i].x, polygon[i].y);
+        if (d < minD) minD = d;
+    }
+    return minD;
+}
+
+/**
+ * Draw an arrow-shaped cursor onto a raw RGBA bitmap buffer.
+ * tipX, tipY = cursor tip position in image pixels.
+ */
+function drawCursorOverlay(bitmap, imgW, imgH, tipX, tipY) {
+    // Scale and translate the arrow polygon to image coordinates
+    const poly = CURSOR_ARROW.map(p => ({
+        x: tipX + p.x * CURSOR_SCALE,
+        y: tipY + p.y * CURSOR_SCALE,
+    }));
+
+    // Bounding box for the scan
+    const minX = Math.floor(Math.min(...poly.map(p => p.x)) - 3);
+    const maxX = Math.ceil(Math.max(...poly.map(p => p.x)) + 3);
+    const minY = Math.floor(Math.min(...poly.map(p => p.y)) - 3);
+    const maxY = Math.ceil(Math.max(...poly.map(p => p.y)) + 3);
+
+    const OUTLINE_WIDTH = 2;
+
+    for (let py = Math.max(0, minY); py <= Math.min(imgH - 1, maxY); py++) {
+        for (let px = Math.max(0, minX); px <= Math.min(imgW - 1, maxX); px++) {
+            const offset = (py * imgW + px) * 4;
+            if (pointInPolygon(px, py, poly)) {
+                // Inside the arrow — white fill
+                bitmap[offset]     = CURSOR_FILL.r;
+                bitmap[offset + 1] = CURSOR_FILL.g;
+                bitmap[offset + 2] = CURSOR_FILL.b;
+                bitmap[offset + 3] = 255;
+            } else if (distToPolygonEdge(px, py, poly) <= OUTLINE_WIDTH) {
+                // Near the edge — red outline
+                bitmap[offset]     = CURSOR_OUTLINE.r;
+                bitmap[offset + 1] = CURSOR_OUTLINE.g;
+                bitmap[offset + 2] = CURSOR_OUTLINE.b;
+                bitmap[offset + 3] = 255;
+            }
+        }
+    }
+}
+
+/**
+ * Get cursor position via cliclick and overlay it onto the nativeImage.
+ * Returns a new nativeImage with the cursor drawn on.
+ */
+async function overlayMouseCursor(image, screenW, screenH) {
+    const psProcess = require('../process/psProcess');
+    try {
+        const posStr = await psProcess.run('cliclick p:.');
+        const match = posStr.trim().match(/^(\d+),(\d+)$/);
+        if (!match) {
+            console.warn(`[screenshot] could not parse cursor position: "${posStr}"`);
+            return image;
+        }
+        const cursorX = parseInt(match[1], 10);
+        const cursorY = parseInt(match[2], 10);
+
+        const imgSize = image.getSize();
+        // Map screen coords → image coords
+        const imgX = Math.round((cursorX / screenW) * imgSize.width);
+        const imgY = Math.round((cursorY / screenH) * imgSize.height);
+
+        console.log(`[screenshot] cursor at screen(${cursorX},${cursorY}) → image(${imgX},${imgY})`);
+
+        // Get raw RGBA bitmap, draw cursor, create new image
+        const bitmap = image.toBitmap();
+        drawCursorOverlay(bitmap, imgSize.width, imgSize.height, imgX, imgY);
+
+        const result = nativeImageModule.createFromBitmap(bitmap, {
+            width: imgSize.width,
+            height: imgSize.height,
+        });
+        return result;
+    } catch (err) {
+        console.warn(`[screenshot] cursor overlay failed, skipping: ${err.message}`);
+        return image;
+    }
 }
 
 function register(ipcMain, { screen }) {
-    const psProcess = require('../process/psProcess');
+    // Import desktopCapturer here — this runs in the main process
+    desktopCapturer = require('electron').desktopCapturer;
+    nativeImageModule = require('electron').nativeImage;
+    console.log(`[screenshot] register: desktopCapturer available = ${!!desktopCapturer}`);
+
     ipcMain.handle('screenshot:capture', async () => {
         try {
-            const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().size;
-
-            const output = await psProcess.run(buildCaptureCommand());
-
-            // Parse output format: "imageWidth,imageHeight|base64data"
-            const pipeIdx = output.indexOf('|');
-            if (pipeIdx === -1) {
-                throw new Error('Invalid screenshot output format');
+            if (!desktopCapturer) {
+                throw new Error('desktopCapturer not available — Electron main process API missing');
             }
-            const dims = output.slice(0, pipeIdx).split(',');
-            const imageWidth = parseInt(dims[0], 10);
-            const imageHeight = parseInt(dims[1], 10);
-            const base64 = output.slice(pipeIdx + 1).trim();
+
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
+            const scaleFactor = primaryDisplay.scaleFactor || 1;
+
+            console.log(`[screenshot] capturing: screen ${screenWidth}×${screenHeight}, scale ${scaleFactor}x`);
+
+            // Capture via desktopCapturer — grabs the full screen including all windows
+            const sources = await desktopCapturer.getSources({
+                types: ['screen'],
+                thumbnailSize: {
+                    width: Math.round(screenWidth * scaleFactor),
+                    height: Math.round(screenHeight * scaleFactor),
+                },
+            });
+
+            if (!sources || sources.length === 0) {
+                throw new Error('desktopCapturer returned no sources — check Screen Recording permission');
+            }
+
+            // Use the primary display source
+            const source = sources[0];
+            const nativeImage = source.thumbnail;
+
+            let finalImage = nativeImage;
+
+            if (nativeImage.isEmpty()) {
+                console.warn('[screenshot] desktopCapturer returned empty image (possibly due to Hardware Acceleration/DRM). Falling back to native macOS screencapture...');
+                const os = require('os');
+                const cp = require('child_process');
+                const tmpPath = path.join(os.tmpdir(), `emu_fallback_${Date.now()}.png`);
+                
+                try {
+                    // Try to capture using native macOS tool (-x mutes the camera shutter sound)
+                    cp.execSync(`screencapture -x "${tmpPath}"`);
+                    finalImage = nativeImageModule.createFromPath(tmpPath);
+                    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); // Cleanup
+                    
+                    if (finalImage.isEmpty()) {
+                        throw new Error('Fallback native screencapture also returned an empty image');
+                    }
+                } catch (fallbackErr) {
+                    throw new Error(`desktopCapturer failed (empty image) and screencapture fallback failed: ${fallbackErr.message}`);
+                }
+            }
+
+            // Resize to max 1280px width to keep under Claude's size limit
+            const size = finalImage.getSize();
+            if (size.width > 1280) {
+                const newHeight = Math.round((1280 / size.width) * size.height);
+                finalImage = finalImage.resize({ width: 1280, height: newHeight, quality: 'good' });
+            }
+
+            // Overlay a cursor indicator so the model can see pointer position
+            finalImage = await overlayMouseCursor(finalImage, screenWidth, screenHeight);
+
+            const finalSize = finalImage.getSize();
+
+            // JPEG at 80% quality — good balance of size and clarity
+            const jpegBuffer = finalImage.toJPEG(80);
+            const base64 = jpegBuffer.toString('base64');
+
+            console.log(`[screenshot] captured ${finalSize.width}×${finalSize.height} (screen: ${screenWidth}×${screenHeight}, scale: ${scaleFactor}x) → ${Math.round(base64.length / 1024)} KB`);
 
             return {
                 success: true,
                 screenWidth,
                 screenHeight,
-                imageWidth,
-                imageHeight,
+                imageWidth: finalSize.width,
+                imageHeight: finalSize.height,
                 base64,
             };
         } catch (err) {
-            return { success: false, error: err.message };
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[screenshot] capture failed:', msg, err);
+            return { success: false, error: msg };
         }
     });
 }

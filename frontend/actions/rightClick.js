@@ -1,17 +1,21 @@
 // Action: Right Click
+// Uses cliclick on macOS, xdotool on Linux.
 const { ipcRenderer } = require('electron');
+const psProcess = require('../process/psProcess');
+
+const isMac = process.platform === 'darwin';
 
 async function rightClick(x, y) {
     return await ipcRenderer.invoke('mouse:right-click', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
-    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:right-click', async (_event, { x, y }) => {
         try {
-            await psProcess.run(
-                `[W.U32]::mouse_event(8,0,0,0,0); [W.U32]::mouse_event(16,0,0,0,0)`
-            );
+            const cmd = isMac
+                ? `cliclick rc:.`   // right-click at current cursor position
+                : `xdotool click 3`;
+            await psProcess.run(cmd);
             return { success: true, x, y };
         } catch (err) {
             return { success: false, error: err.message };
@@ -20,4 +24,3 @@ function register(ipcMain, BACKEND_URL) {
 }
 
 module.exports = { rightClick, register };
-

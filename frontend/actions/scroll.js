@@ -1,32 +1,40 @@
 // Action: Scroll
-// Moves the cursor to (x, y) then fires MOUSEEVENTF_WHEEL via the persistent
-// PowerShell process. Works on any scrollable surface.
+// Uses Python Quartz CGEvents on macOS, xdotool on Linux.
 //
 // direction: 'up' | 'down'
-// amount:    number of "notches" to scroll (1 notch = WHEEL_DELTA = 120 units)
+// amount:    number of "notches" to scroll (each notch = one scroll click)
 const { ipcRenderer } = require('electron');
+const psProcess = require('../process/psProcess');
+
+const isMac = process.platform === 'darwin';
 
 async function scroll(direction = 'down', amount = 3) {
     return await ipcRenderer.invoke('mouse:scroll', { direction, amount });
 }
 
 function register(ipcMain, BACKEND_URL) {
-    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:scroll', async (_event, { direction = 'down', amount = 3 }) => {
         try {
-            // WHEEL_DELTA = 120 per notch; positive = up, negative = down
-            const delta = direction === 'up' ? 120 * amount : -120 * amount;
-
-            // 1. Fire a zero-pixel MOUSEEVENTF_MOVE so the target window
-            //    receives WM_MOUSEMOVE and registers the cursor hovering.
-            // 2. Brief sleep to let the app process the move.
-            // 3. Fire MOUSEEVENTF_WHEEL at the current cursor position.
-            await psProcess.run([
-                `[W.U32]::mouse_event(0x0001, 0, 0, 0, 0)`,
-                `Start-Sleep -Milliseconds 100`,
-                `[W.U32]::mouse_event(0x0800, 0, 0, ${delta}, 0)`,
-            ].join('; '));
-
+            if (isMac) {
+                // cliclick doesn't support scroll natively.
+                // Use a Python one-liner with Quartz (PyObjC) to generate
+                // reliable scroll-wheel CGEvents on macOS.
+                // Positive = scroll up, negative = scroll down.
+                const scrollAmount = direction === 'up' ? amount : -amount;
+                const backendDir = require('path').resolve(__dirname, '../../backend');
+                const cmd = `cd "${backendDir}" && uv run python3 -c "
+import Quartz
+e = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 1, ${scrollAmount})
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+"`;
+                await psProcess.run(cmd);
+            } else {
+                // xdotool: button 4 = scroll up, button 5 = scroll down
+                const button = direction === 'up' ? 4 : 5;
+                await psProcess.run(
+                    `xdotool click --repeat ${amount} --delay 50 ${button}`
+                );
+            }
             return { success: true, direction, amount };
         } catch (err) {
             return { success: false, error: err.message };

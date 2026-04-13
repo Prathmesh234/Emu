@@ -1,17 +1,21 @@
 // Action: Left Click
+// Uses cliclick on macOS, xdotool on Linux.
 const { ipcRenderer } = require('electron');
+const psProcess = require('../process/psProcess');
+
+const isMac = process.platform === 'darwin';
 
 async function leftClick(x, y) {
     return await ipcRenderer.invoke('mouse:left-click', { x, y });
 }
 
 function register(ipcMain, BACKEND_URL) {
-    const psProcess = require('../process/psProcess');
     ipcMain.handle('mouse:left-click', async (_event, { x, y }) => {
         try {
-            await psProcess.run(
-                `[W.U32]::mouse_event(2,0,0,0,0); [W.U32]::mouse_event(4,0,0,0,0)`
-            );
+            const cmd = isMac
+                ? `cliclick c:.`   // click at current cursor position
+                : `xdotool click 1`;
+            await psProcess.run(cmd);
             return { success: true, x, y };
         } catch (err) {
             return { success: false, error: err.message };
@@ -20,4 +24,3 @@ function register(ipcMain, BACKEND_URL) {
 }
 
 module.exports = { leftClick, register };
-
