@@ -34,11 +34,11 @@ USE_OMNI_PARSER = (
 SCREENSHOT_PREFIX = "data:image/"
 
 # Maximum messages before middle-trimming (safety net)
-MAX_CHAIN_LENGTH = 105
+MAX_CHAIN_LENGTH = 300
 
 # Auto-compaction safety net — only fires if model doesn't self-compact.
 # Set high: the model should call compact_context before this triggers.
-AUTO_COMPACT_THRESHOLD = 100
+AUTO_COMPACT_THRESHOLD = 300
 
 # Plan auto-injection interval (every N assistant turns)
 PLAN_INJECT_INTERVAL = 10
@@ -362,10 +362,17 @@ class ContextManager:
             elif m.role == MessageRole.assistant:
                 last_was_screenshot_placeholder = False
                 if m.tool_calls:
-                    # Summarize tool calls for compaction
-                    names = [tc.get("function", {}).get("name", "?") for tc in m.tool_calls]
+                    # Summarize tool calls with arguments for richer compaction
+                    tc_parts = []
+                    for tc in m.tool_calls:
+                        fn = tc.get("function", {})
+                        name = fn.get("name", "?")
+                        args = fn.get("arguments", "")
+                        if isinstance(args, str) and len(args) > 200:
+                            args = args[:200] + "..."
+                        tc_parts.append(f"{name}({args})" if args else name)
                     messages.append(
-                        PreviousMessage(role=m.role, content=f"TOOL_CALLS: {', '.join(names)}", timestamp=m.timestamp)
+                        PreviousMessage(role=m.role, content=f"TOOL_CALLS: {'; '.join(tc_parts)}", timestamp=m.timestamp)
                     )
                 else:
                     trimmed = self._trim_assistant_for_compact(m.content)
@@ -373,8 +380,8 @@ class ContextManager:
                         PreviousMessage(role=m.role, content=trimmed, timestamp=m.timestamp)
                     )
             elif m.role == MessageRole.tool:
-                # Compact tool results
-                result_preview = m.content[:200] + "..." if len(m.content) > 200 else m.content
+                # Compact tool results — keep enough detail for meaningful summaries
+                result_preview = m.content[:1000] + "..." if len(m.content) > 1000 else m.content
                 messages.append(
                     PreviousMessage(role=MessageRole.user, content=f"TOOL_RESULT: {result_preview}", timestamp=m.timestamp)
                 )
@@ -413,15 +420,15 @@ class ContextManager:
                 parts.append(f"MSG: {data['final_message']}")
 
             reasoning = data.get("reasoning", "")
-            if reasoning and len(reasoning) > 100:
-                reasoning = reasoning[:100] + "..."
+            if reasoning and len(reasoning) > 300:
+                reasoning = reasoning[:300] + "..."
             if reasoning:
                 parts.append(f"WHY: {reasoning}")
 
             return " | ".join(parts)
         except (json.JSONDecodeError, TypeError, AttributeError):
-            if len(content) > 200:
-                return content[:200] + "..."
+            if len(content) > 500:
+                return content[:500] + "..."
             return content
 
     def reset_with_summary(self, session_id: str, summary: str) -> None:
