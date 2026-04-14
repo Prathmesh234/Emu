@@ -22,8 +22,8 @@ AGENT_TOOLS_OPENAI = [
             "name": "update_plan",
             "description": (
                 "Create or update your task plan (plan.md). "
-                "MANDATORY before any desktop action. Write a full plan with "
-                "Goal, Steps (numbered checkboxes), Risks, and Done-when criteria."
+                "Call BEFORE any desktop action on complex tasks (3+ steps). "
+                "Include Goal, Steps (numbered checkboxes), and Done-when criteria."
             ),
             "parameters": {
                 "type": "object",
@@ -43,7 +43,7 @@ AGENT_TOOLS_OPENAI = [
             "name": "read_plan",
             "description": (
                 "Read your current task plan to re-orient. "
-                "Call when unsure what to do next or to check progress."
+                "Call when unsure what to do next, when stuck, or to verify progress."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -73,12 +73,9 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "write_session_file",
             "description": (
-                "Write or overwrite a temporary .md file in the current session. "
-                "CRITICAL: Use this aggressively during ANY information-gathering task — "
-                "write down meetings, emails, data, names, dates, numbers IMMEDIATELY "
-                "after seeing them on screen. Do NOT try to remember things across steps. "
-                "Call this every time you find a piece of information worth keeping. "
-                "Just specify a filename (e.g. 'notes.md', 'meetings.md')."
+                "Save data to a session file. Call IMMEDIATELY after seeing "
+                "any information on screen — names, dates, numbers, URLs, emails, "
+                "meeting times. Do NOT wait. Do NOT rely on memory. Write it down NOW."
             ),
             "parameters": {
                 "type": "object",
@@ -101,7 +98,8 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "read_session_file",
             "description": (
-                "Read the content of a temporary .md file you wrote earlier in this session."
+                "Read a session file you saved earlier. Call BEFORE reporting "
+                "results to the user, and when resuming work after switching apps."
             ),
             "parameters": {
                 "type": "object",

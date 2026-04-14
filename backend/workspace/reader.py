@@ -287,38 +287,27 @@ def build_workspace_context() -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     sections: list[str] = []
 
-    sections.append("═" * 75)
-    sections.append("WORKSPACE CONTEXT (loaded from .emu/)")
-    sections.append("═" * 75)
+    sections.append("WORKSPACE CONTEXT (.emu/)")
     sections.append(f"Date: {today}")
     sections.append("")
 
     # Firmware — always present
     if firmware:
-        sections.append("── FIRMWARE (identity layer) " + "─" * 47)
-        sections.append("")
         for label, content in firmware.items():
-            sections.append(f"┌─ {label} ─┐")
+            sections.append(f"## {label}")
             sections.append(content)
             sections.append("")
 
     # Skills — always present (names + descriptions only, bodies loaded on demand)
     skills_block = format_skills_for_prompt()
     if skills_block:
-        sections.append("── SKILLS (use use_skill to load) " + "─" * 42)
-        sections.append("")
         sections.append(skills_block)
         sections.append("")
 
     # Conditional — memory
     if memory:
-        sections.append("── MEMORY (curated long-term) " + "─" * 46)
-        sections.append("")
+        sections.append("## MEMORY")
         sections.append(memory)
         sections.append("")
-
-    sections.append("═" * 75)
-    sections.append("END WORKSPACE CONTEXT")
-    sections.append("═" * 75)
 
     return "\n".join(sections)
