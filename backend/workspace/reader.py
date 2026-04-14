@@ -291,18 +291,18 @@ def build_workspace_context() -> str:
     sections.append(f"Date: {today}")
     sections.append("")
 
+    # Skills — mandatory scan block first so the model sees them before anything else
+    skills_block = format_skills_for_prompt()
+    if skills_block:
+        sections.append(skills_block)
+        sections.append("")
+
     # Firmware — always present
     if firmware:
         for label, content in firmware.items():
             sections.append(f"## {label}")
             sections.append(content)
             sections.append("")
-
-    # Skills — always present (names + descriptions only, bodies loaded on demand)
-    skills_block = format_skills_for_prompt()
-    if skills_block:
-        sections.append(skills_block)
-        sections.append("")
 
     # Conditional — memory
     if memory:

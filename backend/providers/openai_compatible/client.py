@@ -91,6 +91,13 @@ def ensure_ready(timeout: int = 300, poll_interval: int = 5, **kwargs) -> None:
     if _ready:
         return
 
+    # If model is already configured, skip /models discovery (some APIs don't support it)
+    if MODEL_NAME:
+        _resolved_model = MODEL_NAME
+        _ready = True
+        print(f"[openai_compat] Using pre-configured model: {_resolved_model} at {BASE_URL}")
+        return
+
     print(f"[openai_compat] Checking server at {BASE_URL}...")
     deadline = time.time() + timeout
     attempt = 0
@@ -99,7 +106,7 @@ def ensure_ready(timeout: int = 300, poll_interval: int = 5, **kwargs) -> None:
         attempt += 1
         try:
             models_url = BASE_URL.rstrip("/") + "/models"
-            resp = requests.get(models_url, timeout=10)
+            resp = requests.get(models_url, timeout=10, headers={"Authorization": f"Bearer {API_KEY}"})
             resp.raise_for_status()
             models = resp.json().get("data", [])
 
@@ -135,7 +142,7 @@ def _detect_model() -> str:
     """Query /v1/models to find the first available model."""
     try:
         models_url = BASE_URL.rstrip("/") + "/models"
-        resp = requests.get(models_url, timeout=10)
+        resp = requests.get(models_url, timeout=10, headers={"Authorization": f"Bearer {API_KEY}"})
         resp.raise_for_status()
         models = resp.json().get("data", [])
         if models:

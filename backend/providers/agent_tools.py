@@ -53,8 +53,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "use_skill",
             "description": (
-                "Load a skill's full instructions by name. "
-                "Skills are listed in the workspace context under <skills>."
+                "Load a skill's full instructions by name. Skills contain step-by-step "
+                "guides, keyboard shortcuts, and pitfalls for specific apps (Gmail, Excel, "
+                "Chrome, etc.). ALWAYS check available skills before attempting app-specific "
+                "tasks — they are listed under '## Skills (mandatory)' in workspace context."
             ),
             "parameters": {
                 "type": "object",
@@ -73,9 +75,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "write_session_file",
             "description": (
-                "Save data to a session file. Call IMMEDIATELY after seeing "
-                "any information on screen — names, dates, numbers, URLs, emails, "
-                "meeting times. Do NOT wait. Do NOT rely on memory. Write it down NOW."
+                "Save data to a session file. You MUST call this after seeing any factual "
+                "information on screen (names, dates, numbers, URLs, emails, meeting times). "
+                "If you have taken 3+ screenshot actions without writing anything down, STOP "
+                "and call this NOW. Do NOT rely on memory."
             ),
             "parameters": {
                 "type": "object",
