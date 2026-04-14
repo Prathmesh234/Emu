@@ -42,6 +42,10 @@ AUTH_TOKEN = os.environ.get("EMU_AUTH_TOKEN") or secrets.token_hex(32)
 _token_path = get_emu_path() / ".auth_token"
 _token_path.parent.mkdir(parents=True, exist_ok=True)
 _token_path.write_text(AUTH_TOKEN)
+try:
+    os.chmod(_token_path, 0o600)  # owner-only read/write
+except OSError:
+    pass  # Windows doesn't support POSIX permissions; ACLs handle it
 print(f"[security] Auth token written to {_token_path}")
 
 
@@ -57,7 +61,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         token = request.headers.get("x-emu-token", "")
         if not token or not secrets.compare_digest(token, AUTH_TOKEN):
-            print(f"[security] 401 on {request.method} {request.url.path} — token len={len(token)} expected len={len(AUTH_TOKEN)} match={token == AUTH_TOKEN}")
+            print(f"[security] 401 on {request.method} {request.url.path} — token present={bool(token)}")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing auth token"},
@@ -469,8 +473,12 @@ async def sessions_history():
     if not sessions_dir.is_dir():
         return {"sessions": []}
 
+    import re as _re
     for session_dir in sessions_dir.iterdir():
         if not session_dir.is_dir():
+            continue
+        # Only process directories with valid session-id names (skip symlinks, junctions)
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', session_dir.name) or session_dir.is_symlink():
             continue
         conv_path = session_dir / "logs" / "conversation.json"
         if not conv_path.exists():
