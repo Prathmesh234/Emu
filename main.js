@@ -24,6 +24,10 @@ function createWindow() {
     frame: false,
     transparent: true,
     webPreferences: {
+      // TODO: Security — migrate to nodeIntegration:false + contextIsolation:true
+      // Currently required because the renderer uses CommonJS require() throughout.
+      // Fixing this requires adding a bundler (esbuild/webpack) to resolve modules
+      // at build time, then routing all IPC through the preload.js bridge.
       nodeIntegration: true,
       contextIsolation: false
     }

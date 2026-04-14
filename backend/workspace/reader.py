@@ -160,8 +160,12 @@ def read_memory() -> Optional[str]:
 
 def read_daily_memory(date: Optional[str] = None) -> Optional[str]:
     """Read a daily memory log by date (YYYY-MM-DD). Defaults to today."""
+    import re
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
+    # Validate date format to prevent path traversal (e.g. "../../.auth_token")
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+        return None
     filepath = _WORKSPACE_DIR / "memory" / f"{date}.md"
     return _read_file(filepath)
 
