@@ -1,0 +1,72 @@
+/* Emu Terminal — Textual CSS */
+
+Screen {
+    layout: vertical;
+}
+
+StatusBar {
+    dock: top;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+}
+
+ConversationView {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 0 1;
+}
+
+InputBar {
+    dock: bottom;
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    padding: 0 1;
+}
+
+Footer {
+    dock: bottom;
+}
+
+/* ── Action cards ──────────────────────────────────────────────────────── */
+
+ActionCard {
+    margin: 1 0;
+    padding: 1 2;
+    border: round $accent;
+    height: auto;
+}
+
+ActionCard.click {
+    border: round $success;
+}
+
+ActionCard.type {
+    border: round $warning;
+}
+
+ActionCard.shell {
+    border: round $error;
+}
+
+ActionCard.done {
+    border: round $primary;
+}
+
+/* ── Plan review ───────────────────────────────────────────────────────── */
+
+PlanCard {
+    margin: 1 0;
+    padding: 1 2;
+    border: double $warning;
+    height: auto;
+}
+
+/* ── Screenshot preview ────────────────────────────────────────────────── */
+
+ScreenshotView {
+    height: auto;
+    max-height: 12;
+    margin: 1 0;
+}
