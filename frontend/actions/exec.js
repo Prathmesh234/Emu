@@ -16,7 +16,7 @@ const path = require('path');
 
 // Protected files that the agent must NEVER modify.
 // Read access is fine — only write/modify operations are blocked.
-const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md'];
+const PROTECTED_FILES = ['SOUL.md', 'AGENTS.md', 'USER.md', 'IDENTITY.md'];
 
 // Patterns that indicate a write operation targeting a file
 const WRITE_PATTERNS = [

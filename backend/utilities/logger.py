@@ -34,6 +34,19 @@ def _redact(text: str) -> str:
     return text
 
 
+def _redact_metadata(metadata: dict) -> dict:
+    """Deep-redact string values inside a metadata dict."""
+    cleaned = {}
+    for key, value in metadata.items():
+        if isinstance(value, str):
+            cleaned[key] = _redact(value)
+        elif isinstance(value, dict):
+            cleaned[key] = _redact_metadata(value)
+        else:
+            cleaned[key] = value
+    return cleaned
+
+
 def _parse_role(entry: str) -> tuple[str, str]:
     """Extract role and content from a log entry like '[user] hello'."""
     m = _ROLE_RE.match(entry)
@@ -44,6 +57,9 @@ def _parse_role(entry: str) -> tuple[str, str]:
 
 def _conversation_path(session_id: str) -> Path:
     """Return the path to .emu/sessions/<id>/logs/conversation.json"""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise ValueError(f"Invalid session_id format: {session_id}")
     from workspace import get_sessions_dir
     log_dir = get_sessions_dir() / session_id / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -55,7 +71,10 @@ def _load_conversation(path: Path) -> dict:
     if path.exists() and path.stat().st_size > 0:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"messages": []}
+    return {
+        "session_date": datetime.now().strftime("%Y-%m-%d"),
+        "messages": [],
+    }
 
 
 def _save_conversation(path: Path, data: dict) -> None:
@@ -93,7 +112,7 @@ def log_entry(session_id: str, entry: str, metadata: dict | None = None) -> None
         "content": content,
     }
     if metadata:
-        msg["metadata"] = metadata
+        msg["metadata"] = _redact_metadata(metadata)
 
     data["messages"].append(msg)
     _save_conversation(path, data)
@@ -102,4 +121,4 @@ def log_entry(session_id: str, entry: str, metadata: dict | None = None) -> None
 async def log_and_send(session_id: str, entry: str, manager: ConnectionManager, metadata: dict | None = None) -> None:
     """Log + push to frontend via websocket."""
     log_entry(session_id, entry, metadata)
-    await manager.send(session_id, {"type": "log", "message": entry})
+    await manager.send(session_id, {"type": "log", "message": _redact(entry)})

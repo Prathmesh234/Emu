@@ -20,7 +20,8 @@ Detection order:
     9. FIREWORKS_API_KEY          → Fireworks AI
    10. TOGETHER_API_KEY           → Together AI
    11. BASETEN_API_KEY            → Baseten
-   12. Modal fallback             → Modal GPU (no key needed)
+   12. H_COMPANY_API_KEY          → H Company (Holo)
+   13. Modal fallback             → Modal GPU (no key needed)
 """
 
 import os
@@ -39,6 +40,7 @@ _PROVIDER_MAP = {
     "fireworks":         "providers.fireworks",
     "together_ai":       "providers.together_ai",
     "baseten":           "providers.baseten",
+    "h_company":         "providers.h_company",
 }
 
 
@@ -83,6 +85,9 @@ def _detect_provider() -> str:
 
     if os.environ.get("BASETEN_API_KEY"):
         return "baseten"
+
+    if os.environ.get("H_COMPANY_API_KEY"):
+        return "h_company"
 
     # Fallback
     return "modal"

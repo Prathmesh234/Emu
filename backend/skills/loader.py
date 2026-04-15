@@ -173,8 +173,8 @@ def format_skills_for_prompt(skills: Optional[list[Skill]] = None) -> str:
     """
     Format skills metadata for injection into the system prompt.
 
-    Only name + description — keeps token cost low (~25 tokens per skill).
-    The full body is loaded on demand via the use_skill agent tool.
+    Uses a mandatory-scan header so the model checks skills before acting.
+    Only name + short description — the full body loads via use_skill.
     """
     if skills is None:
         skills = load_skills()
@@ -182,11 +182,17 @@ def format_skills_for_prompt(skills: Optional[list[Skill]] = None) -> str:
     if not skills:
         return ""
 
-    lines = ["<skills>"]
+    lines = [
+        "## Skills (mandatory)",
+        "Before taking desktop actions, scan the skills below. If one matches",
+        "your task, call use_skill(skill_name) and follow its instructions.",
+        "",
+        "<available_skills>",
+    ]
     for s in skills:
-        lines.append(f"  <skill>")
-        lines.append(f"    <name>{s.name}</name>")
-        lines.append(f"    <description>{s.description}</description>")
-        lines.append(f"  </skill>")
-    lines.append("</skills>")
+        desc = s.description[:80] if len(s.description) > 80 else s.description
+        lines.append(f"  - {s.name}: {desc}")
+    lines.append("</available_skills>")
+    lines.append("")
+    lines.append("If none match, proceed normally without loading a skill.")
     return "\n".join(lines)

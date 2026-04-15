@@ -22,8 +22,8 @@ AGENT_TOOLS_OPENAI = [
             "name": "update_plan",
             "description": (
                 "Create or update your task plan (plan.md). "
-                "MANDATORY before any desktop action. Write a full plan with "
-                "Goal, Steps (numbered checkboxes), Risks, and Done-when criteria."
+                "Call BEFORE any desktop action on complex tasks (3+ steps). "
+                "Include Goal, Steps (numbered checkboxes), and Done-when criteria."
             ),
             "parameters": {
                 "type": "object",
@@ -43,7 +43,7 @@ AGENT_TOOLS_OPENAI = [
             "name": "read_plan",
             "description": (
                 "Read your current task plan to re-orient. "
-                "Call when unsure what to do next or to check progress."
+                "Call when unsure what to do next, when stuck, or to verify progress."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -53,8 +53,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "use_skill",
             "description": (
-                "Load a skill's full instructions by name. "
-                "Skills are listed in the workspace context under <skills>."
+                "Load a skill's full instructions by name. Skills contain step-by-step "
+                "guides, keyboard shortcuts, and pitfalls for specific apps (Gmail, Excel, "
+                "Chrome, etc.). ALWAYS check available skills before attempting app-specific "
+                "tasks — they are listed under '## Skills (mandatory)' in workspace context."
             ),
             "parameters": {
                 "type": "object",
@@ -73,12 +75,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "write_session_file",
             "description": (
-                "Write or overwrite a temporary .md file in the current session. "
-                "CRITICAL: Use this aggressively during ANY information-gathering task — "
-                "write down meetings, emails, data, names, dates, numbers IMMEDIATELY "
-                "after seeing them on screen. Do NOT try to remember things across steps. "
-                "Call this every time you find a piece of information worth keeping. "
-                "Just specify a filename (e.g. 'notes.md', 'meetings.md')."
+                "Save data to a session file. You MUST call this after seeing any factual "
+                "information on screen (names, dates, numbers, URLs, emails, meeting times). "
+                "If you have taken 3+ screenshot actions without writing anything down, STOP "
+                "and call this NOW. Do NOT rely on memory."
             ),
             "parameters": {
                 "type": "object",
@@ -101,7 +101,8 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "read_session_file",
             "description": (
-                "Read the content of a temporary .md file you wrote earlier in this session."
+                "Read a session file you saved earlier. Call BEFORE reporting "
+                "results to the user, and when resuming work after switching apps."
             ),
             "parameters": {
                 "type": "object",
