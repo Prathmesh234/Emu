@@ -291,6 +291,26 @@ async def agent_step(req: AgentRequest):
                 
             continue  # Re-call the model internally
 
+        # ── 4b. Catch bogus "done" from truncated action parse ───────────────────
+        if response.done and response.action and response.action.type == ActionType.DONE:
+            done_ok, done_err = context_manager.action_validator.validate_done_response(
+                response.final_message
+            )
+            if not done_ok:
+                print(f"[validator] REJECTED done: {done_err}")
+                context_manager.add_user_message(
+                    session_id,
+                    "[MALFORMED RESPONSE] Your previous response was garbled — it looked like "
+                    "a truncated desktop action, not a real completion. Take a screenshot to "
+                    "re-orient and then continue with your task."
+                )
+                response.action = Action(type=ActionType.SCREENSHOT)
+                response.done = False
+                response.final_message = None
+                await manager.send(session_id, {"type": "status", "message": "Truncated response detected, retaking screenshot..."})
+                if loop_i < MAX_TOOL_LOOPS:
+                    continue
+
         break  # Valid desktop action or done, dispatch to frontend
 
     # ── 5. Dispatch action to frontend ────────────────────────────────────────

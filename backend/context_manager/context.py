@@ -41,7 +41,7 @@ MAX_CHAIN_LENGTH = 300
 AUTO_COMPACT_THRESHOLD = 300
 
 # Plan auto-injection interval (every N assistant turns)
-PLAN_INJECT_INTERVAL = 10
+PLAN_INJECT_INTERVAL = 40
 
 
 class ContextManager:
@@ -58,7 +58,7 @@ class ContextManager:
     """
 
     # Plan reminder injection interval (every N assistant turns, offset from plan inject)
-    PLAN_REMINDER_INTERVAL = 15
+    PLAN_REMINDER_INTERVAL = 40
 
     def __init__(self):
         self._history: dict[str, list[PreviousMessage]] = {}
@@ -107,7 +107,8 @@ class ContextManager:
                 "[update_plan result]", "[read_plan result]",
                 "[compact_context result]", "[shell_exec", "[ACTION REJECTED]",
                 "[PLAN CHECKPOINT", "[CONTEXT CONTINUATION]", "[PLANNING REQUIRED]",
-                "[PLAN CHECK]",
+                "[PLAN CHECK]", "[TOOL LOOP", "[SCHEMA VALIDATION",
+                "[MALFORMED RESPONSE]", "[ACTION FAILED",
             ]
         )
 
@@ -247,8 +248,15 @@ class ContextManager:
                 user_message = m.content
                 break
 
-        # Auto-inject plan every N turns
-        if self._should_inject_plan(session_id):
+        # Auto-inject plan every N turns — but skip if model recently read plan via tools
+        _recently_read_plan = any(
+            m.role == MessageRole.tool
+            and m.tool_name in ("read_plan", "read_session_file")
+            and "plan" in (m.content or "").lower()
+            for m in history[-6:]
+        )
+
+        if self._should_inject_plan(session_id) and not _recently_read_plan:
             from workspace import read_session_plan
             plan = read_session_plan(session_id)
             if plan:
@@ -263,7 +271,7 @@ class ContextManager:
                 print(f"[plan-inject] Auto-injected plan.md at step {step_index}")
 
         # Lightweight plan reminder (offset from full plan injection)
-        elif self._should_inject_plan_reminder(session_id):
+        elif self._should_inject_plan_reminder(session_id) and not _recently_read_plan:
             history.append(
                 PreviousMessage(role=MessageRole.user, content=PLAN_REMINDER)
             )

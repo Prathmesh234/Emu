@@ -39,8 +39,9 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 /* ── Header ──────────────────────────────────────────────────────────── */
 
 .header {
-    padding: 8px 16px;
-    border-bottom: none;
+    padding: 8px 14px;
+    border-bottom: 1px solid #ececec;
+    background: linear-gradient(180deg, #ffffff 0%, #fcfcfc 100%);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -49,7 +50,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     min-height: 44px;
     overflow: hidden;
 }
-.header-left { display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag; min-width: 0; flex-shrink: 0; }
+.header-left { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; min-width: 0; flex-shrink: 0; }
 .header-left h1 { -webkit-app-region: drag; white-space: nowrap; }
 .header h1 {
     font-size: 14px;
@@ -73,26 +74,27 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 .empty-state-emoji .emu-static-svg .emu-accent-fill { fill: #777777; }
 .empty-state-emoji .emu-static-svg .emu-accent-stroke { stroke: #777777; }
 
-.header-actions { display: flex; gap: 6px; -webkit-app-region: no-drag; align-items: center; flex-shrink: 0; }
+.header-actions { display: flex; gap: 4px; -webkit-app-region: no-drag; align-items: center; flex-shrink: 0; }
 
 /* ── Header buttons — outlined secondary ─────────────────────────────── */
 
 .new-task-btn {
     width: 28px;
     height: 28px;
-    border: 2px solid #111111;
-    border-radius: 4px;
+    border: 1.5px solid #d2d2d2;
+    border-radius: 6px;
     background: #ffffff;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 700;
     color: #111111;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-app-region: no-drag;
+    transition: border-color 0.15s, background 0.15s;
 }
-.new-task-btn:hover { background: #f0f0f0; }
+.new-task-btn:hover { background: #f7f7f7; border-color: #b8b8b8; }
 
 .queue-disclaimer {
     position: absolute;
@@ -112,7 +114,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     animation: fadeIn 0.15s ease-out;
 }
 
-.expand-btn {
+.window-btn {
     width: 28px; height: 28px;
     border: none; border-radius: 6px;
     background: transparent; cursor: pointer;
@@ -120,6 +122,11 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
     color: #888;
     -webkit-app-region: no-drag;
     transition: background 0.15s, color 0.15s;
+}
+.window-btn:hover { background: #f2f2f2; color: #111; }
+
+.expand-btn {
+    color: #777;
 }
 .expand-btn:hover { background: #f0f0f0; color: #111; }
 
@@ -255,19 +262,18 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 /* ── Close button ────────────────────────────────────────────────────── */
 
 .close-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    cursor: pointer;
     font-size: 14px;
     color: #888;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-app-region: no-drag;
-    transition: background 0.15s, color 0.15s;
+}
+
+.minimize-btn {
+    color: #777;
+}
+
+.window-glyph {
+    font-size: 16px;
+    line-height: 1;
+    transform: translateY(-1px);
 }
 .close-btn:hover { background: #f0f0f0; color: #dc2626; }
 
@@ -1134,21 +1140,10 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
    ══════════════════════════════════════════════════════════════════════ */
 
 .theme-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    cursor: pointer;
     font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-app-region: no-drag;
     line-height: 1;
     padding: 0;
     color: #111111;
-    transition: background 0.15s;
 }
 .theme-btn:hover { background: #f0f0f0; }
 
@@ -1173,7 +1168,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .main { background: #0d1b2a; }
 
 /* Header — bold border-bottom matching linux branch */
-#app.dark .header { border-bottom: 2px solid #1e3a5f; }
+#app.dark .header { border-bottom: 2px solid #1e3a5f; background: #0d1b2a; }
 #app.dark .header h1 { color: #ccd6f6; }
 #app.dark .emu-static-svg .emu-main-fill { fill: #ccd6f6; }
 #app.dark .emu-static-svg .emu-main-stroke { stroke: #ccd6f6; }
@@ -1194,6 +1189,8 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 #app.dark .theme-btn:hover { background: #1d3461; }
 #app.dark .close-btn { border: none; border-radius: 6px; background: transparent; color: #8892b0; }
 #app.dark .close-btn:hover { border: none; background: #1d3461; color: #dc2626; }
+#app.dark .minimize-btn { color: #8892b0; }
+#app.dark .minimize-btn:hover { background: #1d3461; color: #ccd6f6; }
 
 /* Danger toggle */
 #app.dark .danger-slider { background: #1e3a5f; }
@@ -1355,6 +1352,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 
 .send-btn:focus-visible,
 .expand-btn:focus-visible,
+.minimize-btn:focus-visible,
 .close-btn:focus-visible,
 .theme-btn:focus-visible,
 .new-task-btn:focus-visible,
@@ -1369,6 +1367,7 @@ body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px
 }
 #app.dark .send-btn:focus-visible,
 #app.dark .expand-btn:focus-visible,
+#app.dark .minimize-btn:focus-visible,
 #app.dark .close-btn:focus-visible,
 #app.dark .theme-btn:focus-visible,
 #app.dark .new-task-btn:focus-visible,

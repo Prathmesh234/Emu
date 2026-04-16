@@ -56,9 +56,14 @@ class AgentResponse(BaseModel):
 
     # Telemetry
     inference_time_ms: int = Field(
-        default=0, ge=0,
+        default=0,
         description="Wall-clock inference time in milliseconds"
     )
+
+    def __init__(self, **data):
+        if "inference_time_ms" in data and data["inference_time_ms"] < 0:
+            data["inference_time_ms"] = 0
+        super().__init__(**data)
     model_name: str = Field(
         default="",
         description="Identifier of the model that produced this response"

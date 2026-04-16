@@ -2,13 +2,22 @@
 
 const store = require('../state/store');
 
-function Header({ onExpand, onClose, onNewTask }) {
+function Header({ onExpand, onMinimize, onClose, onNewTask }) {
     const header = document.createElement('div');
     header.className = 'header';
 
     // Left side: new task button + title
     const leftGroup = document.createElement('div');
     leftGroup.className = 'header-left';
+
+    const newTaskBtn = document.createElement('button');
+    newTaskBtn.className = 'new-task-btn';
+    newTaskBtn.type = 'button';
+    newTaskBtn.title = 'Start a new task';
+    newTaskBtn.setAttribute('aria-label', 'Start a new task');
+    newTaskBtn.textContent = '+';
+    if (onNewTask) newTaskBtn.onclick = onNewTask;
+    leftGroup.appendChild(newTaskBtn);
 
     const h1 = document.createElement('h1');
     const emuSvg = document.createElement('span');
@@ -52,8 +61,10 @@ function Header({ onExpand, onClose, onNewTask }) {
 
     // Expand button (hidden by default, shown when in side panel)
     const expandBtn = document.createElement('button');
-    expandBtn.className = 'expand-btn';
+    expandBtn.className = 'window-btn expand-btn';
+    expandBtn.type = 'button';
     expandBtn.title = 'Expand window';
+    expandBtn.setAttribute('aria-label', 'Expand window');
     expandBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
     expandBtn.style.display = 'none';
     if (onExpand) expandBtn.onclick = onExpand;
@@ -61,8 +72,10 @@ function Header({ onExpand, onClose, onNewTask }) {
 
     // Dark mode toggle button (moon = light mode active, sun = dark mode active)
     const themeBtn = document.createElement('button');
-    themeBtn.className = 'theme-btn';
+    themeBtn.className = 'window-btn theme-btn';
+    themeBtn.type = 'button';
     themeBtn.title = store.state.darkMode ? 'Switch to light mode' : 'Switch to dark mode';
+    themeBtn.setAttribute('aria-label', themeBtn.title);
     themeBtn.textContent = store.state.darkMode ? '\u2600\uFE0F' : '\uD83C\uDF19';
     themeBtn.onclick = () => {
         const newDark = !store.state.darkMode;
@@ -70,12 +83,26 @@ function Header({ onExpand, onClose, onNewTask }) {
         document.getElementById('app').classList.toggle('dark', newDark);
         themeBtn.textContent = newDark ? '\u2600\uFE0F' : '\uD83C\uDF19';
         themeBtn.title = newDark ? 'Switch to light mode' : 'Switch to dark mode';
+        themeBtn.setAttribute('aria-label', themeBtn.title);
     };
     actions.appendChild(themeBtn);
 
+    // Minimize button
+    const minimizeBtn = document.createElement('button');
+    minimizeBtn.className = 'window-btn minimize-btn';
+    minimizeBtn.type = 'button';
+    minimizeBtn.title = 'Minimize window';
+    minimizeBtn.setAttribute('aria-label', 'Minimize window');
+    minimizeBtn.innerHTML = '<span class="window-glyph">&minus;</span>';
+    if (onMinimize) minimizeBtn.onclick = onMinimize;
+    actions.appendChild(minimizeBtn);
+
     // Close button
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'close-btn';
+    closeBtn.className = 'window-btn close-btn';
+    closeBtn.type = 'button';
+    closeBtn.title = 'Close window';
+    closeBtn.setAttribute('aria-label', 'Close window');
     closeBtn.textContent = '\u2715';
     if (onClose) closeBtn.onclick = onClose;
     actions.appendChild(closeBtn);

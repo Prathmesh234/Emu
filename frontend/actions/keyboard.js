@@ -11,7 +11,7 @@ const { ipcRenderer } = require('electron');
 
 const VK = {
     // Modifiers
-    win: 0x5B, lwin: 0x5B, rwin: 0x5C,
+    win: 0x5B, lwin: 0x5B, rwin: 0x5C, meta: 0x5B, super: 0x5B,
     ctrl: 0x11, control: 0x11,
     alt: 0x12, menu: 0x12,
     shift: 0x10,

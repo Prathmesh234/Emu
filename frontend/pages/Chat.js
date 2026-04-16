@@ -80,6 +80,14 @@ async function moveToSidePanel() {
     }
 }
 
+async function minimizeWindow() {
+    try {
+        await ipcRenderer.invoke('window:minimize');
+    } catch (err) {
+        console.warn('[window] minimize failed:', err.message);
+    }
+}
+
 // ── Rendering ────────────────────────────────────────────────────────────
 
 function showEmpty() {
@@ -1055,6 +1063,7 @@ function mount(appEl) {
 
     header = Header({
         onExpand: toggleWindow,
+        onMinimize: minimizeWindow,
         onClose: () => window.close(),
         onNewTask: newChat,
     });

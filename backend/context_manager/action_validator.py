@@ -6,6 +6,28 @@ the frontend.  Fully decoupled from ContextManager; just takes a session_id
 and an action dict, returns (is_valid, error_message).
 """
 
+import re
+
+# Desktop action types that should NEVER appear in a "done" final_message.
+# If they do, it means the parser failed to extract the real action from
+# truncated / malformed model output.
+_DESKTOP_ACTION_TYPES = {
+    "left_click", "right_click", "double_click", "triple_click",
+    "mouse_move", "drag", "scroll", "type_text", "key_press",
+    "shell_exec", "screenshot", "wait",
+}
+_ACTION_PATTERN = re.compile(
+    r'(?:^|["\s:,])(' + "|".join(re.escape(a) for a in _DESKTOP_ACTION_TYPES) + r')(?:["\s:,}]|$)'
+)
+
+# Actions that require coordinates
+_COORD_ACTIONS = {"mouse_move", "drag"}
+# Click actions (used in Rule 6 for absolute coordinate detection)
+_CLICK_ACTIONS = {"left_click", "right_click", "double_click", "triple_click"}
+
+# Max wait duration (30 seconds)
+MAX_WAIT_MS = 30_000
+
 
 class ActionValidator:
     """
@@ -13,7 +35,7 @@ class ActionValidator:
     rejects patterns that indicate the model is stuck in a loop.
 
     Rules:
-      1. No consecutive mouse_moves without an interaction in between.
+      1. Consecutive mouse_moves without an interaction → reject.
       2. Micro-movement: trying to move to the same coordinates (±0.01)
          the cursor was last sent to — signals the cursor didn't move.
       3. Same action type 5+ consecutive times (more than 4×) → force
@@ -22,6 +44,11 @@ class ActionValidator:
       5. Unknown/plain-text action → reject with explicit JSON format hint.
       6. Absolute coordinate detection: x or y > 1.5 → model forgot to
          normalize (raw pixels instead of [0,1] ratios).
+      7. Required fields: type_text needs text, key_press needs key,
+         scroll needs direction, mouse_move/drag need coordinates,
+         drag needs end_coordinates, shell_exec needs command.
+      8. Negative / zero-zero coordinates → likely a parsing default.
+      9. Wait duration capped at 30s.
     """
 
     # Positions within this fraction of screen size are treated as "same spot"
@@ -53,10 +80,71 @@ class ActionValidator:
         cx = coords.get("x", 0) if isinstance(coords, dict) else 0
         cy = coords.get("y", 0) if isinstance(coords, dict) else 0
 
+        # ── Rule 7: Required fields per action type ──────────────────────────
+        if action_type == "type_text":
+            text = action.get("text")
+            if not text:
+                return False, (
+                    "type_text requires a non-empty 'text' field. "
+                    'Example: {"action": {"type": "type_text", "text": "hello"}, "done": false}'
+                )
+
+        if action_type == "key_press":
+            key = action.get("key")
+            if not key:
+                return False, (
+                    "key_press requires a 'key' field. "
+                    'Example: {"action": {"type": "key_press", "key": "enter"}, "done": false}'
+                )
+
+        if action_type == "scroll":
+            direction = action.get("direction")
+            if direction not in ("up", "down"):
+                return False, (
+                    "scroll requires a 'direction' field set to 'up' or 'down'. "
+                    'Example: {"action": {"type": "scroll", "direction": "down", "amount": 5}, "done": false}'
+                )
+
+        if action_type in _COORD_ACTIONS:
+            if not coords or not isinstance(coords, dict) or ("x" not in coords or "y" not in coords):
+                return False, (
+                    f"{action_type} requires 'coordinates' with 'x' and 'y' fields (normalized 0-1). "
+                    f'Example: {{"action": {{"type": "{action_type}", "coordinates": {{"x": 0.5, "y": 0.5}}}}, "done": false}}'
+                )
+
+        if action_type == "drag":
+            end_coords = action.get("end_coordinates") or {}
+            if not end_coords or not isinstance(end_coords, dict) or ("x" not in end_coords or "y" not in end_coords):
+                return False, (
+                    "drag requires 'end_coordinates' with 'x' and 'y' fields. "
+                    'Example: {"action": {"type": "drag", "coordinates": {"x": 0.3, "y": 0.3}, '
+                    '"end_coordinates": {"x": 0.7, "y": 0.7}}, "done": false}'
+                )
+
+        if action_type == "shell_exec":
+            command = action.get("command")
+            if not command or not command.strip():
+                return False, (
+                    "shell_exec requires a non-empty 'command' field. "
+                    'Example: {"action": {"type": "shell_exec", "command": "Get-Process"}, "done": false}'
+                )
+
+        # ── Rule 8: Negative / zero-zero coordinates ─────────────────────────
+        if action_type in _COORD_ACTIONS and coords:
+            if cx < 0 or cy < 0:
+                return False, (
+                    f"Coordinates ({cx}, {cy}) contain negative values. "
+                    f"Normalized coordinates must be in [0, 1] range."
+                )
+            if cx == 0 and cy == 0 and action_type == "mouse_move":
+                return False, (
+                    "Coordinates (0, 0) is the extreme top-left corner — this is almost "
+                    "certainly a default/error. Look at the screenshot and provide real "
+                    "target coordinates."
+                )
+
         # ── Rule 6: Absolute coordinate detection ────────────────────────────
-        # Normalized [0,1] coords should never meaningfully exceed 1.0.
-        # x/y > 1.5 almost certainly means the model sent raw pixel values.
-        if action_type == "mouse_move" and (cx > 1.5 or cy > 1.5):
+        if action_type in (_COORD_ACTIONS | _CLICK_ACTIONS) and coords and (cx > 1.5 or cy > 1.5):
             return False, (
                 f"Coordinates ({cx:.1f}, {cy:.1f}) look like absolute pixels, not "
                 f"normalized [0,1] ratios. Convert them: "
@@ -67,8 +155,6 @@ class ActionValidator:
 
 
         # ── Rule 2: Micro-movement — same coordinates as last move ────────────
-        # Fires when the model tries to move the cursor to essentially the
-        # same pixel it was already sent to, which is a no-op.
         if action_type == "mouse_move":
             prev = self._last_move_coords.get(session_id)
             if prev:
@@ -81,9 +167,6 @@ class ActionValidator:
                     )
 
         # ── Rule 3: Same action type 5+ consecutive times ─────────────────────
-        # "More than 4×" in a row signals the model is stuck on one approach.
-        # We check the last 4 history entries: if all 4 match the current
-        # action_type, this would be the 5th consecutive identical action.
         if action_type not in self._NO_THROTTLE and len(history) >= 4:
             if all(h == action_type for h in history[-4:]):
                 return False, (
@@ -100,6 +183,15 @@ class ActionValidator:
             amount = action.get("amount", 0)
             if amount and amount < 5:
                 return False, "Minimum scroll amount is 5. Use amount >= 5."
+
+        # ── Rule 9: Wait duration cap ─────────────────────────────────────────
+        if action_type == "wait":
+            ms = action.get("ms", 1000)
+            if ms and ms > MAX_WAIT_MS:
+                return False, (
+                    f"Wait duration {ms}ms exceeds maximum of {MAX_WAIT_MS}ms (30s). "
+                    f"Use a shorter wait or take a screenshot to check if the app is ready."
+                )
 
         # ── Rule 5: Reject unknown / plain-text actions ───────────────────────
         if action_type == "unknown":
@@ -126,3 +218,34 @@ class ActionValidator:
         """Reset all state for a session."""
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
+
+    @staticmethod
+    def validate_done_response(final_message: str | None) -> tuple[bool, str]:
+        """
+        Check whether a done response's final_message is actually a
+        truncated / malformed desktop action that the JSON parser failed
+        to extract.
+
+        Returns (True, "") if the done looks legitimate.
+        Returns (False, reason) if it smells like a broken action parse.
+        """
+        if not final_message:
+            return True, ""
+
+        text = final_message.strip()
+
+        # Short fragments that look like JSON keys/values from an action dict
+        # e.g. '":"left_click"},"done":false,...'
+        if _ACTION_PATTERN.search(text):
+            # Extra heuristic: legit final_messages are natural-language
+            # summaries. If > 30% of the content is JSON-like punctuation,
+            # it's almost certainly a broken parse, not real prose.
+            json_chars = sum(1 for c in text if c in '{}[]":,')
+            if len(text) > 0 and json_chars / len(text) > 0.25:
+                return False, (
+                    f"done response appears to contain a truncated desktop action "
+                    f"(detected action keyword in final_message). "
+                    f"Replacing with screenshot to retry."
+                )
+
+        return True, ""
