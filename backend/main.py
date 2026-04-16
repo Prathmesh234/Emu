@@ -1,3 +1,4 @@
+import asyncio
 import os
 import secrets
 import uuid
@@ -154,14 +155,34 @@ async def agent_step(req: AgentRequest):
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     MAX_TOOL_LOOPS = 10
+    MODEL_TIMEOUT_SECS = 10
+    MAX_TIMEOUT_RETRIES = 3
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
 
     for loop_i in range(MAX_TOOL_LOOPS + 1):
-        # Call model
+        # Call model (with timeout + retry)
         try:
-            agent_req = context_manager.build_request(session_id)
-            response = call_model(agent_req)
+            for timeout_attempt in range(MAX_TIMEOUT_RETRIES + 1):
+                try:
+                    agent_req = context_manager.build_request(session_id)
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(call_model, agent_req),
+                        timeout=MODEL_TIMEOUT_SECS,
+                    )
+                    break  # success
+                except asyncio.TimeoutError:
+                    if timeout_attempt < MAX_TIMEOUT_RETRIES:
+                        print(f"[agent/step] Model call timed out after {MODEL_TIMEOUT_SECS}s — retrying ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})")
+                        await manager.send(session_id, {
+                            "type": "status",
+                            "message": f"Model response timed out, retrying... ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})",
+                        })
+                    else:
+                        raise TimeoutError(
+                            f"Model did not respond after {MAX_TIMEOUT_RETRIES} retries "
+                            f"(timeout={MODEL_TIMEOUT_SECS}s each)"
+                        )
         except Exception as e:
             from pydantic import ValidationError
             if isinstance(e, ValidationError):

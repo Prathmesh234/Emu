@@ -40,6 +40,10 @@ MAX_CHAIN_LENGTH = 300
 # Set high: the model should call compact_context before this triggers.
 AUTO_COMPACT_THRESHOLD = 300
 
+# Number of recent messages to preserve verbatim during compaction.
+# Only the older messages before this tail window get summarised.
+KEEP_RECENT_MESSAGES = 30
+
 # Plan auto-injection interval (every N assistant turns)
 PLAN_INJECT_INTERVAL = 40
 
@@ -349,9 +353,14 @@ class ContextManager:
     def get_compact_messages(self, session_id: str) -> list[PreviousMessage]:
         """
         Return pre-filtered messages for the compaction model.
-        Strips system prompt, screenshots, element data, and verbose reasoning.
+        Only the OLDER portion of history (excluding the recent tail that will
+        be kept verbatim) is returned.  Strips system prompt, screenshots,
+        element data, and verbose reasoning.
         """
-        history = self._get(session_id)
+        full_history = self._get(session_id)
+        # Only compact the older portion; the recent tail is kept as-is
+        cutoff = max(0, len(full_history) - KEEP_RECENT_MESSAGES)
+        history = full_history[:cutoff]
         messages: list[PreviousMessage] = []
         last_was_screenshot_placeholder = False
 
@@ -441,8 +450,9 @@ class ContextManager:
 
     def reset_with_summary(self, session_id: str, summary: str) -> None:
         """
-        Replace the context chain with: system prompt + compacted summary.
-        The summary is injected as a continuation directive.
+        Replace the older portion of the context chain with a compacted summary
+        while preserving the most recent KEEP_RECENT_MESSAGES verbatim.
+        Result: system prompt + summary directive + recent tail.
         """
         from workspace import build_workspace_context, get_device_details
         from prompts import build_system_prompt
@@ -459,10 +469,16 @@ class ContextManager:
             use_omni_parser=USE_OMNI_PARSER,
         )
 
-        # Preserve step count across compactions
         old_history = self._history.get(session_id, [])
-        old_steps = sum(1 for m in old_history if m.role == MessageRole.assistant)
-        self._step_offset[session_id] = self._step_offset.get(session_id, 0) + old_steps
+
+        # Preserve step count across compactions (only count compacted portion)
+        cutoff = max(0, len(old_history) - KEEP_RECENT_MESSAGES)
+        compacted_portion = old_history[:cutoff]
+        recent_tail = old_history[cutoff:]
+
+        # Only count assistant steps in the compacted portion
+        compacted_steps = sum(1 for m in compacted_portion if m.role == MessageRole.assistant)
+        self._step_offset[session_id] = self._step_offset.get(session_id, 0) + compacted_steps
 
         total_steps = self._step_offset[session_id]
         user_content = (
@@ -472,10 +488,13 @@ class ContextManager:
             .replace("{step_count}", str(total_steps))
         )
 
+        # Strip any system messages from the recent tail (we re-add a fresh one)
+        recent_tail = [m for m in recent_tail if m.role != MessageRole.system]
+
         self._history[session_id] = [
             PreviousMessage(role=MessageRole.system, content=system_prompt.strip()),
             PreviousMessage(role=MessageRole.user, content=user_content),
-        ]
+        ] + recent_tail
 
     def needs_compaction(self, session_id: str) -> bool:
         """

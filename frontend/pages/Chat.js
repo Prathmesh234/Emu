@@ -662,8 +662,8 @@ async function handleWsMessage(data) {
 
     switch (data.type) {
         case 'status':
-            // Status messages are always safe to show
-            if (msgGenId === _generationId) showStatus(data.message);
+            // Status updates logged to console only — no visible card
+            console.log(`[status] ${data.message}`);
             break;
 
         case 'step': {
