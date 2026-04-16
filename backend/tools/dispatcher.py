@@ -1,7 +1,6 @@
 import json
 import platform
 from utilities.connection import ConnectionManager
-from utilities.paths import to_windows_path
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory
@@ -47,7 +46,7 @@ async def execute_agent_tool(
             "type": "tool_event",
             "event": "file_written",
             "filename": sanitized,
-            "filepath": to_windows_path(str(file_path)),
+            "filepath": str(file_path),
             "action": "edited" if existing else "created",
         })
         return f"File '{sanitized}' written successfully."

@@ -117,8 +117,8 @@ def get_device_details() -> dict:
 def _read_file(filepath: Path) -> Optional[str]:
     """Read a file, return content or None.
 
-    Falls back to cp1252 (Windows default) if UTF-8 decoding fails —
-    PowerShell's Set-Content writes ANSI by default.
+    Falls back to cp1252 if UTF-8 decoding fails —
+    some editors write ANSI-encoded files by default.
     """
     try:
         return filepath.read_text(encoding="utf-8").strip()

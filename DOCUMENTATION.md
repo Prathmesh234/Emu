@@ -39,7 +39,7 @@ A desktop application that uses computer vision and LLM reasoning to emulate hum
 | Package manager | `uv` | **All** Python packages must use `uv`. No pip/poetry/conda. |
 | Primary model | OpenAI API (GPT-4o) | Vision + reasoning — not yet integrated |
 | Screen capture | Electron `desktopCapturer` | Avoids X display limit in backend by running capture in Node |
-| Mouse/keyboard | PowerShell Win32 API | Single persistent PowerShell process, managed by Node |
+| Mouse/keyboard | cliclick + osascript (macOS), xdotool (Linux) | Single persistent shell process, managed by Node |
 | IPC | Electron `ipcMain` / `ipcRenderer` | `invoke`/`handle` async pattern |
 | WebSocket (planned) | FastAPI WebSocket | For real-time agent → frontend command streaming |
 
@@ -60,7 +60,7 @@ emulation-agent/
 │   ├── styles.css                   # App styles
 │   │
 │   ├── process/
-│   │   └── psProcess.js             # Persistent PowerShell process manager
+│   │   └── psProcess.js             # Persistent shell process manager (zsh/bash)
 │   │
 │   ├── actions/
 │   │   ├── index.js                 # Barrel: exports all actions + registerAll()
@@ -135,10 +135,10 @@ ipcRenderer.invoke('mouse:left-click', { x, y })
 ipcMain.handle in leftClick.js
         │
         ▼
-psProcess.run('[W.U32]::mouse_event(2,0,0,0,0); ...')   ← stdin pipe, ~3ms
+psProcess.run('[cliclick command]')   ← stdin pipe, ~3ms
         │
         ▼
-Win32 mouse_event fires the click on the OS
+cliclick/osascript fires the action on the OS
         │
         ├──► fetch POST /click/left/...  (fire-and-forget log to backend)
         │
@@ -217,13 +217,13 @@ For an agent loop running 20–50 steps, this is several seconds of pure overhea
 
 ### Solution
 
-One `powershell.exe` process started at app launch, kept alive for the duration of the session. Commands are piped via stdin (base64-encoded to avoid syntax errors); output is read from stdout using a sentinel string `##PS_DONE##` to detect completion. Win32 assemblies (System.Windows.Forms, user32.dll P/Invoke, GDI) are pre-loaded at startup.
+One shell process (`/bin/zsh` on macOS, `/bin/bash` on Linux) started at app launch, kept alive for the duration of the session. Commands are piped via stdin (base64-encoded to avoid syntax errors); output is read from stdout using a sentinel string `##PS_DONE##` to detect completion.
 
 ```
 App start → psProcess.start()
                 │
                 ▼
-         spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', '-'])
+         spawn('/bin/zsh', ['-f'])   // macOS
                 │
          Ready. Per-action cost: ~2–8ms (stdin write + stdout read)
 ```
@@ -281,14 +281,14 @@ app.on('will-quit', () => {
 
 The OS sees two isolated clicks, not a double-click. It interprets the first click as "select" and the second as "rename" on desktop icons.
 
-**Fix:** Both click pairs in one `psProcess.run()` call via Win32 `mouse_event` to click natively without process spawning gaps.
+**Fix:** Both click pairs in one `psProcess.run()` call via cliclick to click natively without process spawning gaps.
 
 ---
 
 ## 8. Backend
 
 **File:** `backend/main.py`  
-**Start:** `uv run uvicorn main:app --reload --port 8000` (run from `backend/` in WSL)
+**Start:** `uv run uvicorn main:app --reload --port 8000` (run from `backend/`)
 
 The backend is currently a **log and persistence layer only**. All OS actions (mouse, keyboard) run on the Electron side. The backend receives action data for:
 - Saving screenshots to disk
@@ -380,20 +380,20 @@ See [Section 5](#5-ipc-action-pattern) and [Section 10](#10-action-reference).
 ### `leftClick`
 - **IPC channel:** `mouse:left-click`
 - **Renderer fn:** `leftClick(x, y)`
-- **What it does:** Fires `mouse_event(0x02)` (DOWN) + `mouse_event(0x04)` (UP) via `psProcess.run()`
+- **What it does:** Fires a left click via `cliclick c:` through `psProcess.run()`
 - **Note:** Move cursor to coordinates with `navigateMouse` first
 - **Returns:** `{ success, x, y }`
 
 ### `leftClickOpen` (double-click)
 - **IPC channel:** `mouse:double-click`
 - **Renderer fn:** `leftClickOpen(x, y)`
-- **What it does:** Fires two DOWN+UP pairs with `Start-Sleep -Milliseconds 50` between them, all in one `psProcess.run()` call
+- **What it does:** Fires two click pairs via `psProcess.run()` with a short delay between them, all in one call
 - **Returns:** `{ success, x, y }`
 
 ### `rightClick`
 - **IPC channel:** `mouse:right-click`
 - **Renderer fn:** `rightClick(x, y)`
-- **What it does:** Fires `mouse_event(0x08)` (DOWN) + `mouse_event(0x10)` (UP) via `psProcess.run()`
+- **What it does:** Fires a right click via `cliclick rc:` through `psProcess.run()`
 - **Returns:** `{ success, x, y }`
 
 ### `window` actions
@@ -402,15 +402,18 @@ See [Section 5](#5-ipc-action-pattern) and [Section 10](#10-action-reference).
 - **What it does:** Repositions the Electron window — side panel snaps to right edge (400px wide, full height), centered restores original bounds
 - **Used by:** `app.js` automatically moves to side panel when a task is sent
 
-### Win32 mouse_event flags reference
+### cliclick action reference (macOS)
 
-| Flag | Hex | Decimal | Meaning |
-|---|---|---|---|
-| `MOUSEEVENTF_LEFTDOWN` | `0x02` | 2 | Left button press |
-| `MOUSEEVENTF_LEFTUP` | `0x04` | 4 | Left button release |
-| `MOUSEEVENTF_RIGHTDOWN` | `0x08` | 8 | Right button press |
-| `MOUSEEVENTF_RIGHTUP` | `0x10` | 16 | Right button release |
-| `MOUSEEVENTF_WHEEL` | `0x0800` | 2048 | Scroll wheel (not yet implemented) |
+| Action | cliclick syntax | Description |
+|---|---|---|
+| Left click | `cliclick c:X,Y` | Single left click at coordinates |
+| Right click | `cliclick rc:X,Y` | Right click at coordinates |
+| Double click | `cliclick dc:X,Y` | Double click at coordinates |
+| Triple click | `cliclick tc:X,Y` | Triple click at coordinates |
+| Mouse move | `cliclick m:X,Y` | Move cursor to coordinates |
+| Drag | `cliclick dd:X,Y dm:X2,Y2 du:X2,Y2` | Drag from/to coordinates |
+| Type text | `cliclick t:"text"` | Type text string |
+| Key press | `cliclick kp:key` | Press a key |
 
 ---
 
@@ -436,7 +439,7 @@ Initially IPC handlers lived in a separate `ipc/` folder. This was refactored so
 
 **Root cause:** Two separate `spawnSync` calls took too long, missing the OS double-click time window. The gap left no room for the OS to recognise the pair as a double-click.
 
-**Fix:** Both click pairs in one `psProcess.run()` call. Since the process is already running, both clicks fire within a single stdin write, separated only by `Start-Sleep -Milliseconds 50`.
+**Fix:** Both click pairs in one `psProcess.run()` call. Since the process is already running, both clicks fire within a single stdin write, separated only by a short delay.
 
 ### Problem: Duplicate `app.whenReady()` blocks
 
@@ -450,12 +453,12 @@ After the IPC refactor, `main.js` had leftover inline IPC handlers and a second 
 
 - Node.js + npm
 - Python 3.12+ with `uv` installed
-- Windows 10/11 (actions use PowerShell Win32 API)
+- macOS with cliclick installed (actions use cliclick + osascript)
 
 ### Backend
 
 ```bash
-# In WSL terminal, from project root:
+# In a terminal, from project root:
 cd backend
 uv run uvicorn main:app --reload --port 8000
 ```

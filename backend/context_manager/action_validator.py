@@ -89,9 +89,9 @@ class ActionValidator:
                 return False, (
                     f"You've performed '{action_type}' 5 times in a row. "
                     f"This approach is not working — switch strategy entirely:\n"
-                    f"  • Keyboard: Win key, Alt+Tab, Tab/Enter, keyboard shortcuts\n"
-                    f"  • Shell: shell_exec with Start-Process, Invoke-Item, or "
-                    f"a PowerShell one-liner\n"
+                    f"  • Keyboard: Cmd+Space (Spotlight), Cmd+Tab, Tab/Enter, keyboard shortcuts\n"
+                    f"  • Shell: shell_exec with open -a, open, or "
+                    f"a shell one-liner\n"
                     f"  • Different element: look for another button, link, or menu"
                 )
 

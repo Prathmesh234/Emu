@@ -78,8 +78,8 @@ function initEmu(appVersion = '0.0.0') {
       ? process.getSystemVersion()     // Electron API
       : os.release();                  // Fallback: kernel version
 
-  const osDisplayName = os.platform() === 'win32'
-      ? `Windows ${osVersion}`
+  const osDisplayName = os.platform() === 'darwin'
+      ? `macOS ${osVersion}`
       : `${os.platform()} ${osVersion}`;
 
   const deviceDetails = {
@@ -144,7 +144,7 @@ function initEmu(appVersion = '0.0.0') {
       device_id: deviceId,
       system: {
         uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
-        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
+        shell:         process.env.SHELL || 'unknown',
         locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
         timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
       },
@@ -170,7 +170,7 @@ function initEmu(appVersion = '0.0.0') {
       };
       existing.system = {
         uptime_hours:  Math.round(os.uptime() / 3600 * 10) / 10,
-        shell:         process.env.COMSPEC || process.env.SHELL || 'unknown',
+        shell:         process.env.SHELL || 'unknown',
         locale:        Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
         timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
       };

@@ -14,9 +14,10 @@ Everything you need to get Emu running, from zero to working desktop agent.
 
 ### Platform dependencies
 
-**Windows** — no extra installs needed:
-- PowerShell 5.1+ (included with Windows 10/11)
-- System.Windows.Forms and GDI assemblies (loaded automatically)
+**macOS** — install cliclick:
+- `brew install cliclick`
+- Grant **Accessibility** permission to Terminal/Electron in System Settings > Privacy & Security
+- Grant **Screen Recording** permission to Electron in System Settings > Privacy & Security
 
 ---
 
@@ -248,8 +249,8 @@ Make sure the backend is running on port 8000 before starting the frontend. The 
 ### OmniParser cold start is slow
 First request after the Modal container idles takes ~15s. Subsequent requests are ~1.5s. The container stays warm for 5 minutes after the last request.
 
-### PowerShell execution policy errors
-If you get execution policy errors, run PowerShell as admin and execute:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
+### macOS permissions not granted
+If mouse/keyboard actions fail silently, check System Settings > Privacy & Security:
+- **Accessibility**: Add your Terminal app and the Electron app
+- **Screen Recording**: Add the Electron app
+You may need to restart the app after granting permissions.

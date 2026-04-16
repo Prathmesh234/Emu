@@ -95,7 +95,7 @@ Step 4: MODAL INFERENCE
 Step 5: MODEL RESPONSE
     Modal returns AgentResponse:
     {
-        reasoning: "I see the Windows desktop. I need to click Start menu..."
+        reasoning: "I see the macOS desktop. I need to open Spotlight to search..."
         action: {
             type: "left_click",
             coordinates: { x: 24, y: 1056 }
@@ -106,7 +106,7 @@ Step 5: MODEL RESPONSE
            ▼
 Step 6: EXECUTE ACTION
     Backend sends action to Electron
-    Shell executes: mouse move, click, type, scroll, etc via PowerShell Win32 API
+    Shell executes: mouse move, click, type, scroll, etc via cliclick/osascript (macOS) or xdotool (Linux)
            │
            ▼
 Step 7: CAPTURE NEW STATE

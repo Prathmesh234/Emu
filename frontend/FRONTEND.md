@@ -37,7 +37,7 @@ frontend/
 │   ├── scroll.js          # Scroll action
 │   └── window.js          # Window positioning
 └── process/
-    └── psProcess.js       # Persistent PowerShell process manager
+    └── psProcess.js       # Persistent shell process manager (zsh on macOS, bash on Linux)
 ```
 
 ## Components

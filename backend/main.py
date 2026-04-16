@@ -45,7 +45,7 @@ _token_path.write_text(AUTH_TOKEN)
 try:
     os.chmod(_token_path, 0o600)  # owner-only read/write
 except OSError:
-    pass  # Windows doesn't support POSIX permissions; ACLs handle it
+    pass  # Fallback if chmod not supported on this platform
 print(f"[security] Auth token written to {_token_path}")
 
 

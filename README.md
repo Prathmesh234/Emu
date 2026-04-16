@@ -55,7 +55,7 @@ export EMU_PROVIDER=modal                   # Modal GPU (no key needed)
 - [Node.js](https://nodejs.org/) v18+
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **Windows**: PowerShell 5.1+ (included with Windows 10/11)
+- **macOS**: `brew install cliclick` + Accessibility & Screen Recording permissions
 
 ---
 
@@ -67,8 +67,8 @@ export EMU_PROVIDER=modal                   # Modal GPU (no key needed)
 | Backend | Python + FastAPI |
 | Package manager | `uv` |
 | Vision + reasoning | Claude / OpenAI / Gemini / Modal / Self-hosted |
-| Action execution | PowerShell Win32 API (`mouse_event`, `keybd_event`) |
-| Screen capture | PowerShell GDI `CopyFromScreen` |
+| Action execution | cliclick + osascript (macOS), xdotool (Linux) |
+| Screen capture | Electron `desktopCapturer` + `screencapture` fallback |
 | IPC | Electron `ipcMain` / `ipcRenderer` |
 
 ---

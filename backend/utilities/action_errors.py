@@ -22,13 +22,13 @@ def interpret_action_error(error: str, action_label: str) -> str:
     el = error.lower()
 
     if any(kw in el for kw in ("access is denied", "permission", "privileged",
-                                "uac", "administrator", "elevated", "requires elevation")):
+                                "sudo", "administrator", "elevated", "requires elevation")):
         return (
             f"[ACTION FAILED: {action_label}] Permission denied — {error}\n"
             f"This action requires elevated privileges. Your options:\n"
-            f"  1. Inform the user they need to run Emu as Administrator.\n"
-            f"  2. Use shell_exec with -Verb RunAs to request elevation:\n"
-            f"     Start-Process 'app.exe' -Verb RunAs\n"
+            f"  1. Inform the user they need to run Emu with appropriate permissions.\n"
+            f"  2. Use shell_exec with sudo to request elevation:\n"
+            f"     sudo open -a 'AppName'\n"
             f"  3. Choose an approach that doesn't require admin rights."
         )
 
@@ -38,7 +38,7 @@ def interpret_action_error(error: str, action_label: str) -> str:
             f"[ACTION FAILED: {action_label}] Target not found — {error}\n"
             f"The file, app, or element doesn't exist at the expected location.\n"
             f"Try: use shell_exec to verify the path exists, or search for the "
-            f"correct location with Get-ChildItem / Get-Command."
+            f"correct location with ls / which / find."
         )
 
     if "timed out" in el:
@@ -46,12 +46,12 @@ def interpret_action_error(error: str, action_label: str) -> str:
             f"[ACTION FAILED: {action_label}] Timed out after 30s — the app may be "
             f"unresponsive.\n"
             f"Take a screenshot to assess the current state. If the app is frozen, "
-            f"use shell_exec to kill and relaunch it: Stop-Process -Name 'appname'"
+            f"use shell_exec to kill and relaunch it: killall 'appname'"
         )
 
-    if any(kw in el for kw in ("powershell", "process exited", "ps exited")):
+    if any(kw in el for kw in ("zsh", "bash", "shell", "process exited", "ps exited")):
         return (
-            f"[ACTION FAILED: {action_label}] PowerShell process error — {error}\n"
+            f"[ACTION FAILED: {action_label}] Shell process error — {error}\n"
             f"The automation shell encountered an error. Take a screenshot to "
             f"re-orient, then try a simpler action or use shell_exec directly."
         )
