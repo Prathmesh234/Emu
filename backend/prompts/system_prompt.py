@@ -188,6 +188,13 @@ Desktop action reference:
   type_text    → {{"action": {{"type": "type_text",    "text": "hello world"}}}}
   key_press    → {{"action": {{"type": "key_press",    "key": "enter"}}}}
   key+modifier → {{"action": {{"type": "key_press",    "key": "l", "modifiers": ["cmd"]}}}}
+
+  Valid key names: enter, tab, escape, space, backspace, delete, insert,
+    up, down, left, right, home, end, pageup, pagedown,
+    f1–f12, a–z, 0–9.
+  Valid modifiers: cmd, ctrl, alt, shift.
+  ⚠️ Use "cmd" for the Command key — NOT "meta" or "super" or "win".
+
   scroll       → {{"action": {{"type": "scroll",       "direction": "down", "amount": 5}}}}
   drag         → {{"action": {{"type": "drag",         "coordinates": {{"x": 0.3, "y": 0.5}}, "end_coordinates": {{"x": 0.7, "y": 0.5}}}}}}
   shell_exec   → {{"action": {{"type": "shell_exec",   "command": "open -a TextEdit"}}}}
@@ -205,6 +212,10 @@ SHELL_EXEC RULES:
   screenshot   → {{"action": {{"type": "screenshot"}}}}
   wait         → {{"action": {{"type": "wait",         "ms": 1000}}}}
   done         → {{"action": {{"type": "done"}}, "done": true, "final_message": "Task complete."}}
+
+FOCUS SAFETY:
+  • Before any input action (type_text, key_press, click, drag, scroll), first ensure Emu is not focused.
+  • Click into the target app/window area first (or switch to it) so actions execute there, not in the Emu panel.
 
 COORDINATE RULES:
   • Coordinates are normalized [0,1] ratios — NEVER raw pixels.

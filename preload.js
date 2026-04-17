@@ -30,6 +30,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'window:side-panel',
     'window:centered',
     'window:blur',
+    'window:minimize',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([

@@ -13,6 +13,7 @@ const { scroll }         = require('./scroll');
 const { captureScreenshot, getScaleFactors, getScreenDimensions } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
+const { ipcRenderer }    = require('electron');
 
 /**
  * ActionType enum values coming from the backend (models/actions.py)

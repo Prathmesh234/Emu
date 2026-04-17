@@ -13,6 +13,10 @@ async function blurWindow() {
     return await ipcRenderer.invoke('window:blur');
 }
 
+async function minimizeWindow() {
+    return await ipcRenderer.invoke('window:minimize');
+}
+
 function register(ipcMain, getMainWindow) {
     let originalBounds = null;
     const { screen } = require('electron');
@@ -51,6 +55,12 @@ function register(ipcMain, getMainWindow) {
         if (win) win.blur();
         return { success: true };
     });
+
+    ipcMain.handle('window:minimize', async () => {
+        const win = getMainWindow();
+        if (win) win.minimize();
+        return { success: true };
+    });
 }
 
-module.exports = { moveToSidePanel, moveToCentered, blurWindow, register };
+module.exports = { moveToSidePanel, moveToCentered, blurWindow, minimizeWindow, register };
