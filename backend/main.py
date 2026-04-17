@@ -1,3 +1,4 @@
+import asyncio
 import os
 import secrets
 import uuid
@@ -154,14 +155,34 @@ async def agent_step(req: AgentRequest):
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     MAX_TOOL_LOOPS = 10
+    MODEL_TIMEOUT_SECS = 10
+    MAX_TIMEOUT_RETRIES = 3
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
 
     for loop_i in range(MAX_TOOL_LOOPS + 1):
-        # Call model
+        # Call model (with timeout + retry)
         try:
-            agent_req = context_manager.build_request(session_id)
-            response = call_model(agent_req)
+            for timeout_attempt in range(MAX_TIMEOUT_RETRIES + 1):
+                try:
+                    agent_req = context_manager.build_request(session_id)
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(call_model, agent_req),
+                        timeout=MODEL_TIMEOUT_SECS,
+                    )
+                    break  # success
+                except asyncio.TimeoutError:
+                    if timeout_attempt < MAX_TIMEOUT_RETRIES:
+                        print(f"[agent/step] Model call timed out after {MODEL_TIMEOUT_SECS}s — retrying ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})")
+                        await manager.send(session_id, {
+                            "type": "status",
+                            "message": f"Model response timed out, retrying... ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})",
+                        })
+                    else:
+                        raise TimeoutError(
+                            f"Model did not respond after {MAX_TIMEOUT_RETRIES} retries "
+                            f"(timeout={MODEL_TIMEOUT_SECS}s each)"
+                        )
         except Exception as e:
             from pydantic import ValidationError
             if isinstance(e, ValidationError):
@@ -290,6 +311,26 @@ async def agent_step(req: AgentRequest):
                 return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
                 
             continue  # Re-call the model internally
+
+        # ── 4b. Catch bogus "done" from truncated action parse ───────────────────
+        if response.done and response.action and response.action.type == ActionType.DONE:
+            done_ok, done_err = context_manager.action_validator.validate_done_response(
+                response.final_message
+            )
+            if not done_ok:
+                print(f"[validator] REJECTED done: {done_err}")
+                context_manager.add_user_message(
+                    session_id,
+                    "[MALFORMED RESPONSE] Your previous response was garbled — it looked like "
+                    "a truncated desktop action, not a real completion. Take a screenshot to "
+                    "re-orient and then continue with your task."
+                )
+                response.action = Action(type=ActionType.SCREENSHOT)
+                response.done = False
+                response.final_message = None
+                await manager.send(session_id, {"type": "status", "message": "Truncated response detected, retaking screenshot..."})
+                if loop_i < MAX_TOOL_LOOPS:
+                    continue
 
         break  # Valid desktop action or done, dispatch to frontend
 

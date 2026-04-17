@@ -80,6 +80,14 @@ async function moveToSidePanel() {
     }
 }
 
+async function minimizeWindow() {
+    try {
+        await ipcRenderer.invoke('window:minimize');
+    } catch (err) {
+        console.warn('[window] minimize failed:', err.message);
+    }
+}
+
 // ── Rendering ────────────────────────────────────────────────────────────
 
 function showEmpty() {
@@ -654,8 +662,8 @@ async function handleWsMessage(data) {
 
     switch (data.type) {
         case 'status':
-            // Status messages are always safe to show
-            if (msgGenId === _generationId) showStatus(data.message);
+            // Status updates logged to console only — no visible card
+            console.log(`[status] ${data.message}`);
             break;
 
         case 'step': {
@@ -1055,6 +1063,7 @@ function mount(appEl) {
 
     header = Header({
         onExpand: toggleWindow,
+        onMinimize: minimizeWindow,
         onClose: () => window.close(),
         onNewTask: newChat,
     });
