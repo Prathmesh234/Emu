@@ -20,7 +20,7 @@ import time
 
 from openai import AzureOpenAI
 
-from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
 from providers.agent_tools import AGENT_TOOLS_OPENAI
 
 # -- Configuration -----------------------------------------------------------
@@ -164,7 +164,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
         raw_action = {"type": raw_action}
 
     return AgentResponse(
-        action=Action(**raw_action),
+        action=safe_build_action(raw_action, "azure_openai"),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
@@ -204,5 +204,5 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    print(f"[azure_openai] INFO: plain-text response, wrapping as done")
-    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 1.0}
+    print(f"[azure_openai] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
+    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}

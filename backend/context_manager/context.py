@@ -427,7 +427,12 @@ class ContextManager:
                 mods = action.get("modifiers", [])
                 combo = "+".join(mods + [key]) if mods else key
                 parts.append(f"KEY: {combo}")
-            elif action_type == "mouse_move" and "coordinates" in action:
+            elif action_type in (
+                "mouse_move",
+                "navigate_and_click",
+                "navigate_and_right_click",
+                "navigate_and_triple_click",
+            ) and "coordinates" in action:
                 c = action["coordinates"]
                 parts.append(f"TO: ({c.get('x', 0):.3f}, {c.get('y', 0):.3f})")
 

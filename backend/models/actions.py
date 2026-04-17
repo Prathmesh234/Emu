@@ -1,15 +1,18 @@
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 
 class ActionType(str, Enum):
-    SCREENSHOT     = "screenshot"
-    LEFT_CLICK     = "left_click"
-    RIGHT_CLICK    = "right_click"
-    DOUBLE_CLICK   = "double_click"
-    TRIPLE_CLICK   = "triple_click"
+    SCREENSHOT              = "screenshot"
+    LEFT_CLICK              = "left_click"
+    RIGHT_CLICK             = "right_click"
+    DOUBLE_CLICK            = "double_click"
+    TRIPLE_CLICK            = "triple_click"
+    NAVIGATE_AND_CLICK        = "navigate_and_click"
+    NAVIGATE_AND_RIGHT_CLICK  = "navigate_and_right_click"
+    NAVIGATE_AND_TRIPLE_CLICK = "navigate_and_triple_click"
     MOUSE_MOVE     = "mouse_move"
     DRAG           = "drag"
     SCROLL         = "scroll"
@@ -45,10 +48,11 @@ class Action(BaseModel):
 
     type: ActionType = Field(..., description="The kind of action to execute")
 
-    # Click / move / scroll / drag start position
+    # Navigate target / move / drag start position
     coordinates: Optional[Coordinates] = Field(
         default=None,
-        description="Target screen coordinates (required for mouse_move, drag start)"
+        description="Target screen coordinates (required for navigate_and_click/"
+                    "right_click/double_click/triple_click, mouse_move, drag start)"
     )
 
     # Drag end position
@@ -109,3 +113,19 @@ class Action(BaseModel):
         default=None,
         description="Name of the skill to load (used with USE_SKILL)"
     )
+
+
+def safe_build_action(raw_action: dict, provider_tag: str = "provider") -> "Action":
+    """
+    Build an Action from a raw dict, falling back to ActionType.UNKNOWN if
+    pydantic validation fails (e.g. malformed coordinates, wrong field type).
+
+    The UNKNOWN action then flows through ActionValidator Rule 5, which tells
+    the model the correct JSON format — instead of crashing the request with a
+    500 or silently succeeding as done.
+    """
+    try:
+        return Action(**raw_action)
+    except (ValidationError, TypeError) as e:
+        print(f"[{provider_tag}] INFO: malformed action {raw_action!r} → wrapping as unknown. pydantic: {e}")
+        return Action(type=ActionType.UNKNOWN)

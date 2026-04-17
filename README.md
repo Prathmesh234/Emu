@@ -216,10 +216,12 @@ On first launch, the agent runs a short interview (2–4 exchanges) to populate 
 | Action | Type | Description |
 |---|---|---|
 | `screenshot` | vision | Capture current screen |
-| `mouse_move` | mouse | Move cursor to (x, y) |
-| `left_click` | mouse | Left-click at cursor |
-| `double_click` | mouse | Double-click at cursor |
-| `right_click` | mouse | Right-click at cursor |
+| `navigate_and_click` | mouse | Move to (x, y) and left-click |
+| `navigate_and_right_click` | mouse | Move to (x, y) and right-click |
+| `navigate_and_double_click` | mouse | Move to (x, y) and double-click |
+| `navigate_and_triple_click` | mouse | Move to (x, y) and triple-click |
+| `mouse_move` | mouse | Move cursor to (x, y) (no click) |
+| `drag` | mouse | Drag from start to end coords |
 | `scroll` | mouse | Scroll N notches |
 | `type_text` | keyboard | Type a string |
 | `key_press` | keyboard | Press key combo (e.g. `ctrl+c`) |

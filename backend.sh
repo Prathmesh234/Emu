@@ -96,12 +96,24 @@ detect_provider() {
         echo "claude"
     elif [ -n "${OPENROUTER_API_KEY:-}" ]; then
         echo "openrouter"
+    elif [ -n "${AZURE_OPENAI_ENDPOINT:-}" ] && [ -n "${AZURE_OPENAI_API_KEY:-}" ]; then
+        echo "azure_openai"
     elif [ -n "${OPENAI_BASE_URL:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
         echo "openai_compatible"
     elif [ -n "${OPENAI_API_KEY:-}" ]; then
         echo "openai"
     elif [ -n "${GOOGLE_API_KEY:-}" ]; then
         echo "gemini"
+    elif [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+        echo "bedrock"
+    elif [ -n "${FIREWORKS_API_KEY:-}" ]; then
+        echo "fireworks"
+    elif [ -n "${TOGETHER_API_KEY:-}" ]; then
+        echo "together_ai"
+    elif [ -n "${BASETEN_API_KEY:-}" ]; then
+        echo "baseten"
+    elif [ -n "${H_COMPANY_API_KEY:-}" ]; then
+        echo "h_company"
     else
         echo "modal"
     fi
@@ -157,10 +169,6 @@ fi
 # ── Build uvicorn args ──────────────────────────────────────────────────────
 
 UVICORN_ARGS="main:app --reload --host 0.0.0.0 --port 8000"
-
-if omni_enabled; then
-    UVICORN_ARGS="$UVICORN_ARGS --use-omni-parser"
-fi
 
 # ── Start the backend ───────────────────────────────────────────────────────
 

@@ -21,7 +21,7 @@ import uuid
 from google import genai
 from google.genai import types
 
-from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
 from providers.agent_tools import tools_for_gemini
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
         raw_action = {"type": raw_action}
 
     return AgentResponse(
-        action=Action(**raw_action),
+        action=safe_build_action(raw_action, "gemini"),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),

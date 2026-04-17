@@ -216,7 +216,7 @@ async def agent_step(req: AgentRequest):
                     session_id,
                     "[TOOL LOOP LIMIT] You called tools 10 times without taking a desktop action. "
                     "STOP calling tools. Take a screenshot to see the screen and proceed with "
-                    "a desktop action (mouse_move, left_click, type_text, key_press, etc.)."
+                    "a desktop action (navigate_and_click, mouse_move, type_text, key_press, etc.)."
                 )
                 response.tool_calls = None
                 response.action = Action(type=ActionType.SCREENSHOT)

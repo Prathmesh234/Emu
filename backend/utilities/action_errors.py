@@ -1,15 +1,18 @@
 """Action error helpers — translate raw OS / IPC errors into model-friendly guidance."""
 
 _IPC_TO_ACTION = {
-    "mouse:left-click":   "left_click",
-    "mouse:right-click":  "right_click",
-    "mouse:double-click": "double_click",
-    "mouse:triple-click": "triple_click",
-    "mouse:move":         "mouse_move",
-    "mouse:drag":         "drag",
-    "mouse:scroll":       "scroll",
-    "keyboard:type":      "type_text",
-    "keyboard:key-press": "key_press",
+    "mouse:left-click":                "left_click",
+    "mouse:right-click":               "right_click",
+    "mouse:double-click":              "double_click",
+    "mouse:triple-click":              "triple_click",
+    "mouse:navigate-and-click":        "navigate_and_click",
+    "mouse:navigate-and-right-click":  "navigate_and_right_click",
+    "mouse:navigate-and-triple-click": "navigate_and_triple_click",
+    "mouse:move":                      "mouse_move",
+    "mouse:drag":                      "drag",
+    "mouse:scroll":                    "scroll",
+    "keyboard:type":                   "type_text",
+    "keyboard:key-press":              "key_press",
 }
 
 

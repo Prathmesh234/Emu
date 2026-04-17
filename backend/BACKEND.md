@@ -97,8 +97,8 @@ Step 5: MODEL RESPONSE
     {
         reasoning: "I see the macOS desktop. I need to open Spotlight to search..."
         action: {
-            type: "left_click",
-            coordinates: { x: 24, y: 1056 }
+            type: "navigate_and_click",
+            coordinates: { x: 0.024, y: 0.87 }
         }
         done: false
     }
@@ -428,15 +428,15 @@ Maps model output to frontend actions.
 from enum import Enum
 
 class ActionType(str, Enum):
-    LEFT_CLICK = "left_click"
-    RIGHT_CLICK = "right_click"
-    DOUBLE_CLICK = "double_click"
-    MOUSE_MOVE = "mouse_move"
-    SCROLL = "scroll"
-    TYPE_TEXT = "type_text"
-    KEY_PRESS = "key_press"
-    WAIT = "wait"
-    DONE = "done"
+    NAVIGATE_AND_CLICK        = "navigate_and_click"
+    NAVIGATE_AND_RIGHT_CLICK  = "navigate_and_right_click"
+    NAVIGATE_AND_TRIPLE_CLICK = "navigate_and_triple_click"
+    MOUSE_MOVE                = "mouse_move"
+    SCROLL                    = "scroll"
+    TYPE_TEXT                 = "type_text"
+    KEY_PRESS                 = "key_press"
+    WAIT                      = "wait"
+    DONE                      = "done"
 
 def route_action(action: dict) -> dict:
     """
@@ -444,29 +444,30 @@ def route_action(action: dict) -> dict:
 
     Model output example:
     {
-        "type": "left_click",
-        "coordinates": {"x": 100, "y": 200}
+        "type": "navigate_and_click",
+        "coordinates": {"x": 0.5, "y": 0.5}
     }
 
     Frontend format:
     {
-        "ipc_channel": "mouse:left-click",
-        "params": {"x": 100, "y": 200}
+        "ipc_channel": "mouse:navigate-and-click",
+        "params": {"x": 0.5, "y": 0.5}
     }
     """
 
     action_type = ActionType(action["type"])
 
     routing_table = {
-        ActionType.LEFT_CLICK:   ("mouse:left-click",  ["x", "y"]),
-        ActionType.RIGHT_CLICK:  ("mouse:right-click", ["x", "y"]),
-        ActionType.DOUBLE_CLICK: ("mouse:double-click", ["x", "y"]),
-        ActionType.MOUSE_MOVE:   ("mouse:move",        ["x", "y"]),
-        ActionType.SCROLL:       ("mouse:scroll",      ["x", "y", "direction", "amount"]),
-        ActionType.TYPE_TEXT:    ("keyboard:type",     ["text"]),
-        ActionType.KEY_PRESS:    ("keyboard:key",      ["key", "modifiers"]),
-        ActionType.WAIT:         ("system:wait",       ["ms"]),
-        ActionType.DONE:         ("agent:done",        ["message"]),
+        ActionType.NAVIGATE_AND_CLICK:        ("mouse:navigate-and-click",        ["x", "y"]),
+        ActionType.NAVIGATE_AND_RIGHT_CLICK:  ("mouse:navigate-and-right-click",  ["x", "y"]),
+        ActionType.NAVIGATE_AND_DOUBLE_CLICK: ("mouse:navigate-and-double-click", ["x", "y"]),
+        ActionType.NAVIGATE_AND_TRIPLE_CLICK: ("mouse:navigate-and-triple-click", ["x", "y"]),
+        ActionType.MOUSE_MOVE:                ("mouse:move",        ["x", "y"]),
+        ActionType.SCROLL:                    ("mouse:scroll",      ["x", "y", "direction", "amount"]),
+        ActionType.TYPE_TEXT:                 ("keyboard:type",     ["text"]),
+        ActionType.KEY_PRESS:                 ("keyboard:key",      ["key", "modifiers"]),
+        ActionType.WAIT:                      ("system:wait",       ["ms"]),
+        ActionType.DONE:                      ("agent:done",        ["message"]),
     }
 
     channel, param_keys = routing_table[action_type]
@@ -566,7 +567,7 @@ class AgentRequest(BaseModel):
     display_scale:     float          # DPI scaling factor
 
     # Environment
-    os_platform: Literal["windows", "macos", "linux"]
+    os_platform: Literal["macos", "linux"]
 ```
 
 ### AgentResponse (Modal → Backend)

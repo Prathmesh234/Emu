@@ -2,7 +2,9 @@
 // Moves the window off-screen, captures via desktopCapturer, restores window.
 // Used only when the user explicitly requests a clean capture.
 
-const { ipcRenderer } = require('electron');\n\nlet desktopCapturer = null;
+const { ipcRenderer } = require('electron');
+
+let desktopCapturer = null;
 
 async function fullCapture() {
     return await ipcRenderer.invoke('screenshot:fullCapture');

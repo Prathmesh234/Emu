@@ -17,7 +17,7 @@ import uuid
 
 from openai import OpenAI
 
-from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo
+from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
 from providers.agent_tools import AGENT_TOOLS_OPENAI, AGENT_TOOL_NAMES
 
 # -- Configuration -----------------------------------------------------------
@@ -166,7 +166,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
         )
 
     return AgentResponse(
-        action=Action(**raw_action),
+        action=safe_build_action(raw_action, "baseten"),
         done=data.get("done", False),
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
@@ -206,5 +206,5 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    print(f"[baseten] INFO: plain-text response, wrapping as done")
-    return {"action": {"type": "done"}, "done": True, "final_message": content.strip(), "confidence": 1.0}
+    print(f"[baseten] INFO: plain-text response, wrapping as unknown:\n  {content[:200]}")
+    return {"action": {"type": "unknown"}, "done": False, "final_message": content.strip(), "confidence": 0.0}

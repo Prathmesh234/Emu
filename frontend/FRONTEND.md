@@ -101,13 +101,14 @@ The `actions/` directory contains IPC handlers that bridge the renderer process 
 | Action Type | Handler | Description |
 |-------------|---------|-------------|
 | `screenshot` | `captureScreenshot()` | Capture current screen |
-| `left_click` | `leftClick(x, y)` | Left click at coordinates |
-| `right_click` | `rightClick(x, y)` | Right click at coordinates |
-| `double_click` | `leftClickOpen(x, y)` | Double click at coordinates |
-| `mouse_move` | `navigateMouse(x, y)` | Move cursor to coordinates |
-| `scroll` | `scroll(x, y, dir, amt)` | Scroll at position |
-| `type_text` | (special handling) | Type text string |
-| `key_press` | (special handling) | Press key with modifiers |
+| `navigate_and_click` | `navigateMouse(x, y)` + `leftClick()` | Move to coords then left click |
+| `navigate_and_right_click` | `navigateMouse(x, y)` + `rightClick()` | Move to coords then right click |
+| `navigate_and_triple_click` | `navigateMouse(x, y)` + `tripleClick()` | Move to coords then triple click |
+| `mouse_move` | `navigateMouse(x, y)` | Move cursor only (no click) |
+| `drag` | `drag(startX, startY, endX, endY)` | Drag from start to end coords |
+| `scroll` | `scroll(dir, amt)` | Scroll at current position |
+| `type_text` | `typeText(text)` | Type text string |
+| `key_press` | `keyPress(key, modifiers)` | Press key with optional modifiers |
 | `wait` | `setTimeout()` | Pause execution |
 | `done` | (no action) | Task complete signal |
 

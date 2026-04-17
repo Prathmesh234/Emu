@@ -44,19 +44,54 @@ const ACTION_MAP = {
         dispatch: () => rightClick(),
         describe: () => 'Right click',
     },
-    double_click: {
-        label: 'Double Click',
-        icon:  '🖱️',
-        ipc:   'mouse:double-click',
-        dispatch: () => leftClickOpen(),
-        describe: () => 'Double click',
-    },
     triple_click: {
         label: 'Triple Click',
         icon:  '🖱️',
         ipc:   'mouse:triple-click',
         dispatch: () => tripleClick(),
         describe: () => 'Triple click (select line)',
+    },
+    navigate_and_click: {
+        label: 'Navigate & Click',
+        icon:  '🖱️',
+        ipc:   'mouse:navigate-and-click',
+        dispatch: async (a) => {
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const absX = Math.round(a.coordinates.x * screenWidth);
+            const absY = Math.round(a.coordinates.y * screenHeight);
+            console.log(`[navigate_and_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
+            await navigateMouse(absX, absY);
+            return leftClick();
+        },
+        describe: (a) => `Navigate to (${a.coordinates.x}, ${a.coordinates.y}) and left click`,
+    },
+    navigate_and_right_click: {
+        label: 'Navigate & Right Click',
+        icon:  '🖱️',
+        ipc:   'mouse:navigate-and-right-click',
+        dispatch: async (a) => {
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const absX = Math.round(a.coordinates.x * screenWidth);
+            const absY = Math.round(a.coordinates.y * screenHeight);
+            console.log(`[navigate_and_right_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
+            await navigateMouse(absX, absY);
+            return rightClick();
+        },
+        describe: (a) => `Navigate to (${a.coordinates.x}, ${a.coordinates.y}) and right click`,
+    },
+    navigate_and_triple_click: {
+        label: 'Navigate & Triple Click',
+        icon:  '🖱️',
+        ipc:   'mouse:navigate-and-triple-click',
+        dispatch: async (a) => {
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const absX = Math.round(a.coordinates.x * screenWidth);
+            const absY = Math.round(a.coordinates.y * screenHeight);
+            console.log(`[navigate_and_triple_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
+            await navigateMouse(absX, absY);
+            return tripleClick();
+        },
+        describe: (a) => `Navigate to (${a.coordinates.x}, ${a.coordinates.y}) and triple click`,
     },
     mouse_move: {
         label: 'Mouse Move',

@@ -105,7 +105,7 @@ def get_sessions_dir() -> Path:
 
 def get_device_details() -> dict:
     """Return basic device info for injection into the system prompt."""
-    os_name = platform.system()  # 'Windows', 'Darwin', 'Linux'
+    os_name = platform.system()  # 'Darwin', 'Linux'
     if os_name == "Darwin":
         os_name = "macOS"
     return {

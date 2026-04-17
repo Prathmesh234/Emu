@@ -13,6 +13,8 @@ import re
 # truncated / malformed model output.
 _DESKTOP_ACTION_TYPES = {
     "left_click", "right_click", "double_click", "triple_click",
+    "navigate_and_click", "navigate_and_right_click",
+    "navigate_and_triple_click",
     "mouse_move", "drag", "scroll", "type_text", "key_press",
     "shell_exec", "screenshot", "wait",
 }
@@ -21,7 +23,7 @@ _ACTION_PATTERN = re.compile(
 )
 
 # Actions that require coordinates
-_COORD_ACTIONS = {"mouse_move", "drag"}
+_COORD_ACTIONS = {"mouse_move", "drag", "navigate_and_click", "navigate_and_right_click", "navigate_and_triple_click"}
 # Click actions (used in Rule 6 for absolute coordinate detection)
 _CLICK_ACTIONS = {"left_click", "right_click", "double_click", "triple_click"}
 
@@ -49,6 +51,9 @@ class ActionValidator:
          drag needs end_coordinates, shell_exec needs command.
       8. Negative / zero-zero coordinates → likely a parsing default.
       9. Wait duration capped at 30s.
+     10. Coordinate values must be numbers (reject arrays/strings/nulls).
+     11. Repeated navigate_and_click at same coordinates (±0.01) → reject
+         (clicking the same spot twice in a row with no intervening action).
     """
 
     # Positions within this fraction of screen size are treated as "same spot"
@@ -61,6 +66,8 @@ class ActionValidator:
         self._history: dict[str, list[str]] = {}
         # Last mouse_move target per session (updated only on valid moves)
         self._last_move_coords: dict[str, tuple[float, float]] = {}
+        # Last navigate_and_click* target per session
+        self._last_click_coords: dict[str, tuple[float, float]] = {}
 
     def validate(
         self,
@@ -111,6 +118,17 @@ class ActionValidator:
                     f"{action_type} requires 'coordinates' with 'x' and 'y' fields (normalized 0-1). "
                     f'Example: {{"action": {{"type": "{action_type}", "coordinates": {{"x": 0.5, "y": 0.5}}}}, "done": false}}'
                 )
+            # Rule 10: coordinate values must be scalar numbers
+            xv = coords.get("x")
+            yv = coords.get("y")
+            if not isinstance(xv, (int, float)) or isinstance(xv, bool) \
+               or not isinstance(yv, (int, float)) or isinstance(yv, bool):
+                return False, (
+                    f"'coordinates.x' and 'coordinates.y' must be scalar numbers "
+                    f"(got x={xv!r}, y={yv!r}). "
+                    f"NEVER pass arrays, strings, or nulls. Use a single normalized value per axis.\n"
+                    f'Correct: {{"coordinates": {{"x": 0.5, "y": 0.5}}}}'
+                )
 
         if action_type == "drag":
             end_coords = action.get("end_coordinates") or {}
@@ -136,7 +154,12 @@ class ActionValidator:
                     f"Coordinates ({cx}, {cy}) contain negative values. "
                     f"Normalized coordinates must be in [0, 1] range."
                 )
-            if cx == 0 and cy == 0 and action_type == "mouse_move":
+            if cx == 0 and cy == 0 and action_type in (
+                "mouse_move",
+                "navigate_and_click",
+                "navigate_and_right_click",
+                "navigate_and_triple_click",
+            ):
                 return False, (
                     "Coordinates (0, 0) is the extreme top-left corner — this is almost "
                     "certainly a default/error. Look at the screenshot and provide real "
@@ -162,8 +185,25 @@ class ActionValidator:
                 if abs(cx - lx) < self.COORD_EPSILON and abs(cy - ly) < self.COORD_EPSILON:
                     return False, (
                         f"Cursor is already at ({lx:.3f}, {ly:.3f}) — "
-                        f"moving there again is a no-op. Just click, or "
-                        f"move to a different target."
+                        f"moving there again is a no-op. Pick a different "
+                        f"target or use navigate_and_click to click on an element."
+                    )
+
+        # ── Rule 11: navigate_and_click at same coordinates as last click ─────
+        if action_type in (
+            "navigate_and_click",
+            "navigate_and_right_click",
+            "navigate_and_triple_click",
+        ):
+            prev = self._last_click_coords.get(session_id)
+            if prev:
+                lx, ly = prev
+                if abs(cx - lx) < self.COORD_EPSILON and abs(cy - ly) < self.COORD_EPSILON:
+                    return False, (
+                        f"You already clicked at ({lx:.3f}, {ly:.3f}) in the previous step — "
+                        f"clicking the same spot again is a no-op. Either target a different "
+                        f"element, scroll to reveal new content, or switch strategy "
+                        f"(keyboard shortcut, shell_exec)."
                     )
 
         # ── Rule 3: Same action type 5+ consecutive times ─────────────────────
@@ -172,9 +212,9 @@ class ActionValidator:
                 return False, (
                     f"You've performed '{action_type}' 5 times in a row. "
                     f"This approach is not working — switch strategy entirely:\n"
-                    f"  • Keyboard: Win key, Alt+Tab, Tab/Enter, keyboard shortcuts\n"
-                    f"  • Shell: shell_exec with Start-Process, Invoke-Item, or "
-                    f"a PowerShell one-liner\n"
+                    f"  • Keyboard: Cmd+Tab, Tab/Enter, keyboard shortcuts\n"
+                    f"  • Shell: shell_exec with open, osascript, or "
+                    f"a shell one-liner\n"
                     f"  • Different element: look for another button, link, or menu"
                 )
 
@@ -198,15 +238,24 @@ class ActionValidator:
             return False, (
                 "Your response was not a valid JSON action. "
                 "Respond with ONLY a raw JSON object — no prose, no markdown fences:\n"
-                '  {"action": {"type": "left_click"}, "done": false, "confidence": 0.9}\n'
-                "Valid types: mouse_move, left_click, right_click, double_click, "
-                "triple_click, type_text, key_press, scroll, drag, shell_exec, "
+                '  {"action": {"type": "navigate_and_click", '
+                '"coordinates": {"x": 0.5, "y": 0.5}}, "done": false, "confidence": 0.9}\n'
+                "Valid types: navigate_and_click, navigate_and_right_click, "
+                "navigate_and_triple_click, "
+                "left_click, right_click, double_click, triple_click, "
+                "mouse_move, type_text, key_press, scroll, drag, shell_exec, "
                 "screenshot, wait, done."
             )
 
         # ── Record action ─────────────────────────────────────────────────────
         if action_type == "mouse_move":
             self._last_move_coords[session_id] = (cx, cy)
+        if action_type in (
+            "navigate_and_click",
+            "navigate_and_right_click",
+            "navigate_and_triple_click",
+        ):
+            self._last_click_coords[session_id] = (cx, cy)
 
         history.append(action_type)
         if len(history) > 10:
@@ -218,6 +267,7 @@ class ActionValidator:
         """Reset all state for a session."""
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
+        self._last_click_coords.pop(session_id, None)
 
     @staticmethod
     def validate_done_response(final_message: str | None) -> tuple[bool, str]:

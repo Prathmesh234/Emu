@@ -1,4 +1,4 @@
-from .actions import Action, ActionType, Coordinates
+from .actions import Action, ActionType, Coordinates, safe_build_action
 from .request import (
     AgentRequest,
     ActionCompleteRequest,
@@ -17,6 +17,7 @@ __all__ = [
     "ActionType",
     "Coordinates",
     "Action",
+    "safe_build_action",
     # request
     "MessageRole",
     "PreviousMessage",

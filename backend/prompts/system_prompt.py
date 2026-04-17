@@ -180,11 +180,14 @@ This format is ONLY for desktop actions. For function tools (update_plan, read_p
 read_memory, etc.), use the function-calling API instead — never put them in this JSON.
 
 Desktop action reference:
+  navigate_and_click        → {{"action": {{"type": "navigate_and_click",        "coordinates": {{"x": 0.45, "y": 0.32}}}}}}
+  navigate_and_right_click  → {{"action": {{"type": "navigate_and_right_click",  "coordinates": {{"x": 0.45, "y": 0.32}}}}}}
+  navigate_and_triple_click → {{"action": {{"type": "navigate_and_triple_click", "coordinates": {{"x": 0.45, "y": 0.32}}}}}}
+  left_click    → {{"action": {{"type": "left_click"}}}}    (clicks at CURRENT cursor position — no navigation)
+  right_click   → {{"action": {{"type": "right_click"}}}}   (clicks at CURRENT cursor position — no navigation)
+  double_click  → {{"action": {{"type": "double_click"}}}}  (clicks at CURRENT cursor position — no navigation)
+  triple_click  → {{"action": {{"type": "triple_click"}}}}  (clicks at CURRENT cursor position — no navigation)
   mouse_move   → {{"action": {{"type": "mouse_move",   "coordinates": {{"x": 0.45, "y": 0.32}}}}}}
-  left_click   → {{"action": {{"type": "left_click"}}}}
-  right_click  → {{"action": {{"type": "right_click"}}}}
-  double_click → {{"action": {{"type": "double_click"}}}}
-  triple_click → {{"action": {{"type": "triple_click"}}}}
   type_text    → {{"action": {{"type": "type_text",    "text": "hello world"}}}}
   key_press    → {{"action": {{"type": "key_press",    "key": "enter"}}}}
   key+modifier → {{"action": {{"type": "key_press",    "key": "l", "modifiers": ["cmd"]}}}}
@@ -221,8 +224,16 @@ COORDINATE RULES:
   • Coordinates are normalized [0,1] ratios — NEVER raw pixels.
     x=0.0 left edge | x=0.5 horizontal center | x=1.0 right edge
     y=0.0 top edge  | y=0.5 vertical center   | y=1.0 bottom edge
-  • Only mouse_move and drag take coordinates. Clicks have NO coordinates.
+  • navigate_and_click / navigate_and_right_click / navigate_and_triple_click require coordinates. mouse_move and drag also take coordinates.
   • One action per response. Never include next_action, actions[], or step2.
+
+⚠️ CLICKING RULE:
+  PREFER navigate_and_click (and its right/triple variants) — they move the cursor
+  to the target AND click in one atomic step, so you hit the right element.
+  Bare left_click / right_click / double_click / triple_click are also valid but they click
+  at the CURRENT cursor position with no navigation. Only use them when the cursor is
+  already hovering the correct element (e.g. immediately after a mouse_move) — otherwise
+  use the navigate_and_* variant instead.
 </output_format>
 
 <anti_loop>
@@ -308,14 +319,16 @@ NEVER return these as JSON text. They are NOT desktop actions.
 These control the screen. Return them as a JSON object in your response text:
   {{"action": {{"type": "<action_type>", ...}}, "done": false, "confidence": 0.9}}
 
-  Valid action types: mouse_move, left_click, right_click, double_click,
-  triple_click, type_text, key_press, scroll, drag, shell_exec, screenshot, wait, done
+  Valid action types: navigate_and_click, navigate_and_right_click,
+  navigate_and_triple_click,
+  left_click, right_click, double_click, triple_click,
+  mouse_move, type_text, key_press, scroll, drag, shell_exec, screenshot, wait, done
 
 ⚠️  CRITICAL ROUTING RULES:
   • update_plan, read_plan, write_session_file, read_session_file, list_session_files,
     use_skill, read_memory, compact_context → ALWAYS use function-calling API.
     Returning {{"action": {{"type": "update_plan", ...}}}} WILL FAIL.
-  • shell_exec, type_text, screenshot, done, mouse_move, left_click, etc.
+  • shell_exec, type_text, screenshot, done, navigate_and_click, navigate_and_right_click, mouse_move, etc.
     → ALWAYS return as JSON text. Calling them as function tools WILL FAIL.
 
 MEMORY: At task start, call read_memory(target="long_term") for past learnings.

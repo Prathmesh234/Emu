@@ -78,15 +78,14 @@ def _load_conversation(path: Path) -> dict:
 
 
 def _save_conversation(path: Path, data: dict) -> None:
-    """Write the conversation JSON (atomic where possible, fallback on NTFS/WSL)."""
+    """Write the conversation JSON (atomic where possible, fallback if file is locked)."""
     tmp = path.with_suffix(".json.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     try:
         tmp.replace(path)
     except PermissionError:
-        # os.replace fails on NTFS mounts (WSL /mnt/c) when file is locked
-        # by OneDrive or another process — fall back to direct overwrite.
+        # os.replace can fail when file is locked by another process — fall back to direct overwrite.
         import shutil
         shutil.copy2(tmp, path)
         try:
