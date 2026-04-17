@@ -40,6 +40,22 @@ const ILLEGAL_PATTERNS = [
     { pattern: /find\s.*-name\s.*\*.*\*/, reason: 'Wildcard globbing across nested directories is too expensive. List one directory at a time.' },
     { pattern: /tree\s/i,               reason: 'tree produces massive output that blocks the shell. Use ls on a specific directory.' },
     { pattern: /du\s+-[^\s]*a.*\//i,    reason: 'du -a on large directories produces excessive output. Use du on a specific directory without -a.' },
+
+    // ── Exfiltration / remote code execution guards ──────────────────────
+    // Pipe a download directly into a shell/interpreter — executes untrusted remote code.
+    { pattern: /\b(curl|wget)\b[^|#]*\|\s*(ba?sh|zsh|python3?|node|ruby|perl)\b/i,
+      reason: 'Piping a download to a shell or interpreter is blocked — it executes untrusted remote code. Download the file first and inspect it before running.' },
+    // bash <(curl ...) / zsh <(wget ...) — process substitution fetches + executes remote code.
+    { pattern: /\b(ba?sh|zsh|python3?|node)\s+<\(\s*(curl|wget)\b/i,
+      reason: 'Process substitution with curl/wget is blocked — it fetches and executes remote code. Download the script first.' },
+    // curl/wget --data @file or -d @file — sends local file contents to a remote server.
+    { pattern: /\bcurl\b.*(?:--data|-d)\s+@/i,
+      reason: 'Sending a local file to a remote server via curl is blocked to prevent data exfiltration.' },
+    { pattern: /\bcurl\b.*(?:--data-raw|--data-binary|--data-urlencode|-F|--form)\s+@/i,
+      reason: 'Sending a local file to a remote server via curl is blocked to prevent data exfiltration.' },
+    // wget --post-file — same as curl --data @file
+    { pattern: /\bwget\b.*--post-file\b/i,
+      reason: 'wget --post-file sends local file contents to a remote server — blocked to prevent data exfiltration.' },
 ];
 
 /**

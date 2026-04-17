@@ -29,7 +29,8 @@ function createWindow() {
       // Fixing this requires adding a bundler (esbuild/webpack) to resolve modules
       // at build time, then routing all IPC through the preload.js bridge.
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
@@ -60,7 +61,7 @@ app.whenReady().then(() => {
         skipTaskbar: true,
         hasShadow: false,
         focusable: false,
-        webPreferences: { nodeIntegration: true, contextIsolation: false }
+        webPreferences: { nodeIntegration: true, contextIsolation: false, preload: path.join(__dirname, 'preload.js') }
       });
       borderWindow.setIgnoreMouseEvents(true, { forward: true });
       borderWindow.setAlwaysOnTop(true, 'screen-saver');

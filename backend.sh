@@ -168,7 +168,15 @@ fi
 
 # ── Build uvicorn args ──────────────────────────────────────────────────────
 
-UVICORN_ARGS="main:app --reload --host 0.0.0.0 --port 8000"
+# --reload is only enabled in dev mode (EMU_DEV=1) to prevent auto-executing
+# any file write on production user machines. 0.0.0.0 would expose the
+# shell-exec-capable backend to the entire LAN — always bind to loopback.
+_RELOAD_FLAG=""
+if [ "${EMU_DEV:-0}" = "1" ]; then
+    _RELOAD_FLAG="--reload"
+    warn "DEV MODE: --reload enabled (file changes will restart the server)"
+fi
+UVICORN_ARGS="main:app ${_RELOAD_FLAG} --host 127.0.0.1 --port 8000"
 
 # ── Start the backend ───────────────────────────────────────────────────────
 

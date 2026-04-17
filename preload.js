@@ -52,7 +52,7 @@ function readAuthToken() {
 }
 
 // ── Expose safe API to renderer ────────────────────────────────────────────
-contextBridge.exposeInMainWorld('electronAPI', {
+const electronAPI = {
     /**
      * Invoke an IPC handler in the main process and await the result.
      * Only allowed channels are permitted.
@@ -82,4 +82,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAuthToken() {
         return readAuthToken();
     },
-});
+};
+
+// contextBridge requires contextIsolation:true. Until the renderer is migrated
+// away from CommonJS require() (needs a bundler), we fall back to a direct
+// window assignment so the preload's IPC allowlist is at least live code.
+if (process.contextIsolated) {
+    contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+} else {
+    window.electronAPI = electronAPI;
+}
