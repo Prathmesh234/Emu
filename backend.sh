@@ -84,8 +84,9 @@ ok "Dependencies installed"
 # Mirrors the detection logic in backend/providers/registry.py
 
 detect_provider() {
+    # Trim + lowercase without xargs (xargs can fail in some environments and drop EMU_PROVIDER).
     local explicit="${EMU_PROVIDER:-}"
-    explicit="$(echo "$explicit" | tr '[:upper:]' '[:lower:]' | xargs)"
+    explicit="$(printf '%s' "$explicit" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
     if [ -n "$explicit" ]; then
         echo "$explicit"

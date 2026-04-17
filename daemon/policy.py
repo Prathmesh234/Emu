@@ -1,7 +1,9 @@
 """
 policy.py — Path resolution and write allowlist enforcement (Layer 2 security).
 
-EMU_ROOT is resolved once at import from the EMU_ROOT env var (or $HOME/.emu).
+EMU_ROOT is resolved once at import from the EMU_ROOT env var, or defaults to
+the repository's ``.emu/`` directory (same as ``backend/utilities/paths.py`` and
+``frontend/emu/init.js``). That default directory is created if missing.
 Every path the LLM provides is realpath'd and checked against EMU_ROOT before
 any I/O happens. check_write() is called twice per write: in the tool dispatcher
 and again in the post-pass in run.py.
@@ -16,15 +18,27 @@ class PolicyError(Exception):
     pass
 
 
+def _default_emu_root() -> Path:
+    """`<repo>/.emu` — matches ``get_emu_path()`` in ``backend/utilities/paths.py``."""
+    _daemon_dir = Path(__file__).resolve().parent
+    _project_root = _daemon_dir.parent
+    return (_project_root / ".emu").resolve()
+
+
 def _resolve_emu_root() -> Path:
-    raw = os.environ.get("EMU_ROOT") or str(Path.home() / ".emu")
-    p = Path(raw).expanduser()
+    raw = os.environ.get("EMU_ROOT", "").strip()
+    if raw:
+        p = Path(raw).expanduser().resolve()
+        if not p.exists():
+            raise RuntimeError(
+                f"EMU_ROOT path does not exist: {p!r}. "
+                "Create it, or unset EMU_ROOT to use the repository's .emu/ directory."
+            )
+        return p
+    p = _default_emu_root()
     if not p.exists():
-        raise RuntimeError(
-            f"EMU_ROOT path does not exist: {p!r}. "
-            "Set the EMU_ROOT environment variable to the correct .emu directory."
-        )
-    return p.resolve()
+        p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 EMU_ROOT: Path = _resolve_emu_root()
