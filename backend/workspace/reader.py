@@ -208,7 +208,22 @@ def ensure_session_dir(session_id: str) -> Path:
     if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
         raise ValueError(f"Invalid session_id format: {session_id}")
     session_dir = _SESSIONS_DIR / session_id
+    is_new = not session_dir.exists()
     session_dir.mkdir(parents=True, exist_ok=True)
+
+    # Append to the daemon's session index so it doesn't have to rescan.
+    # Done inline here because session creation is the canonical moment to
+    # register the {session_id: date} pair.
+    if is_new:
+        try:
+            from datetime import datetime
+            from daemon.state import record_session_in_index
+            record_session_in_index(session_id, datetime.now().strftime("%Y-%m-%d"))
+        except Exception as exc:
+            # Index-write failure must never block session creation.
+            # The daemon self-heals via rebuild_session_index on missing entries.
+            print(f"[session-index] warn: could not record {session_id}: {exc}")
+
     return session_dir
 
 

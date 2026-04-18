@@ -1,9 +1,20 @@
 """
-state.py — Processed-session tracker and input manifest builder.
+state.py — Session index + failure tracking (stateless consolidation).
 
-state.json lives at $EMU_ROOT/global/daemon/state.json and is the daemon's
-sole bookkeeping file. Sessions are processed incrementally — once a session
-ID appears in processed_sessions it is never re-processed.
+Design notes:
+- There is NO processed_sessions set. The daemon re-examines all sessions
+  every tick and relies on its own memory files (MEMORY.md, daily logs,
+  AGENTS.md) to decide what's already captured. This matches human-memory
+  semantics: learnings can be re-contextualized, edited, merged.
+
+- We maintain a lightweight index at `.emu/sessions/index.json` mapping
+  session_id -> date (YYYY-MM-DD). The backend writes a new entry the
+  moment a session is created; the daemon reads the index each tick
+  without scanning directories. A full rebuild only happens on cold start
+  (missing index file).
+
+- state.json at `.emu/global/daemon/state.json` now carries only
+  operational fields: consecutive_failures and last_tick_at.
 """
 
 from __future__ import annotations
@@ -20,7 +31,10 @@ from . import policy
 class SessionInfo:
     session_id: str
     path: Path
+    date: str  # "YYYY-MM-DD"
 
+
+# ── state.json (operational bookkeeping only) ────────────────────────────────
 
 def _state_path() -> Path:
     return policy.EMU_ROOT / "global" / "daemon" / "state.json"
@@ -30,15 +44,15 @@ def _load_state() -> dict:
     p = _state_path()
     if p.exists():
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return {
+                "version": 2,
+                "consecutive_failures": data.get("consecutive_failures", 0),
+                "last_tick_at": data.get("last_tick_at"),
+            }
         except (json.JSONDecodeError, OSError):
             pass
-    return {
-        "version": 1,
-        "processed_sessions": {},
-        "last_tick_at": None,
-        "consecutive_failures": 0,
-    }
+    return {"version": 2, "consecutive_failures": 0, "last_tick_at": None}
 
 
 def _save_state(data: dict) -> None:
@@ -47,96 +61,14 @@ def _save_state(data: dict) -> None:
     p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _seed_initial_state_if_missing() -> None:
-    """
-    Enforce the 'incremental only' rule from DESIGN §9: on first tick after
-    install, the daemon must NOT backfill the sessions that already exist.
-    If state.json does not yet exist, seed it by marking every currently
-    present session as already processed (with a synthetic 'seeded' run_id).
-    From this point forward, only sessions created AFTER install are visible
-    to the daemon.
-    """
-    if _state_path().exists():
-        return
-
-    sessions_dir = policy.EMU_ROOT / "sessions"
-    seeded: dict[str, dict] = {}
-    now = datetime.now(timezone.utc).isoformat()
-    if sessions_dir.exists():
-        for entry in sessions_dir.iterdir():
-            if entry.is_dir():
-                seeded[entry.name] = {"processed_at": now, "run_id": "seeded-at-install"}
-
-    _save_state({
-        "version": 1,
-        "processed_sessions": seeded,
-        "last_tick_at": None,
-        "consecutive_failures": 0,
-        "seeded_at": now,
-    })
-
-
-def list_unprocessed_sessions() -> list[SessionInfo]:
-    """Return sessions in $EMU_ROOT/sessions/ not yet in processed_sessions."""
-    _seed_initial_state_if_missing()
-
-    sessions_dir = policy.EMU_ROOT / "sessions"
-    if not sessions_dir.exists():
-        return []
-
+def mark_tick_complete() -> None:
     data = _load_state()
-    processed: set[str] = set(data.get("processed_sessions", {}).keys())
-
-    result: list[SessionInfo] = []
-    for entry in sorted(sessions_dir.iterdir()):
-        if entry.is_dir() and entry.name not in processed:
-            result.append(SessionInfo(session_id=entry.name, path=entry))
-    return result
-
-
-def build_input_manifest(sessions: list[SessionInfo]) -> str:
-    """Build the initial user message listing unprocessed sessions."""
-    lines = [
-        "## Sessions to curate\n",
-        f"There are {len(sessions)} unprocessed session(s). "
-        "Use list_dir and read_file to inspect them, then write the appropriate "
-        "memory files per your instructions.\n",
-    ]
-    for s in sessions:
-        lines.append(f"### Session `{s.session_id}`")
-        lines.append(f"Path (relative to .emu/): `sessions/{s.session_id}/`")
-        try:
-            files = sorted(f.name for f in s.path.iterdir() if f.is_file())
-            if files:
-                lines.append(f"Files: {', '.join(files)}")
-            else:
-                lines.append("Files: (empty session)")
-        except OSError:
-            lines.append("Files: (could not list)")
-        lines.append("")
-
-    lines.append(
-        "When done updating all memory files, call `finish` with a summary."
-    )
-    return "\n".join(lines)
-
-
-def mark_processed(sessions: list[SessionInfo], run_id: str) -> None:
-    """Record sessions as processed and update last_tick_at."""
-    data = _load_state()
-    now = datetime.now(timezone.utc).isoformat()
-    for s in sessions:
-        data["processed_sessions"][s.session_id] = {
-            "processed_at": now,
-            "run_id": run_id,
-        }
-    data["last_tick_at"] = now
+    data["last_tick_at"] = datetime.now(timezone.utc).isoformat()
     data["consecutive_failures"] = 0
     _save_state(data)
 
 
 def increment_failures() -> int:
-    """Increment failure counter and return the new count."""
     data = _load_state()
     count = data.get("consecutive_failures", 0) + 1
     data["consecutive_failures"] = count
@@ -146,3 +78,117 @@ def increment_failures() -> int:
 
 def get_consecutive_failures() -> int:
     return _load_state().get("consecutive_failures", 0)
+
+
+# ── Session index (sessions/index.json) ──────────────────────────────────────
+
+_INDEX_REL = "sessions/index.json"
+
+
+def _index_path() -> Path:
+    return policy.EMU_ROOT / _INDEX_REL
+
+
+def _extract_session_date(session_dir: Path) -> str:
+    """
+    Pull YYYY-MM-DD for a session. Preferred source:
+    conversation.json's session_date field. Fallback: dir mtime.
+    """
+    conv = session_dir / "logs" / "conversation.json"
+    if conv.exists():
+        try:
+            data = json.loads(conv.read_text(encoding="utf-8"))
+            date = data.get("session_date")
+            if isinstance(date, str) and len(date) == 10 and date[4] == "-":
+                return date
+        except (json.JSONDecodeError, OSError):
+            pass
+    mtime = datetime.fromtimestamp(session_dir.stat().st_mtime, tz=timezone.utc)
+    return mtime.strftime("%Y-%m-%d")
+
+
+def _read_index() -> dict[str, str]:
+    p = _index_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _write_index_atomic(index: dict[str, str]) -> None:
+    """Write index atomically via tempfile + rename (safe vs concurrent reads)."""
+    path = _index_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def record_session_in_index(session_id: str, date: str) -> None:
+    """
+    Append (or update) one session in `.emu/sessions/index.json`.
+    Called by the backend the moment a session is created so the daemon
+    doesn't have to rescan the sessions directory on every tick.
+    """
+    index = _read_index()
+    if index.get(session_id) == date:
+        return  # already recorded — no write needed
+    index[session_id] = date
+    _write_index_atomic(index)
+
+
+def rebuild_session_index() -> dict[str, str]:
+    """
+    Cold-start / self-heal fallback: scan sessions/ and rewrite the index.
+    Only called when the index file is missing (e.g. fresh clone with
+    pre-existing sessions) or when you explicitly want to reconcile
+    index vs. disk. Normal flow uses record_session_in_index().
+    """
+    sessions_dir = policy.EMU_ROOT / "sessions"
+    index: dict[str, str] = {}
+    if sessions_dir.exists():
+        for entry in sorted(sessions_dir.iterdir()):
+            if entry.is_dir():
+                index[entry.name] = _extract_session_date(entry)
+    _write_index_atomic(index)
+    return index
+
+
+def list_all_sessions() -> list[SessionInfo]:
+    """
+    Return every session from the index, newest-date first.
+    If the index file is missing, bootstrap it once by scanning — normal
+    operation after that is a cheap JSON read, no directory walk.
+    """
+    if not _index_path().exists():
+        rebuild_session_index()
+    index = _read_index()
+
+    sessions_dir = policy.EMU_ROOT / "sessions"
+    infos = [
+        SessionInfo(session_id=sid, path=sessions_dir / sid, date=date)
+        for sid, date in index.items()
+    ]
+    infos.sort(key=lambda s: s.date, reverse=True)
+    return infos
+
+
+def build_input_manifest(sessions: list[SessionInfo]) -> str:
+    """Build the initial user message. Lists every session via the index."""
+    lines = [
+        "## Session index\n",
+        f"There are {len(sessions)} session(s) on disk (newest-date first).",
+        f"Full index: `sessions/index.json` (read with `read_file` if useful).\n",
+        "Before writing, read `workspace/MEMORY.md` and recent daily logs in "
+        "`workspace/memory/`. For each session below, decide:",
+        "  • already captured in memory → skip",
+        "  • needs a new entry → read the session files and write it",
+        "  • existing entry should be refined with new context → edit it\n",
+    ]
+    for s in sessions:
+        lines.append(f"- `{s.session_id}` ({s.date}) — path: `sessions/{s.session_id}/`")
+    lines.append("")
+    lines.append("When all memory updates are done, call `finish` with a summary.")
+    return "\n".join(lines)

@@ -1,7 +1,8 @@
 """
 run.py — Emu Memory Daemon entrypoint.
 
-Invoked every 5 minutes by launchd as: python -m daemon.run
+Invoked every EMU_DAEMON_INTERVAL_SECONDS (default 300) by the in-process
+ticker in backend/main.py. Exposes main() which is the single-tick body.
 
 NOTE: For now the daemon runs the single fixed DAEMON_PROMPT. In the future
 we may support attached "skills" per Hermes's model (extra prompt fragments
@@ -98,17 +99,15 @@ def main() -> int:
 def _run_tick(tick_log: Path) -> int:
     ts_start = datetime.now(timezone.utc)
 
-    unprocessed = state.list_unprocessed_sessions()
-    if not unprocessed:
-        print("[daemon] no new sessions; idle", file=sys.stderr)
+    sessions = state.list_all_sessions()
+    if not sessions:
         return 0
 
-    session_ids = [s.session_id for s in unprocessed]
-    print(f"[daemon] processing {len(unprocessed)} session(s): {session_ids}", file=sys.stderr)
+    print(f"[daemon] examining {len(sessions)} session(s) against memory", file=sys.stderr)
 
     result = run_agent_loop(
         system=build_system_prompt(),
-        user=state.build_input_manifest(unprocessed),
+        user=state.build_input_manifest(sessions),
         tools=TOOLS,
         tool_dispatcher=tools.dispatch,
         max_turns=MAX_TURNS,
@@ -126,14 +125,13 @@ def _run_tick(tick_log: Path) -> int:
 
     total_violations = result.policy_violations + post_pass_violations
 
-    # Mark sessions processed only on success
     if result.status in ("ok", "max_turns") and total_violations == 0:
-        state.mark_processed(unprocessed, run_id=result.run_id)
+        state.mark_tick_complete()
     elif total_violations > 0:
         count = state.increment_failures()
         print(
-            f"[daemon] {total_violations} policy violation(s) detected — "
-            f"sessions NOT marked processed. Consecutive failures: {count}",
+            f"[daemon] {total_violations} policy violation(s) — "
+            f"consecutive failures: {count}",
             file=sys.stderr,
         )
 
@@ -145,8 +143,7 @@ def _run_tick(tick_log: Path) -> int:
     record = {
         "ts":               ts_start.isoformat(),
         "run_id":           result.run_id,
-        "sessions_seen":    len(unprocessed),
-        "sessions_new":     len(unprocessed),
+        "sessions_seen":    len(sessions),
         "turns":            result.turns,
         "tokens_in":        result.tokens_in,
         "tokens_out":       result.tokens_out,
@@ -159,7 +156,7 @@ def _run_tick(tick_log: Path) -> int:
     _log_tick(tick_log, record)
 
     print(
-        f"[daemon] tick done — {len(unprocessed)} session(s), "
+        f"[daemon] tick done — {len(sessions)} session(s) in view, "
         f"{len(files_written)} file(s) written, "
         f"{result.turns} turn(s), "
         f"{result.tokens_in + result.tokens_out} tokens, "

@@ -227,9 +227,6 @@ def _run_anthropic(
         if dispatch_state.finished:
             break
 
-        if resp.stop_reason == "end_turn" and not tool_calls:
-            break
-
     status = "ok" if dispatch_state.finished else ("max_turns" if turns >= max_turns else "ok")
     return AgentRunResult(
         run_id=run_id, turns=turns,

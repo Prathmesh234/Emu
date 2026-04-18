@@ -48,6 +48,7 @@ WRITE_ALLOWLIST_FILES = frozenset({
     "workspace/MEMORY.md",
     "workspace/USER.md",
     "workspace/IDENTITY.md",
+    "sessions/index.json",   # daemon-maintained session→date index
 })
 
 WRITE_ALLOWLIST_PREFIXES = (

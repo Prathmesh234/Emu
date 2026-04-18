@@ -179,6 +179,12 @@ if [ "${EMU_DEV:-0}" = "1" ]; then
 fi
 UVICORN_ARGS="main:app ${_RELOAD_FLAG} --host 127.0.0.1 --port 8000"
 
+# ── Memory daemon config (runs in-process inside uvicorn) ───────────────────
+# Export the detected provider so daemon/llm_client.py picks it up without
+# requiring EMU_DAEMON_PROVIDER in .env.
+
+export EMU_DAEMON_PROVIDER="${EMU_DAEMON_PROVIDER:-$PROVIDER}"
+
 # ── Start the backend ───────────────────────────────────────────────────────
 
 echo ""

@@ -1,10 +1,19 @@
 import asyncio
 import os
 import secrets
+import sys
 import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
+
+# Ensure the repo root is importable so `from daemon import run` resolves.
+# main.py lives at <repo>/backend/main.py; the daemon package is at <repo>/daemon.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,7 +79,44 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-app = FastAPI(title="Emulation Agent API")
+# ── Memory daemon (in-process background task) ──────────────────────────────
+# Runs daemon.run.main() every EMU_DAEMON_INTERVAL_SECONDS (default 300).
+# Fires once ~10s after startup, then loops. Lives with the backend
+# lifecycle — exits when uvicorn exits.
+
+_DAEMON_INITIAL_DELAY_S = 10
+_DAEMON_DEFAULT_INTERVAL_S = 300
+
+
+async def _daemon_ticker():
+    from daemon.run import main as daemon_main
+
+    interval = int(os.environ.get("EMU_DAEMON_INTERVAL_SECONDS", _DAEMON_DEFAULT_INTERVAL_S))
+    print(f"[daemon] ticker started — first tick in {_DAEMON_INITIAL_DELAY_S}s, then every {interval}s")
+    await asyncio.sleep(_DAEMON_INITIAL_DELAY_S)
+
+    while True:
+        try:
+            await asyncio.to_thread(daemon_main)
+        except Exception as exc:
+            print(f"[daemon] tick raised: {exc}")
+        await asyncio.sleep(interval)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_daemon_ticker())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Emulation Agent API", lifespan=lifespan)
 
 # Middleware execution order in Starlette: LAST added = OUTERMOST.
 # We need CORS to be outermost so its headers appear on ALL responses

@@ -45,6 +45,9 @@ TOOLS: list[dict] = [
         "description": (
             "Read the UTF-8 text content of a file under .emu/. "
             "Pass a path relative to .emu/ (e.g. 'workspace/MEMORY.md'). "
+            "For large files, use start_line and max_lines to read in chunks — "
+            "the response will include a header showing which lines were returned "
+            "and the total line count so you know whether to read more. "
             "Returns the file content as a string, or an error message."
         ),
         "input_schema": {
@@ -53,6 +56,14 @@ TOOLS: list[dict] = [
                 "path": {
                     "type": "string",
                     "description": "File path relative to .emu/",
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "0-indexed line to start reading from (default: 0).",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Maximum number of lines to return (default: all).",
                 },
             },
             "required": ["path"],
@@ -168,17 +179,35 @@ def _read_file(args: dict, state: DispatchState) -> str:
     if not resolved.is_file():
         return f"[error] path is not a file: {raw_path!r}"
 
-    size = resolved.stat().st_size
-    if size > MAX_READ_BYTES:
-        return (
-            f"[error] file too large to read ({size} bytes > {MAX_READ_BYTES}). "
-            "Consider reading a smaller portion."
-        )
-
     try:
-        return resolved.read_text(encoding="utf-8")
+        content = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return f"[error] file is not valid UTF-8: {raw_path!r}"
+
+    start_line = int(args.get("start_line") or 0)
+    max_lines = args.get("max_lines")
+
+    if start_line or max_lines is not None:
+        lines = content.splitlines(keepends=True)
+        total = len(lines)
+        end = start_line + int(max_lines) if max_lines is not None else total
+        chunk = "".join(lines[start_line:end])
+        if len(chunk.encode("utf-8")) > MAX_READ_BYTES:
+            return (
+                f"[error] chunk too large. Reduce max_lines "
+                f"(requested lines {start_line}-{end} of {total})."
+            )
+        return f"[lines {start_line}-{min(end, total) - 1} of {total} total]\n{chunk}"
+
+    # Full file — guard against oversized reads
+    if len(content.encode("utf-8")) > MAX_READ_BYTES:
+        lines_count = content.count("\n") + 1
+        return (
+            f"[error] file too large to read in full ({resolved.stat().st_size} bytes). "
+            f"File has ~{lines_count} lines. Use start_line and max_lines to read in chunks."
+        )
+
+    return content
 
 
 def _write_file(args: dict, state: DispatchState) -> str:
