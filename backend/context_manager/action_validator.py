@@ -237,9 +237,14 @@ class ActionValidator:
         if action_type == "unknown":
             return False, (
                 "Your response was not a valid JSON action. "
-                "Respond with ONLY a raw JSON object — no prose, no markdown fences:\n"
+                "Respond with ONLY a raw JSON object — no prose, no markdown fences.\n\n"
+                "For a desktop action:\n"
                 '  {"action": {"type": "navigate_and_click", '
-                '"coordinates": {"x": 0.5, "y": 0.5}}, "done": false, "confidence": 0.9}\n'
+                '"coordinates": {"x": 0.5, "y": 0.5}}, "done": false, "confidence": 0.9}\n\n'
+                "When you have finished the task and want to reply to the user, "
+                "put your answer in final_message:\n"
+                '  {"action": {"type": "done"}, "done": true, "confidence": 0.95, '
+                '"final_message": "<your full answer to the user goes here>"}\n\n'
                 "Valid types: navigate_and_click, navigate_and_right_click, "
                 "navigate_and_triple_click, "
                 "left_click, right_click, double_click, triple_click, "

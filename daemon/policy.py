@@ -48,8 +48,11 @@ WRITE_ALLOWLIST_FILES = frozenset({
     "workspace/MEMORY.md",
     "workspace/USER.md",
     "workspace/IDENTITY.md",
-    "sessions/index.json",   # daemon-maintained session→date index
 })
+# Note: sessions/index.json is backend-owned. The daemon's LLM must NOT be
+# able to write it (risk of silent corruption). The backend writes it
+# directly via Path.write_text in state.record_session_in_index, which
+# bypasses this allowlist by design.
 
 WRITE_ALLOWLIST_PREFIXES = (
     "workspace/memory/",

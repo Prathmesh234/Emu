@@ -325,11 +325,29 @@ async def agent_step(req: AgentRequest):
             continue  # re-call model with tool results
 
         # No tool calls — we have a desktop action or done.
-        
+
         # ── Safety: ensure we have an action ──────────────────────────────────────
         if not response.action:
             response.action = Action(type=ActionType.SCREENSHOT)
             response.done = False
+
+        # ── Rescue: model returned plain-text prose instead of a JSON action.
+        # The provider wraps that as action=unknown with the prose in
+        # final_message. If the prose doesn't look like a truncated action
+        # (validate_done_response agrees), treat it as an implicit "done"
+        # so the user actually sees the summary instead of a bare DONE tile.
+        if (
+            response.action.type == ActionType.UNKNOWN
+            and response.final_message
+            and response.final_message.strip()
+        ):
+            done_ok, _ = context_manager.action_validator.validate_done_response(
+                response.final_message
+            )
+            if done_ok:
+                print("[agent/step] promoting unknown+prose to done action")
+                response.action = Action(type=ActionType.DONE)
+                response.done = True
 
         action_type = response.action.type.value
         action_payload = response.action.model_dump(exclude_none=True)
