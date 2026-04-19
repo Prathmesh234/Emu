@@ -100,6 +100,13 @@
 .trace-status.success { color: var(--ink-55); }
 .trace-status.failed  { color: var(--ink-55); }
 
+/* ── Error variant — dimmer, slightly different border ──────────────── */
+
+.trace.trace-error {
+  border-left-color: var(--ink-30);
+  color: var(--ink-55);
+}
+
 /* ── File / Skill trace variants ─────────────────────────────────────── */
 
 /* Underlined filename link inside trace */

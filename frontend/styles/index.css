@@ -24,4 +24,6 @@
 @import './conversation/trace.css';
 @import './conversation/actions.css';
 @import './conversation/greeting.css';
+@import './conversation/confirm.css';
+@import './conversation/markdown.css';
 @import './sidebar.css';

@@ -13,37 +13,53 @@
  */
 
 /* ── Outer panel ─────────────────────────────────────────────────────── */
+/*
+ * Smoother animation approach (GPU-accelerated):
+ *   - max-width drives layout collapse (closed: 0, open: 240px)
+ *   - will-change lets the browser promote the element to its own layer
+ *   - Inner slides in from -12px with a 60ms delay, creating a staggered feel
+ *   - Custom easing (cubic-bezier(.32, .72, 0, 1)) — "expressive" iOS-style curve
+ */
 
 .history-panel {
-  width: 0;
+  max-width: 0;
+  width: 240px;
   overflow: hidden;
   flex-shrink: 0;
-  border-right: 0px solid var(--ink-14);
+  border-right: 1px solid transparent;
   background: var(--paper);
   display: flex;
   flex-direction: column;
-  transition: width 0.22s var(--ease), border-right-width 0.22s var(--ease);
+  will-change: max-width, border-right-color;
+  transition:
+    max-width        0.32s cubic-bezier(.32, .72, 0, 1),
+    border-right-color 0.32s cubic-bezier(.32, .72, 0, 1);
 }
 
 .history-panel.open {
-  width: 240px;
-  border-right-width: 1px;
+  max-width: 240px;
+  border-right-color: var(--ink-14);
 }
 
-/* ── Inner body (clip while animating) ──────────────────────────────── */
+/* ── Inner body (slides in from left with a small stagger) ──────────── */
 
 .history-panel-inner {
-  width: 240px;           /* fixed — parent clips via overflow:hidden */
+  width: 240px;
   height: 100%;
   display: flex;
   flex-direction: column;
   padding: 22px 6px 14px;
   opacity: 0;
-  transition: opacity 0.18s var(--ease);
+  transform: translateX(-12px);
+  will-change: opacity, transform;
+  transition:
+    opacity   0.22s var(--ease) 0.04s,
+    transform 0.28s cubic-bezier(.32, .72, 0, 1) 0.04s;
 }
 
 .history-panel.open .history-panel-inner {
   opacity: 1;
+  transform: translateX(0);
 }
 
 /* ── "Emu" mark + close button ──────────────────────────────────────── */

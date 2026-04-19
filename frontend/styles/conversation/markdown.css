@@ -1,0 +1,78 @@
+/*
+ * markdown.css — Inline code, code blocks, and other markdown overrides
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ *
+ * Overrides the old high-contrast markdown styles (white bg + black border
+ * for inline code, black bg for code blocks) with quiet token-driven styles
+ * that fit the Linen / Ink palette.
+ *
+ * Also fixes bold weight: Inter Tight is only loaded at 400 and 500, so the
+ * browser synthesizes 700 (<strong>) as a very heavy faux-bold. We pin
+ * <strong> to 500 explicitly so it's a tasteful medium weight.
+ */
+
+/* ── Inline code — subtle tint, no border ─────────────────────────────── */
+
+.md-inline-code {
+  background: var(--ink-08);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.88em;
+  color: var(--ink);
+}
+
+/* ── Code block — dim surface, no harsh black ─────────────────────────── */
+
+.md-code-block {
+  background: var(--ink-08);
+  color: var(--ink);
+  border: 1px solid var(--ink-14);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: var(--size-xs);
+  line-height: 1.55;
+  overflow-x: auto;
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+
+/* ── Bold: pin to Inter Tight 500 (700 would be synthesized / too heavy) */
+
+.turn-text strong,
+.trace-done-text strong,
+.turn-emu-body strong {
+  font-weight: 500;
+}
+
+/* ── Horizontal rule — hairline, not dashed ───────────────────────────── */
+
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--ink-14);
+  margin: 14px 0;
+}
+
+/* ── Links — minimal underline, no bright blue ────────────────────────── */
+
+.md-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: default;
+}
+
+.md-link:hover { color: var(--ink-55); }
+
+/* ── Checklist styling for memory files rendered in chat ─────────────── */
+
+.md-check.done    { color: var(--ink-55); }
+.md-check.pending { color: var(--ink-30); }
+.md-check-item.checked {
+  color: var(--ink-55);
+  text-decoration: line-through;
+}

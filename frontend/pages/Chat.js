@@ -56,13 +56,11 @@ function syncGeneratingUI(generating) {
     store.setGenerating(generating);
     // Border glow only while agent is executing
     ipcRenderer.send('set-border', generating);
-    if (generating) {
-        chatInput.setMode('stop');
-        chatInput.setTooltip('Emu is working…');   // shown as hint row in Composer
-    } else {
-        chatInput.setMode('send');
-        chatInput.setTooltip('');
-    }
+    // Design change: the working state is communicated by the window-header
+    // status pill ("working" + pulsing dot). No need for a redundant hint
+    // above the composer — leave it clean.
+    chatInput.setMode(generating ? 'stop' : 'send');
+    chatInput.setTooltip('');
     // Update the window header status pill
     if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
     // Disable the dangerous mode toggle mid-generation
@@ -291,30 +289,13 @@ async function loadPastSession(sessionId) {
                     return;
                 }
 
-                // Generic tool card
-                const toolCard = document.createElement('div');
-                toolCard.className = 'step-card';
-
-                const toolBlock = document.createElement('div');
-                toolBlock.className = 'step-action';
-
-                const toolLabel = document.createElement('div');
-                toolLabel.className = 'step-label';
-                toolLabel.textContent = `🔧 Tool: ${toolName || 'unknown'}`;
-                toolBlock.appendChild(toolLabel);
-
-                const toolDesc = document.createElement('div');
-                toolDesc.className = 'step-action-desc';
-                toolDesc.textContent = toolResult.length > 200 ? toolResult.slice(0, 200) + '…' : toolResult;
-                toolBlock.appendChild(toolDesc);
-
-                const badge = document.createElement('div');
-                badge.className = 'step-action-status success';
-                badge.textContent = '✓ Done';
-                toolBlock.appendChild(badge);
-
-                toolCard.appendChild(toolBlock);
-                container.appendChild(toolCard);
+                // Generic tool trace (replaces the old white step-card DOM).
+                // Renders as a single resolved trace line — no bordered card,
+                // no completion badge. Matches the Finished-frame aesthetic.
+                const toolWrap = document.createElement('div');
+                toolWrap.className = 'trace resolved';
+                toolWrap.textContent = `used ${toolName || 'tool'}`;
+                container.appendChild(toolWrap);
                 return;
             }
 
@@ -334,12 +315,12 @@ async function loadPastSession(sessionId) {
                     reasoning_content: reasoning,
                 }, stepNum);
 
-                // Mark as completed (not executing)
+                // Past sessions are fully resolved: hide the blinking caret
+                // and drop the pending "…" badge. The trace text alone
+                // communicates what the agent did.
+                stepCard.element.classList.add('resolved');
                 const badge = stepCard.element.querySelector('.step-action-status');
-                if (badge) {
-                    badge.className = 'step-action-status success';
-                    badge.textContent = '✓ Done';
-                }
+                if (badge) badge.remove();
 
                 container.appendChild(stepCard.element);
                 return;
@@ -609,28 +590,16 @@ async function continueLoop() {
     const sizeKB = Math.round(screenshot.base64.length / 1024);
     console.log(`[continueLoop] screenshot OK (${sizeKB} KB) — posting to backend`);
 
-    // Show screenshot as a visible step card in the UI
+    // Design change (Phase 8 polish): no inline screenshot card anymore.
+    // The window-header status pill ("Capturing screen…") is the visible
+    // feedback. Showing a thumbnail breaks the prose trace flow.
     store.state.stepCount = (store.state.stepCount || 0) + 1;
-    const stepNum = store.state.stepCount;
-
-    const screenshotStepData = {
-        action: null,
-        screenshot: screenshot.base64,
-        confidence: 1.0,
-        done: false,
-    };
-    const screenshotCard = StepCard(screenshotStepData, stepNum);
 
     const { state } = store;
     if (state.currentAssistantEl) {
         let container = state.stepContainer;
         if (container && !container.parentNode) {
             state.currentAssistantEl.appendChild(container);
-        }
-        if (container) {
-            container.appendChild(screenshotCard.element);
-        } else {
-            state.currentAssistantEl.appendChild(screenshotCard.element);
         }
     }
     scrollToBottom();
@@ -759,7 +728,7 @@ async function handleWsMessage(data) {
                         if (decision === 'allow') {
                             console.log('[step] user allowed shell_exec — executing');
                             const badge = stepCard.element.querySelector('.step-action-status');
-                            if (badge) { badge.style.display = ''; badge.textContent = 'Executing…'; }
+                            if (badge) { badge.style.display = ''; badge.textContent = ''; }
                             await executeAction(data.action, stepCard.element);
                             await sleep(500);
                             await continueLoop();
@@ -768,9 +737,10 @@ async function handleWsMessage(data) {
                             const badge = stepCard.element.querySelector('.step-action-status');
                             if (badge) {
                                 badge.style.display = '';
-                                badge.className = 'step-action-status failed';
-                                badge.textContent = 'Denied by user';
+                                badge.className = 'step-action-status failed trace-status';
+                                badge.textContent = 'denied';
                             }
+                            stepCard.element.classList.add('resolved');
                             // Inject denial into context so the model can adapt
                             try {
                                 await api.notifyActionComplete({
@@ -1016,16 +986,17 @@ async function executeAction(action, stepEl) {
     const result = await dispatchAction(action);
     console.log(`[executeAction] result:`, result);
 
-    // Mark trace as resolved (hides the blinking caret)
+    // Mark trace as resolved (hides the blinking caret).
+    // Success case: remove the badge entirely for a clean prose-style trace.
+    // Failure case: show a quiet "failed" note so the user can see what broke.
     stepEl.classList.add('resolved');
     const badge = stepEl.querySelector('.step-action-status');
     if (badge) {
         if (result.success) {
-            badge.className = 'step-action-status success trace-status';
-            badge.textContent = '✓';
+            badge.remove();
         } else {
             badge.className = 'step-action-status failed trace-status';
-            badge.textContent = '✗';
+            badge.textContent = 'failed';
         }
     }
 

@@ -1,0 +1,57 @@
+/*
+ * confirm.css — Details card for confirmation actions
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/frames-b.jsx > F_Confirm
+ *
+ * A bordered card with key/value rows, shown above the action buttons
+ * when the agent pauses for user confirmation (shell_exec, etc).
+ */
+
+.confirm-card {
+  margin-top: 8px;
+  padding: 18px 20px;
+  border: 1px solid var(--ink-14);
+  border-radius: var(--radius);
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--paper);
+}
+
+.confirm-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  font-size: var(--size-sm);     /* 13px — design shows 14px */
+}
+
+/* Key: italic serif, dim */
+.confirm-card-key {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--ink-55);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Value: plain ink, right-aligned */
+.confirm-card-val {
+  color: var(--ink);
+  text-align: right;
+  word-break: break-word;
+  /* monospace for values that look like commands */
+  font-feature-settings: 'tnum' 1;
+}
+
+/* When the value is a shell command, use monospace */
+.confirm-card-val.monospace {
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: var(--size-xs);
+  white-space: pre-wrap;
+  max-width: 320px;
+  text-align: left;
+  color: var(--ink);
+}

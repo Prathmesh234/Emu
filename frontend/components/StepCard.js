@@ -13,6 +13,7 @@
 
 const { describeAction, actionIcon } = require('../actions/actionProxy');
 const { renderMarkdown } = require('./markdown');
+const { ConfirmCard } = require('./conversation/ConfirmCard');
 
 function StepCard(data, stepNum) {
     const wrap = document.createElement('div');
@@ -51,12 +52,18 @@ function StepCard(data, stepNum) {
         caret.className = 'trace-caret';
         wrap.appendChild(caret);
 
-        // Shell exec: show command preview + Allow / Deny buttons
+        // Shell exec: structured details card + Allow / Deny buttons
+        // Design: matches F_Confirm frame — details in a bordered card,
+        // primary filled "Allow" + outlined "Deny".
         if (data.requires_confirmation && data.action.type === 'shell_exec') {
-            const cmd = document.createElement('code');
-            cmd.className = 'trace-cmd';
-            cmd.textContent = data.action.command || '';
-            wrap.appendChild(cmd);
+            const card = ConfirmCard([
+                ['Action',  'Shell command'],
+                ['Command', data.action.command || ''],
+            ]);
+            // Apply monospace styling to the command row's value
+            const rows = card.element.querySelectorAll('.confirm-card-val');
+            if (rows.length >= 2) rows[1].classList.add('monospace');
+            wrap.appendChild(card.element);
 
             const row = document.createElement('div');
             row.className = 'action-row';
@@ -109,13 +116,18 @@ function DoneCard(message) {
     return { element: el };
 }
 
-// ErrorCard — error message in trace styling
+// ErrorCard — error message in trace styling, matches F_Error frame
+// Renders a dim trace block with a quiet "paused" hint, so the user can
+// simply reply in the composer to continue or redirect the agent.
 function ErrorCard(message) {
-    const el = document.createElement('div');
-    el.className = 'trace';
-    el.style.borderLeftColor = 'var(--ink-30)';
-    el.textContent = message;
-    return { element: el };
+    const wrap = document.createElement('div');
+    wrap.className = 'trace trace-error';
+
+    const text = document.createElement('span');
+    text.textContent = message;
+    wrap.appendChild(text);
+
+    return { element: wrap };
 }
 
 module.exports = { StepCard, DoneCard, ErrorCard };
