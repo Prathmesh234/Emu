@@ -1,0 +1,54 @@
+/*
+ * window-header.css — Inner header: "Emu" mark + status pill
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/chrome.jsx > Header
+ *
+ * Sits below the chrome bar, above the chat body.
+ * Carries the app title (italic serif "Emu") and the live status pill.
+ */
+
+.window-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 28px 40px 0;
+  flex-shrink: 0;
+}
+
+/* "Emu" wordmark */
+.window-header-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-xl);     /* 22px */
+  letter-spacing: -0.2px;
+  color: var(--ink);
+  line-height: 1;
+}
+
+/* Status pill: dot + text */
+.window-header-status {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);     /* 13px → design shows 14px; using sm for consistency */
+  color: var(--ink-55);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.window-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-30);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: background 0.3s var(--ease);
+}
+
+/* When agent is working — dot turns fully opaque and pulses */
+.window-status-dot.live {
+  background: var(--ink);
+  animation: emuPulse 1.8s ease-in-out infinite;
+}

@@ -1,62 +1,49 @@
-// FileCard component — compact notification for file operations
-// Clicking the filename opens a dialog showing file contents.
+// FileCard — inline file-written notification in Trace style
+//
+// Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+// Design source: Emu-handoff.zip → project/frames/chrome.jsx > Trace
+//
+// Design change: replaces the old file card (icon + label + view button)
+// with a single trace line containing an underlined clickable filename.
+// The file dialog (full-screen overlay) is preserved unchanged.
+// Same function signature: FileCard(filename, action, filepath).
 
 const fs = require('fs');
 const { renderMarkdown } = require('./markdown');
 
 function FileCard(filename, action, filepath) {
-    const card = document.createElement('div');
-    card.className = 'step-card file-card';
+    const wrap = document.createElement('div');
+    wrap.className = 'trace';
 
-    const icon = document.createElement('span');
-    icon.className = 'file-card-icon';
-    icon.textContent = action === 'created' ? '\u{1F4C4}' : '\u270F\uFE0F';
+    const verb = action === 'created' ? 'created' : 'updated';
 
-    const left = document.createElement('div');
-    left.className = 'file-card-left';
-    left.appendChild(icon);
-
-    const info = document.createElement('div');
-    info.className = 'file-card-info';
-
-    const label = document.createElement('span');
-    label.className = 'file-card-label';
-    label.textContent = action === 'created' ? 'File created' : 'File edited';
-    info.appendChild(label);
-
-    // Filename as a clickable button (only if filepath provided)
-    const nameBtn = document.createElement('button');
-    nameBtn.className = 'file-card-name' + (filepath ? ' file-card-name-clickable' : '');
-    nameBtn.textContent = filename;
-    nameBtn.disabled = !filepath;
-    info.appendChild(nameBtn);
-
-    left.appendChild(info);
-    card.appendChild(left);
+    const textNode = document.createTextNode(verb + ' ');
+    wrap.appendChild(textNode);
 
     if (filepath) {
-        const viewBtn = document.createElement('button');
-        viewBtn.className = 'file-card-view-btn';
-        viewBtn.textContent = 'View';
-        card.appendChild(viewBtn);
-
-        const openDialog = () => showFileDialog(filename, filepath);
-        nameBtn.addEventListener('click', openDialog);
-        viewBtn.addEventListener('click', openDialog);
+        const link = document.createElement('span');
+        link.className = 'trace-file-link';
+        link.textContent = filename;
+        link.addEventListener('click', () => showFileDialog(filename, filepath));
+        wrap.appendChild(link);
+    } else {
+        const span = document.createElement('span');
+        span.textContent = filename;
+        wrap.appendChild(span);
     }
 
-    return { element: card };
+    return { element: wrap };
 }
 
+// ── File dialog (visual design updated, functionality unchanged) ──────────
+
 function showFileDialog(filename, filepath) {
-    // Overlay
     const overlay = document.createElement('div');
     overlay.className = 'file-dialog-overlay';
 
     const dialog = document.createElement('div');
     dialog.className = 'file-dialog';
 
-    // Header
     const header = document.createElement('div');
     header.className = 'file-dialog-header';
 
@@ -73,14 +60,12 @@ function showFileDialog(filename, filepath) {
 
     dialog.appendChild(header);
 
-    // Content
     const body = document.createElement('div');
     body.className = 'file-dialog-body';
 
     try {
         const content = fs.readFileSync(filepath, 'utf-8');
-        const isMarkdown = filename.toLowerCase().endsWith('.md');
-        if (isMarkdown) {
+        if (filename.toLowerCase().endsWith('.md')) {
             renderMarkdown(body, content);
         } else {
             const pre = document.createElement('pre');
@@ -90,17 +75,11 @@ function showFileDialog(filename, filepath) {
         }
     } catch (err) {
         body.textContent = `Could not read file: ${err.message}`;
-        body.style.color = '#dc2626';
     }
 
     dialog.appendChild(body);
     overlay.appendChild(dialog);
-
-    // Close on overlay click (outside dialog)
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) overlay.remove();
-    });
-
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
 }
 

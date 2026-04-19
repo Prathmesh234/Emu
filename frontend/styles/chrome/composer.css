@@ -1,0 +1,142 @@
+/*
+ * composer.css — Borderless input bar at window bottom
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/chrome.jsx > Composer
+ *
+ * Replaces the old rounded-border ChatInput with a minimal, serif-driven
+ * composer. Top border only. Two rows: optional hint + input + verb button.
+ *
+ * States: idle | working | done | confirm | disabled
+ */
+
+.composer {
+  padding: 14px 40px 22px;
+  border-top: 1px solid var(--ink-14);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--paper);
+}
+
+/* ── Hint row (visible only when hint text is set) ──────────────────────── */
+
+.composer-hint {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);   /* 13px */
+  color: var(--ink-55);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-hint-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-30);
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.composer-hint-dot.live {
+  background: var(--ink);
+  animation: emuPulse 1.8s ease-in-out infinite;
+}
+
+/* ── Input row ──────────────────────────────────────────────────────────── */
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Serif italic textarea — no border, no background */
+.composer-input {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: var(--size-md);   /* 17px */
+  font-style: italic;
+  color: var(--ink-30);        /* placeholder colour — text not yet entered */
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  max-height: 160px;
+  transition: color 0.15s;
+}
+
+/* Once user starts typing, switch to full-ink non-italic */
+.composer-input.has-value {
+  font-style: normal;
+  color: var(--ink);
+}
+
+.composer-input::placeholder {
+  font-style: italic;
+  color: var(--ink-30);
+}
+
+/* disabled state (past session view) */
+.composer-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Verb button (send / stop) ──────────────────────────────────────────── */
+
+.composer-btn {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-base); /* 15px */
+  color: var(--ink-55);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.composer-btn:hover { color: var(--ink); }
+
+.composer-btn:disabled {
+  color: var(--ink-30);
+  cursor: default;
+}
+
+/* "stop" verb uses same style but stays enabled while working */
+.composer-btn.stop-mode {
+  color: var(--ink-55);
+}
+.composer-btn.stop-mode:hover { color: var(--ink); }
+
+/* ── Disabled overlay (past-session view) ───────────────────────────────── */
+
+.composer.composer-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  position: relative;
+}
+
+.composer-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);
+  color: var(--ink-55);
+  background: var(--paper);
+  pointer-events: none;
+}

@@ -1,0 +1,62 @@
+/*
+ * greeting.css — Idle frame: centered greeting shown on fresh start
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/frames-a.jsx > F_Idle
+ *
+ * Replaces the old EmptyState (emu SVG + "Hey I'm Emu" text) with the
+ * editorial greeting from the design: large serif heading with italic name
+ * + quiet subtitle. Centered in the Body column.
+ */
+
+.idle-greeting {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 20px;
+  /* absorbs any extra vertical space so it stays centered */
+  min-height: 0;
+}
+
+/* "Good afternoon, Prathmesh." */
+.idle-greeting-heading {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 0;
+  max-width: 600px;
+}
+
+/* The name fragment rendered italic */
+.idle-greeting-heading em {
+  font-style: italic;
+}
+
+/* "Tell me what to do and I'll take it from there." */
+.idle-greeting-sub {
+  font-size: var(--size-base);   /* 15px — design shows 16px; sm+ */
+  color: var(--ink-55);
+  line-height: 1.55;
+  max-width: 360px;
+  margin: 0;
+}
+
+/* Memory hint — dim italic line pulled from MEMORY.md */
+.idle-greeting-hint {
+  margin: 18px 0 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);        /* 13px */
+  color: var(--ink-30);
+  line-height: 1.5;
+  max-width: 480px;
+  padding-left: 14px;
+  border-left: 1px solid var(--ink-14);
+  text-align: left;
+}

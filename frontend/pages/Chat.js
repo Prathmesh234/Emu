@@ -2,9 +2,22 @@
 //
 // Owns the chat UI: message list, input, status bar,
 // WebSocket message handling, and action execution.
+//
+// Design change (Emu Design System v1 refactor — phases 1-3):
+//   - Header      → MacWindow (chrome bar) + WindowHeader (Emu + status pill)
+//   - ChatInput   → Composer (borderless, serif, hint row)
+//   - Layout      → mac-chrome / mac-content / mac-main structure
+//   All WebSocket, IPC, action dispatch, and API logic is unchanged.
 
 const { ipcRenderer } = require('electron');
-const { Message, ChatInput, StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, Header, EmptyState, StatusIndicator, HistoryPanel } = require('../components');
+const { StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, HistoryPanel } = require('../components');
+const { Greeting } = require('../components/conversation/Greeting');
+const { TurnYou }      = require('../components/conversation/TurnYou');
+const { TurnEmu }      = require('../components/conversation/TurnEmu');
+const { MacWindow }    = require('../components/chrome/MacWindow');
+const { WindowHeader } = require('../components/chrome/WindowHeader');
+const { Composer }     = require('../components/chrome/Composer');
+const { renderMarkdown } = require('../components/markdown');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { dispatchAction } = require('../actions/actionProxy');
@@ -14,7 +27,7 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 
 // ── DOM refs (populated in mount) ────────────────────────────────────────
 
-let chatContainer, chatWrapper, chatInput, header, historyPanel;
+let chatContainer, chatWrapper, chatInput, header, historyPanel, winHeader;
 let _historyPanelOpen = false;
 let _viewingPastSession = false;
 
@@ -45,11 +58,13 @@ function syncGeneratingUI(generating) {
     ipcRenderer.send('set-border', generating);
     if (generating) {
         chatInput.setMode('stop');
-        chatInput.setTooltip('Click to stop the agent');
+        chatInput.setTooltip('Emu is working…');   // shown as hint row in Composer
     } else {
         chatInput.setMode('send');
         chatInput.setTooltip('');
     }
+    // Update the window header status pill
+    if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
     // Disable the dangerous mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);
 }
@@ -90,40 +105,47 @@ async function minimizeWindow() {
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
+// Design change (Phase 5): replaced old EmptyState (emu SVG + "Hey I'm Emu")
+// with the Idle greeting from the handoff design.
 function showEmpty() {
-    const emptyState = EmptyState();
-    chatWrapper.appendChild(emptyState.element);
+    const greeting = Greeting();
+    chatWrapper.appendChild(greeting.element);
 }
 
+// Design change (Phase 4): replaced Message('user'/'assistant') bubbles
+// with TurnYou / TurnEmu blocks matching the handoff design.
+// Returns: user → turn element; assistant → turn.body (mount point for trace lines).
 function addMessage(role, content, index) {
-    const empty = chatWrapper.querySelector('.empty-state');
+    const empty = chatWrapper.querySelector('.empty-state, .idle-greeting');
     if (empty) empty.remove();
 
-    const msg = Message(role, content);
-
-    chatWrapper.appendChild(msg.element);
-    scrollToBottom();
-    return msg.content;
-}
-
-function showStatus(text) {
-    removeStatus();
-    const indicator = StatusIndicator(text);
-    chatWrapper.appendChild(indicator.element);
-    scrollToBottom();
-}
-
-function updateStatus(text) {
-    const indicator = document.getElementById('status-indicator');
-    if (indicator) {
-        const span = indicator.querySelector('span:last-child');
-        if (span) span.textContent = text;
+    if (role === 'user') {
+        const turn = TurnYou(content);
+        chatWrapper.appendChild(turn.element);
+        scrollToBottom();
+        return turn.element;
+    } else {
+        const turn = TurnEmu(content);
+        chatWrapper.appendChild(turn.element);
+        scrollToBottom();
+        return turn.body;
     }
 }
 
+// Design change (Phase 4): status messages now drive the WindowHeader pill
+// instead of appending a visible bubble to the chat area. This matches the
+// design's quiet aesthetic — status lives in the chrome, not the conversation.
+function showStatus(text) {
+    if (winHeader) winHeader.setStatus(text, true);
+}
+
+function updateStatus(text) {
+    if (winHeader) winHeader.setStatus(text, true);
+}
+
 function removeStatus() {
-    const indicator = document.getElementById('status-indicator');
-    if (indicator) indicator.remove();
+    // Revert to the live/idle state that syncGeneratingUI will correct on next call
+    if (winHeader) winHeader.setStatus(store.state.isGenerating ? 'working' : 'ready', store.state.isGenerating);
 }
 
 // ── Chat selection ───────────────────────────────────────────────────────
@@ -137,7 +159,7 @@ function selectChat(id) {
     if (chat && chat.messages.length > 0) {
         chat.messages.forEach((msg, i) => addMessage(msg.role, msg.content, i));
     } else {
-        showEmpty();
+        showEmpty(); // shows Idle greeting
     }
 
     chatInput.textarea.focus();
@@ -189,16 +211,12 @@ async function loadPastSession(sessionId) {
         let currentAssistantBubble = null;
         let currentStepContainer = null;
 
+        // Design change (Phase 4): uses TurnEmu instead of raw .message.assistant divs
         function ensureAssistantBubble() {
             if (!currentAssistantBubble) {
-                currentAssistantBubble = document.createElement('div');
-                currentAssistantBubble.className = 'message assistant';
-                const content = document.createElement('div');
-                content.className = 'message-content';
-                currentAssistantBubble.appendChild(content);
-                currentStepContainer = document.createElement('div');
-                currentStepContainer.className = 'step-container';
-                content.appendChild(currentStepContainer);
+                const turn = TurnEmu('');
+                currentAssistantBubble = turn.element;
+                currentStepContainer  = turn.body;
                 chatWrapper.appendChild(currentAssistantBubble);
             }
             return currentStepContainer;
@@ -222,6 +240,7 @@ async function loadPastSession(sessionId) {
                 addMessage('user', content);
                 return;
             }
+
 
             if (role === 'assistant') {
                 // Done message — render as DoneCard or plain text
@@ -335,15 +354,15 @@ async function loadPastSession(sessionId) {
 
 function disableInput() {
     const container = chatInput.element;
-    container.classList.add('input-disabled');
+    container.classList.add('composer-disabled');
     chatInput.textarea.disabled = true;
     chatInput.textarea.placeholder = '';
     chatInput.sendBtn.disabled = true;
 
     // Add overlay if not present
-    if (!container.querySelector('.input-overlay')) {
+    if (!container.querySelector('.composer-overlay')) {
         const overlay = document.createElement('div');
-        overlay.className = 'input-overlay';
+        overlay.className = 'composer-overlay';
         overlay.textContent = 'Past sessions cannot be continued';
         container.appendChild(overlay);
     }
@@ -351,12 +370,12 @@ function disableInput() {
 
 function enableInput() {
     const container = chatInput.element;
-    container.classList.remove('input-disabled');
+    container.classList.remove('composer-disabled');
     chatInput.textarea.disabled = false;
-    chatInput.textarea.placeholder = 'Ask anything...';
+    chatInput.textarea.placeholder = 'Ask anything…';
     chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
 
-    const overlay = container.querySelector('.input-overlay');
+    const overlay = container.querySelector('.composer-overlay');
     if (overlay) overlay.remove();
 }
 
@@ -534,14 +553,13 @@ async function respond(chat, base64Screenshot = null) {
     const lastUserMsg = store.getLastUserMessage(chat);
 
     store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
+    // Design change (Phase 4): contentEl is now TurnEmu.body — the direct
+    // mount point for trace lines. No separate step-container div needed.
     const contentEl = addMessage('assistant', '', chat.messages.length - 1);
     contentEl.appendChild(createEmuRunner());
 
-    // Create a step container for sequential step cards
-    const stepContainer = document.createElement('div');
-    stepContainer.className = 'step-container';
     store.setAssistantEl(contentEl);
-    store.state.stepContainer = stepContainer;
+    store.state.stepContainer = contentEl; // body IS the container
     store.state.stepCount = 0;
 
     try {
@@ -801,9 +819,13 @@ async function handleWsMessage(data) {
                 if (typing) typing.remove();
 
                 if (!alreadyHandledByStep) {
-                    // No steps ran — this is a conversational reply (bootstrap, chat).
-                    // Render as plain text in the assistant bubble instead of a card.
-                    state.currentAssistantEl.textContent = msg;
+                    // No steps ran — conversational reply (bootstrap, chat).
+                    // Render as body text inside the TurnEmu block.
+                    state.currentAssistantEl.innerHTML = '';
+                    const textEl = document.createElement('div');
+                    textEl.className = 'turn-text';
+                    renderMarkdown(textEl, msg);
+                    state.currentAssistantEl.appendChild(textEl);
                 }
             }
             if (state.currentChat) {
@@ -891,7 +913,7 @@ async function handleWsMessage(data) {
                     // Pause — let user type refinement
                     syncGeneratingUI(false);
                     store.state.pendingPlanRefine = true;
-                    chatInput.textarea.placeholder = 'Describe how to refine the plan...';
+                    chatInput.textarea.placeholder = 'Describe how to refine the plan…';
                     chatInput.textarea.focus();
                 }, { once: true });
 
@@ -994,14 +1016,16 @@ async function executeAction(action, stepEl) {
     const result = await dispatchAction(action);
     console.log(`[executeAction] result:`, result);
 
+    // Mark trace as resolved (hides the blinking caret)
+    stepEl.classList.add('resolved');
     const badge = stepEl.querySelector('.step-action-status');
     if (badge) {
         if (result.success) {
-            badge.className = 'step-action-status success';
-            badge.textContent = '✓ Done';
+            badge.className = 'step-action-status success trace-status';
+            badge.textContent = '✓';
         } else {
-            badge.className = 'step-action-status failed';
-            badge.textContent = `✗ Failed: ${result.error || 'unknown'}`;
+            badge.className = 'step-action-status failed trace-status';
+            badge.textContent = '✗';
         }
     }
 
@@ -1043,52 +1067,56 @@ function mount(appEl) {
     // Wire up WS handler
     setMessageHandler(handleWsMessage);
 
-    // ── History sidebar ─────────────────────────────────────────────────
+    // ── MacWindow chrome bar (traffic lights + title + actions) ──────────
+    // `header` keeps the same variable name so all existing callers
+    // (setExpandVisible, setToggleDisabled, setCompact) work unchanged.
+    header = MacWindow({
+        onExpand:          toggleWindow,
+        onMinimize:        minimizeWindow,
+        onClose:           () => window.close(),
+        onNewTask:         newChat,
+        onToggleSidebar:   toggleHistoryPanel,
+    });
+
+    appEl.appendChild(header.chromeEl);
+
+    // ── mac-content (sidebar + main, flex row) ────────────────────────────
+    appEl.appendChild(header.contentEl);
+
+    // ── History sidebar ───────────────────────────────────────────────────
     historyPanel = HistoryPanel({
-        onNewChat: () => {
-            newChat();
-        },
-        onSelectSession: (sessionId) => {
-            loadPastSession(sessionId);
-        },
-        onToggle: () => {
-            toggleHistoryPanel();
-        },
+        onNewChat:       () => newChat(),
+        onSelectSession: (sid) => loadPastSession(sid),
+        onToggle:        () => toggleHistoryPanel(),
     });
-    appEl.appendChild(historyPanel.element);
+    header.contentEl.appendChild(historyPanel.element);
 
-    // Main wrapper
-    const main = document.createElement('div');
-    main.className = 'main';
+    // ── Main column (window-header + chat body + composer) ───────────────
+    const macMain = document.createElement('div');
+    macMain.className = 'mac-main';
+    header.contentEl.appendChild(macMain);
 
-    header = Header({
-        onExpand: toggleWindow,
-        onMinimize: minimizeWindow,
-        onClose: () => window.close(),
-        onNewTask: newChat,
-    });
+    // Window header: "Emu" mark + status pill
+    winHeader = WindowHeader();
+    macMain.appendChild(winHeader.element);
 
-    main.appendChild(header.element);
-
-    // Chat area
+    // Chat body (scrollable)
     chatContainer = document.createElement('div');
     chatContainer.className = 'chat-container';
     chatWrapper = document.createElement('div');
     chatWrapper.className = 'chat-wrapper';
     chatContainer.appendChild(chatWrapper);
-    main.appendChild(chatContainer);
+    macMain.appendChild(chatContainer);
 
     // Auto-scroll whenever new content is added or elements resize
     const observer = new MutationObserver(() => scrollToBottom());
     observer.observe(chatWrapper, { childList: true, subtree: true, attributes: true });
 
-    // Input
-    chatInput = ChatInput(sendMessage, stopAgent);
-    main.appendChild(chatInput.element);
+    // Composer (drop-in replacement for ChatInput — same .textarea / .sendBtn / .setMode / .setTooltip API)
+    chatInput = Composer(sendMessage, stopAgent);
+    macMain.appendChild(chatInput.element);
 
-    appEl.appendChild(main);
-
-    // Keyboard shortcuts
+    // Keyboard shortcuts (unchanged)
     document.onkeydown = (e) => {
         if (e.ctrlKey && e.shiftKey && e.key === 'N') {
             e.preventDefault();

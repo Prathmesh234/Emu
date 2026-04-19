@@ -1,0 +1,71 @@
+/*
+ * turns.css — You / Emu conversation turn blocks
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/chrome.jsx > You, Emu
+ *
+ * Both turn types share a label (italic serif 13px, --ink-55) sitting
+ * above the content block. "You" = large 19px text. "Emu" = 17px body
+ * with a flex-column body area that accumulates trace lines + done text.
+ */
+
+/* ── Shared label ────────────────────────────────────────────────────── */
+
+.turn-label {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);      /* 13px */
+  color: var(--ink-55);
+  margin-bottom: 8px;
+}
+
+/* ── You turn ─────────────────────────────────────────────────────────── */
+
+.turn-you {
+  display: flex;
+  flex-direction: column;
+}
+
+/* User text: large serif, comfortable reading line */
+.turn-you-text {
+  font-size: var(--size-lg);      /* 19px */
+  line-height: 1.4;
+  max-width: 560px;
+  color: var(--ink);
+}
+
+/* ── Emu turn ─────────────────────────────────────────────────────────── */
+
+.turn-emu {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Body: all trace lines, text paragraphs, action rows stack here */
+.turn-emu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+}
+
+/* Conversational / done text inside an Emu turn */
+.turn-text {
+  font-size: var(--size-md);      /* 17px */
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.turn-text p { margin: 0; }
+.turn-text p + p { margin-top: 0.6em; }
+.turn-text em {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* ── Typing indicator (EmuRunner) override ────────────────────────────── */
+
+/* The emu runner sits inside turn-emu-body; dim it to match the serif aesthetic */
+.turn-emu-body .typing {
+  opacity: 0.5;
+}

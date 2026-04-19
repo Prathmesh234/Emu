@@ -1,0 +1,55 @@
+/*
+ * base.css — Reset, body, and #app shell
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Overrides the old styles.css white palette with token-driven --paper/--ink.
+ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--size-sm);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;   /* chrome bar on top, content below */
+  width: 100%;
+  height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--ink-14);
+}
+
+/* ── Chat body fills available space between window-header and composer ── */
+.chat-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* Matches Body component padding in the design: 48px top, 40px sides, 32px bottom */
+.chat-wrapper {
+  padding: 48px 40px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  min-height: 100%;
+}
+
+/* Thin scrollbars throughout — consistent with design */
+::-webkit-scrollbar               { width: 6px; height: 6px; }
+::-webkit-scrollbar-track         { background: transparent; }
+::-webkit-scrollbar-thumb         { background: var(--ink-14); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover   { background: var(--ink-22); }

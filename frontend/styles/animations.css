@@ -1,0 +1,18 @@
+/*
+ * animations.css — Shared keyframes
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/Emu Frames.html
+ *
+ * emuPulse  — status dot, hint dot (1.8s breathing)
+ * emuBlink  — text cursor in composing state (1s step blink)
+ */
+
+@keyframes emuPulse {
+  0%, 100% { opacity: 0.3; }
+  50%       { opacity: 1;   }
+}
+
+@keyframes emuBlink {
+  50% { opacity: 0; }
+}

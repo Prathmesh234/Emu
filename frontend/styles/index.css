@@ -1,0 +1,27 @@
+/*
+ * styles/index.css — Emu Design System v1 entry point
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ *
+ * Import order matters:
+ *   1. tokens  — CSS variables (paper, ink, fonts, scale, motion)
+ *   2. animations — @keyframes shared across all components
+ *   3. base    — reset, body, #app shell overrides
+ *   4. chrome  — MacWindow chrome bar, WindowHeader, Composer
+ *
+ * Loaded after styles.css in index.html so these rules take precedence
+ * for new components while legacy cards (StepCard, PlanCard, etc.)
+ * continue using the old stylesheet until Phase 4+.
+ */
+
+@import './tokens.css';
+@import './animations.css';
+@import './base.css';
+@import './chrome/mac-window.css';
+@import './chrome/window-header.css';
+@import './chrome/composer.css';
+@import './conversation/turns.css';
+@import './conversation/trace.css';
+@import './conversation/actions.css';
+@import './conversation/greeting.css';
+@import './sidebar.css';

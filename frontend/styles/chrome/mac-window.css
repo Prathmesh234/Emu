@@ -1,0 +1,135 @@
+/*
+ * mac-window.css — 32px chrome bar (traffic lights + title + actions)
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/chrome.jsx > MacWindow
+ *
+ * The 32px bar is the Electron drag region. Traffic light dots are
+ * monochrome rings (not colored) per the design spec.
+ */
+
+/* ── Chrome bar ─────────────────────────────────────────────────────────── */
+
+.mac-chrome {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  border-bottom: 1px solid var(--ink-08);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* ── Traffic-light dots (monochrome rings only) ─────────────────────────── */
+
+.mac-dots {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.mac-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-22);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mac-dot:hover { background: var(--ink-14); }
+
+/* ── Centered window title ──────────────────────────────────────────────── */
+
+.mac-chrome-title {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);
+  color: var(--ink-55);
+  pointer-events: none;
+}
+
+/* ── Window action buttons (theme, danger, expand) ──────────────────────── */
+
+.mac-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+  min-width: 44px;
+  justify-content: flex-end;
+}
+
+.mac-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  transition: background 0.12s, color 0.12s;
+}
+.mac-action-btn:hover { background: var(--ink-08); color: var(--ink-55); }
+
+/* Danger mode toggle — compact pill in chrome bar */
+.mac-danger-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
+.mac-danger-wrap input { display: none; }
+.mac-danger-slider {
+  width: 24px;
+  height: 13px;
+  border-radius: 7px;
+  background: var(--ink-22);
+  position: relative;
+  transition: background 0.18s;
+}
+.mac-danger-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--paper);
+  transition: transform 0.18s;
+}
+.mac-danger-wrap.active .mac-danger-slider { background: rgba(220, 38, 38, 0.7); }
+.mac-danger-wrap.active .mac-danger-slider::after { transform: translateX(11px); }
+.mac-danger-wrap.disabled { opacity: 0.35; pointer-events: none; }
+
+/* ── Content area below chrome ──────────────────────────────────────────── */
+
+.mac-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+
+/* ── Main column (header + chat + composer) ─────────────────────────────── */
+
+.mac-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}

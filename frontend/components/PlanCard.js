@@ -1,45 +1,51 @@
-// PlanCard component — displays a plan with Accept/Refine buttons
+// PlanCard — plan review block in Trace style
+//
+// Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+// Design source: Emu-handoff.zip → project/frames/frames-b.jsx > F_Confirm
+//
+// Design change: replaces the old bordered plan card with a trace-styled
+// block + new accept/refine buttons. Keeps identical return signature
+// { element, acceptBtn, refineBtn } so Chat.js plan_review handler is unchanged.
 
 const { renderMarkdown } = require('./markdown');
 
 function PlanCard(content) {
-    const card = document.createElement('div');
-    card.className = 'step-card plan-card';
+    const wrap = document.createElement('div');
+    wrap.className = 'trace';
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'plan-card-header';
-
-    const label = document.createElement('span');
-    label.className = 'step-label';
-    label.textContent = 'PLAN';
-    header.appendChild(label);
-
-    card.appendChild(header);
+    // Plan label
+    const label = document.createElement('div');
+    label.className = 'trace-reasoning';
+    label.textContent = 'Plan';
+    label.style.marginBottom = '6px';
+    wrap.appendChild(label);
 
     // Plan content
-    const contentEl = document.createElement('div');
-    contentEl.className = 'plan-card-content';
-    renderMarkdown(contentEl, content);
-    card.appendChild(contentEl);
+    const body = document.createElement('div');
+    body.className = 'trace-done-text';
+    body.style.borderLeft = 'none';
+    body.style.paddingLeft = '0';
+    renderMarkdown(body, content);
+    wrap.appendChild(body);
 
-    // Accept/Refine buttons
-    const btnRow = document.createElement('div');
-    btnRow.className = 'step-confirm-btns';
+    // Accept / Refine buttons
+    const row = document.createElement('div');
+    row.className = 'action-row';
+    row.style.marginTop = '12px';
 
     const acceptBtn = document.createElement('button');
-    acceptBtn.className = 'step-confirm-btn allow';
+    acceptBtn.className = 'action-btn-primary step-confirm-btn allow';
     acceptBtn.textContent = 'Accept';
 
     const refineBtn = document.createElement('button');
-    refineBtn.className = 'step-confirm-btn deny';
-    refineBtn.textContent = 'Refine';
+    refineBtn.className = 'action-btn-ghost';
+    refineBtn.textContent = 'refine';
 
-    btnRow.appendChild(acceptBtn);
-    btnRow.appendChild(refineBtn);
-    card.appendChild(btnRow);
+    row.appendChild(acceptBtn);
+    row.appendChild(refineBtn);
+    wrap.appendChild(row);
 
-    return { element: card, acceptBtn, refineBtn };
+    return { element: wrap, acceptBtn, refineBtn };
 }
 
 module.exports = { PlanCard };

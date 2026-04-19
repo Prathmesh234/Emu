@@ -1,0 +1,62 @@
+/*
+ * tokens.css — Emu Design System v1 tokens
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/design-emu/tokens.css (verbatim).
+ *
+ * Two shades per mode. Linen (light) + Ink (dark).
+ * Toggle dark mode by adding/removing `.ink` on <body>.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500&display=swap');
+
+:root {
+  /* Type */
+  --font-sans:  'Inter Tight',       system-ui, -apple-system, sans-serif;
+  --font-serif: 'Instrument Serif',  ui-serif, Georgia, serif;
+
+  /* Size scale (11 / 13 / 15 / 17 / 19 / 22 / 28 / 36 / 44 / 56 / 64) */
+  --size-xs:   11px;
+  --size-sm:   13px;
+  --size-base: 15px;
+  --size-md:   17px;
+  --size-lg:   19px;
+  --size-xl:   22px;
+  --size-2xl:  28px;
+  --size-3xl:  36px;
+  --size-4xl:  44px;
+  --size-5xl:  56px;
+  --size-6xl:  64px;
+
+  /* Motion */
+  --ease: cubic-bezier(.2, .6, .2, 1);
+
+  /* Radii */
+  --radius-sm: 3px;
+  --radius:    4px;
+  --radius-lg: 10px;
+}
+
+/* ── Light — Linen (default) ──────────────────────────────────────────── */
+:root,
+body,
+body.linen {
+  --paper:   #ede7d8;
+  --ink:     #221e16;
+  --ink-55:  rgba(34, 30, 22, 0.55);
+  --ink-30:  rgba(34, 30, 22, 0.30);
+  --ink-22:  rgba(34, 30, 22, 0.22);
+  --ink-14:  rgba(34, 30, 22, 0.14);
+  --ink-08:  rgba(34, 30, 22, 0.08);
+}
+
+/* ── Dark — Ink ───────────────────────────────────────────────────────── */
+body.ink {
+  --paper:   #15140f;
+  --ink:     #ede7d8;
+  --ink-55:  rgba(237, 231, 216, 0.55);
+  --ink-30:  rgba(237, 231, 216, 0.30);
+  --ink-22:  rgba(237, 231, 216, 0.22);
+  --ink-14:  rgba(237, 231, 216, 0.14);
+  --ink-08:  rgba(237, 231, 216, 0.08);
+}

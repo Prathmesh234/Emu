@@ -1,0 +1,157 @@
+/*
+ * actions.css — Action row buttons (confirm / deny / ghost)
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Design source: Emu-handoff.zip → project/frames/frames-b.jsx > F_Confirm, F_Error
+ *
+ * Three button variants per the design:
+ *   primary   — filled ink bg, paper text (Confirm, Allow, Accept)
+ *   secondary — ink border, transparent bg (Take over, Deny)
+ *   ghost     — no border, ink-55 color, serif italic (cancel, abandon)
+ *
+ * The existing class names (.step-confirm-btn.allow / .deny / .chosen)
+ * are preserved so Chat.js querySelector logic needs no changes.
+ */
+
+/* ── Row container ────────────────────────────────────────────────────── */
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Primary (filled) ─────────────────────────────────────────────────── */
+
+.action-btn-primary,
+.step-confirm-btn.allow {
+  padding: 9px 18px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--size-sm);      /* 13px */
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.action-btn-primary:hover,
+.step-confirm-btn.allow:hover { opacity: 0.85; }
+
+.action-btn-primary:disabled,
+.step-confirm-btn.allow:disabled { opacity: 0.4; cursor: default; }
+
+.step-confirm-btn.allow.chosen {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ── Secondary (outlined) ─────────────────────────────────────────────── */
+
+.action-btn-secondary,
+.step-confirm-btn.deny {
+  padding: 9px 18px;
+  border: 1px solid var(--ink-22);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--size-sm);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.action-btn-secondary:hover,
+.step-confirm-btn.deny:hover { border-color: var(--ink-55); background: var(--ink-08); }
+
+.action-btn-secondary:disabled,
+.step-confirm-btn.deny:disabled { opacity: 0.4; cursor: default; }
+
+.step-confirm-btn.deny.chosen {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ── Ghost (text-only, serif italic) ──────────────────────────────────── */
+
+.action-btn-ghost {
+  padding: 9px 8px;
+  border: none;
+  background: transparent;
+  color: var(--ink-55);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-base);    /* 15px */
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.action-btn-ghost:hover { color: var(--ink); }
+.action-btn-ghost:disabled { opacity: 0.4; cursor: default; }
+
+/* ── File dialog (kept from FileCard — minimal restyle) ──────────────── */
+
+.file-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 30, 22, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.file-dialog {
+  background: var(--paper);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--radius-lg);
+  width: min(680px, 92vw);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ink-08);
+}
+
+.file-dialog-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-base);
+  color: var(--ink);
+}
+
+.file-dialog-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-55);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.file-dialog-close:hover { background: var(--ink-08); color: var(--ink); }
+
+.file-dialog-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  font-size: var(--size-sm);
+  line-height: 1.65;
+}
+
+.file-dialog-raw {
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  font-size: var(--size-xs);
+  white-space: pre-wrap;
+  color: var(--ink);
+}
