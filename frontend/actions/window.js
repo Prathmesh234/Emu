@@ -17,6 +17,10 @@ async function minimizeWindow() {
     return await ipcRenderer.invoke('window:minimize');
 }
 
+async function maximizeWindow() {
+    return await ipcRenderer.invoke('window:maximize');
+}
+
 function register(ipcMain, getMainWindow) {
     let originalBounds = null;
     const { screen } = require('electron');
@@ -39,8 +43,8 @@ function register(ipcMain, getMainWindow) {
         if (!win) return { success: false };
         win.setAlwaysOnTop(false);
         const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-        const newWidth = originalBounds?.width || 800;
-        const newHeight = originalBounds?.height || 600;
+        const newWidth  = originalBounds?.width  || 1040;
+        const newHeight = originalBounds?.height || 760;
         win.setBounds({
             x: Math.round((width - newWidth) / 2),
             y: Math.round((height - newHeight) / 2),
@@ -61,6 +65,15 @@ function register(ipcMain, getMainWindow) {
         if (win) win.minimize();
         return { success: true };
     });
+
+    // Toggle maximize / restore (macOS-style zoom)
+    ipcMain.handle('window:maximize', async () => {
+        const win = getMainWindow();
+        if (!win) return { success: false };
+        if (win.isMaximized()) win.unmaximize();
+        else win.maximize();
+        return { success: true, maximized: win.isMaximized() };
+    });
 }
 
-module.exports = { moveToSidePanel, moveToCentered, blurWindow, minimizeWindow, register };
+module.exports = { moveToSidePanel, moveToCentered, blurWindow, minimizeWindow, maximizeWindow, register };

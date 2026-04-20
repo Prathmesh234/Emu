@@ -14,13 +14,17 @@ function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
+  // Larger default for the Design System v1 layout (chrome + body + composer
+   // needs room; sidebar is 240px when open).
+  const DEFAULT_W = 1040;
+  const DEFAULT_H = 760;
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    x: Math.round((width - 800) / 2),
-    y: Math.round((height - 600) / 2),
-    minWidth: 380,
-    minHeight: 400,
+    width:  DEFAULT_W,
+    height: DEFAULT_H,
+    x: Math.round((width  - DEFAULT_W) / 2),
+    y: Math.round((height - DEFAULT_H) / 2),
+    minWidth: 420,
+    minHeight: 440,
     frame: false,
     transparent: true,
     webPreferences: {

@@ -15,23 +15,23 @@
 
 const store = require('../../state/store');
 
-function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar, onOpenSettings }) {
+function MacWindow({ onMaximize, onMinimize, onClose, onNewTask, onToggleSidebar, onOpenSettings }) {
     // ── Chrome bar (32px drag region) ────────────────────────────────────
     const chrome = document.createElement('div');
     chrome.className = 'mac-chrome';
 
-    // Three monochrome dot buttons: close / minimize / expand
+    // Three monochrome traffic-light buttons: close / minimize / maximize.
+    // macOS pattern: each dot reveals its glyph (× / − / +) on group hover.
     const dots = document.createElement('div');
     dots.className = 'mac-dots';
 
-    const dotClose    = _dot('Close window',    onClose || (() => window.close()));
-    const dotMinimize = _dot('Minimize window', onMinimize);
-    const dotExpand   = _dot('Expand / side panel', onExpand);
-    dotExpand.style.display = 'none'; // hidden until in side-panel mode
+    const dotClose    = _dot('Close window',      onClose || (() => window.close()), '×');
+    const dotMinimize = _dot('Minimize window',   onMinimize,                         '−');
+    const dotMaximize = _dot('Maximize / restore', onMaximize,                        '+');
 
     dots.appendChild(dotClose);
     dots.appendChild(dotMinimize);
-    dots.appendChild(dotExpand);
+    dots.appendChild(dotMaximize);
     chrome.appendChild(dots);
 
     // Window title ("Emu" in italic serif, centered)
@@ -112,18 +112,16 @@ function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar, 
         chromeEl:  chrome,
         contentEl: content,
 
-        // ── API (matches old Header.js so Chat.js needs no logic changes) ──
+        // ── Public API ────────────────────────────────────────────────────
 
-        setExpandVisible(visible) {
-            dotExpand.style.display = visible ? '' : 'none';
-        },
+        // setExpandVisible kept as no-op so legacy callers don't crash
+        setExpandVisible() { /* no-op since side-panel toggle left the chrome */ },
 
         setToggleDisabled(disabled) {
             dangerInput.disabled = disabled;
             dangerWrap.classList.toggle('disabled', disabled);
         },
 
-        // In side-panel (compact) mode the window is narrow; hide chrome title.
         setCompact(compact) {
             title.style.opacity = compact ? '0' : '';
         },
@@ -132,12 +130,18 @@ function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar, 
 
 // ── Private helpers ───────────────────────────────────────────────────────
 
-function _dot(label, onClick) {
+function _dot(label, onClick, glyph) {
     const d = document.createElement('button');
     d.className = 'mac-dot';
     d.type = 'button';
     d.title = label;
     d.setAttribute('aria-label', label);
+    if (glyph) {
+        const g = document.createElement('span');
+        g.className = 'mac-dot-glyph';
+        g.textContent = glyph;
+        d.appendChild(g);
+    }
     if (onClick) d.onclick = onClick;
     return d;
 }

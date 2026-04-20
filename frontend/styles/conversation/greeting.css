@@ -25,7 +25,7 @@
 .idle-greeting-heading {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 52px;
+  font-size: 48px;              /* a hair under design's 52px */
   line-height: 1.05;
   letter-spacing: -0.015em;
   color: var(--ink);
@@ -47,16 +47,5 @@
   margin: 0;
 }
 
-/* Memory hint — dim italic line pulled from MEMORY.md */
-.idle-greeting-hint {
-  margin: 18px 0 0;
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: var(--size-sm);        /* 13px */
-  color: var(--ink-30);
-  line-height: 1.5;
-  max-width: 480px;
-  padding-left: 14px;
-  border-left: 1px solid var(--ink-14);
-  text-align: left;
-}
+/* .idle-greeting-hint — retired. The subtitle now carries the contextual
+   "you were working on ..." line via the daemon provider (see Greeting.js). */

@@ -40,9 +40,31 @@
   padding: 0;
   flex-shrink: 0;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
 
-.mac-dot:hover { background: var(--ink-14); }
+.mac-dot:hover { background: var(--ink-08); border-color: var(--ink-30); }
+
+/* Tiny × / − / + glyph inside each dot.
+   macOS pattern: hidden by default, revealed on GROUP hover. */
+.mac-dot-glyph {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-55);
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+  /* Optical centering for each of × / − / + */
+  margin-top: -1px;
+}
+
+.mac-dots:hover .mac-dot-glyph { opacity: 1; }
+.mac-dot:hover .mac-dot-glyph  { color: var(--ink); }
 
 /* ── Centered window title ──────────────────────────────────────────────── */
 

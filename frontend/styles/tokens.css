@@ -15,18 +15,20 @@
   --font-sans:  'Inter Tight',       system-ui, -apple-system, sans-serif;
   --font-serif: 'Instrument Serif',  ui-serif, Georgia, serif;
 
-  /* Size scale (11 / 13 / 15 / 17 / 19 / 22 / 28 / 36 / 44 / 56 / 64) */
+  /* Size scale — bumped up a notch from the earlier reduction so type
+     fills the larger 1040×760 window comfortably. Still a touch smaller
+     than the original 11-64 spec. */
   --size-xs:   11px;
   --size-sm:   13px;
-  --size-base: 15px;
-  --size-md:   17px;
-  --size-lg:   19px;
-  --size-xl:   22px;
-  --size-2xl:  28px;
-  --size-3xl:  36px;
-  --size-4xl:  44px;
-  --size-5xl:  56px;
-  --size-6xl:  64px;
+  --size-base: 14px;
+  --size-md:   16px;
+  --size-lg:   18px;
+  --size-xl:   21px;
+  --size-2xl:  27px;
+  --size-3xl:  34px;
+  --size-4xl:  42px;
+  --size-5xl:  52px;
+  --size-6xl:  60px;
 
   /* Motion */
   --ease: cubic-bezier(.2, .6, .2, 1);

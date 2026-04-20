@@ -102,6 +102,14 @@ async function minimizeWindow() {
     }
 }
 
+async function maximizeWindow() {
+    try {
+        await ipcRenderer.invoke('window:maximize');
+    } catch (err) {
+        console.warn('[window] maximize failed:', err.message);
+    }
+}
+
 // ── Rendering ────────────────────────────────────────────────────────────
 
 // Design change (Phase 5): replaced old EmptyState (emu SVG + "Hey I'm Emu")
@@ -1050,7 +1058,7 @@ function mount(appEl) {
     // `header` keeps the same variable name so all existing callers
     // (setExpandVisible, setToggleDisabled, setCompact) work unchanged.
     header = MacWindow({
-        onExpand:          toggleWindow,
+        onMaximize:        maximizeWindow,
         onMinimize:        minimizeWindow,
         onClose:           () => window.close(),
         onNewTask:         newChat,
