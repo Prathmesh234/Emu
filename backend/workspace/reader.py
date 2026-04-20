@@ -194,6 +194,15 @@ def is_bootstrap_needed() -> bool:
         return True
 
 
+def is_hermes_setup_needed() -> bool:
+    """Check if the user agreed to install Hermes but hasn't finished configuring it."""
+    try:
+        manifest = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8-sig"))
+        return bool(manifest.get("hermes_setup_pending", False))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+
+
 def read_bootstrap() -> Optional[str]:
     """Read BOOTSTRAP.md content for injection during bootstrap mode."""
     return _read_file(_WORKSPACE_DIR / "BOOTSTRAP.md")

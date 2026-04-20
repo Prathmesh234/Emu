@@ -170,6 +170,96 @@ AGENT_TOOLS_OPENAI = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "invoke_hermes",
+            "description": (
+                "Delegate a heavy generation, transformation, or codified task to "
+                "Hermes Agent (Nous Research) — an autonomous terminal agent that "
+                "runs locally. Hermes is invoked HEADLESSLY in the background "
+                "(via `hermes chat -q`); you do NOT need to open or focus a "
+                "terminal. Hermes's stdout is returned to you as the tool result.\n\n"
+                "USE THIS WHEN the next step is far easier in code/shell than in a GUI:\n"
+                "  • Building a PowerPoint from scratch (slide structure, bullets, "
+                "speaker notes, programmatic .pptx via python-pptx).\n"
+                "  • Complex Excel work — multi-sheet workbooks, formulas across "
+                "hundreds of rows, pivoting/merging CSVs into .xlsx.\n"
+                "  • Generating a Word/PDF/Markdown report from raw notes.\n"
+                "  • Multi-file code edits, refactors, debugging from logs.\n"
+                "  • Bulk file renaming, conversion, ZIP/extract, data cleanup.\n"
+                "  • Scripted research, summarization, comparison tables, SOPs.\n"
+                "  • Anything that benefits from precision, repeatability, or "
+                "verification — Hermes can run tests and report exact output.\n\n"
+                "DO NOT USE for pure GUI tasks (clicking through menus, drag-drop, "
+                "visual layout decisions, CAPTCHA, app login flows). Emu owns the "
+                "navigation; Hermes owns the execution.\n\n"
+                "CRITICAL: Hermes runs in a separate process and CANNOT see your "
+                "screen or ask follow-up questions. You MUST pass every single "
+                "fact, quote, number, decision, URL, file path, and styling "
+                "preference you have gathered into `context` and/or `file_paths`. "
+                "If the user asked for a deck summarising a Teams call, first do "
+                "all the navigation to read the transcript and conclusions, THEN "
+                "paste the FULL transcript + conclusions + any user-stated "
+                "preferences into `context` before invoking Hermes. Err on the "
+                "side of pasting too much rather than too little — this is a "
+                "one-shot handoff."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": (
+                            "One or two sentences describing the concrete artifact "
+                            "or outcome Hermes should produce. "
+                            "E.g. 'Create a 12-slide executive PowerPoint summarising "
+                            "the Q2 planning Teams call, save as ~/Desktop/q2-plan.pptx'."
+                        ),
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": (
+                            "MOST IMPORTANT FIELD. Paste EVERYTHING Emu has gathered "
+                            "that Hermes needs — full transcripts, every conclusion, "
+                            "every name/date/number/URL, the user's tone/style "
+                            "preferences, prior drafts, error messages, raw data. "
+                            "Hermes is blind to your screen; if it isn't here or in "
+                            "`file_paths`, Hermes does not know it. Err on the side "
+                            "of pasting too much rather than too little."
+                        ),
+                    },
+                    "file_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Absolute paths to files Hermes should read directly "
+                            "(transcripts saved to disk, source data, reference "
+                            "documents, existing drafts to edit). Use this for "
+                            "anything large enough to be awkward in `context`."
+                        ),
+                    },
+                    "output_target": {
+                        "type": "string",
+                        "description": (
+                            "Where/how Hermes should deliver the result. E.g. "
+                            "'Save .pptx to ~/Desktop/q2-plan.pptx and print the "
+                            "absolute path' or 'Reply in terminal with the patch "
+                            "diff'. Optional but strongly recommended."
+                        ),
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": (
+                            "Style, tone, format, length, audience, deadline, or "
+                            "any 'must-have / must-avoid' rules. Optional."
+                        ),
+                    },
+                },
+                "required": ["goal", "context"],
+            },
+        },
+    },
 ]
 
 
@@ -205,6 +295,9 @@ def tools_for_gemini():
             schema_kwargs = {"type": v["type"].upper(), "description": v.get("description", "")}
             if "enum" in v:
                 schema_kwargs["enum"] = v["enum"]
+            if v["type"] == "array" and "items" in v:
+                item_type = v["items"].get("type", "string").upper()
+                schema_kwargs["items"] = types.Schema(type=item_type)
             schema_props[k] = types.Schema(**schema_kwargs)
 
         declarations.append(

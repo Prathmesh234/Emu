@@ -28,17 +28,27 @@ def build_system_prompt(
     bootstrap_content: str = "",
     device_details: dict | None = None,
     use_omni_parser: bool = False,
+    hermes_setup_mode: bool = False,
 ) -> str:
     """
     Build the full system prompt.
 
     If bootstrap_mode is True, delegates to build_bootstrap_prompt() instead.
+    If hermes_setup_mode is True, delegates to build_hermes_setup_prompt().
+    bootstrap_mode takes precedence over hermes_setup_mode.
     """
     if bootstrap_mode:
         from .bootstrap_prompt import build_bootstrap_prompt
         return build_bootstrap_prompt(
             session_id=session_id,
             bootstrap_content=bootstrap_content,
+            device_details=device_details,
+        )
+
+    if hermes_setup_mode:
+        from .hermes_setup_prompt import build_hermes_setup_prompt
+        return build_hermes_setup_prompt(
+            session_id=session_id,
             device_details=device_details,
         )
 
@@ -314,6 +324,31 @@ NEVER return these as JSON text. They are NOT desktop actions.
   use_skill(skill_name)      — Load a skill's full instructions by name
   read_memory(target, date)  — Read MEMORY.md, preferences, or daily_log
   compact_context(focus)     — Compress your conversation history
+  invoke_hermes(goal, context, file_paths?, output_target?, constraints?)
+                             — Hand a heavy execution task to Hermes Agent
+                               (Nous Research) headlessly. Use ONLY for
+                               tasks that are far easier in code/shell than
+                               in a GUI: building PowerPoint from scratch,
+                               complex multi-sheet Excel work, multi-file
+                               code edits, bulk file/data transformation,
+                               scripted research, or anything where
+                               precision and verification matter. Do NOT
+                               use for clicking, dragging, logins, or
+                               visual layout — that's your job. Hermes
+                               cannot see the screen, so first navigate to
+                               read whatever the user referenced (Teams
+                               call, doc, email, sheet) and then PASS
+                               EVERY SINGLE BIT of that info — full
+                               transcripts, conclusions, names, dates,
+                               numbers, URLs, the user's tone/style — into
+                               `context` and/or `file_paths`. Err toward
+                               too much context, never too little.
+                               If you get back "Hermes Agent is not
+                               installed", ask the user "Hermes Agent
+                               isn't installed yet — should I install it?"
+                               If they say yes, run shell_exec with:
+                                 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+                               then retry invoke_hermes.
 
 ═══ CHANNEL 2: DESKTOP ACTIONS (return as raw JSON text in your message) ═══
 These control the screen. Return them as a JSON object in your response text:
@@ -326,7 +361,7 @@ These control the screen. Return them as a JSON object in your response text:
 
 ⚠️  CRITICAL ROUTING RULES:
   • update_plan, read_plan, write_session_file, read_session_file, list_session_files,
-    use_skill, read_memory, compact_context → ALWAYS use function-calling API.
+    use_skill, read_memory, compact_context, invoke_hermes → ALWAYS use function-calling API.
     Returning {{"action": {{"type": "update_plan", ...}}}} WILL FAIL.
   • shell_exec, type_text, screenshot, done, navigate_and_click, navigate_and_right_click, mouse_move, etc.
     → ALWAYS return as JSON text. Calling them as function tools WILL FAIL.

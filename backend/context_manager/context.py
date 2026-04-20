@@ -73,9 +73,11 @@ class ContextManager:
     def _get(self, session_id: str) -> list[PreviousMessage]:
         """Return existing history or bootstrap a new session with the system prompt."""
         if session_id not in self._history:
+            from workspace import is_hermes_setup_needed
             workspace_ctx = build_workspace_context()
             bootstrap_mode = is_bootstrap_needed()
             bootstrap_content = read_bootstrap() if bootstrap_mode else ""
+            hermes_setup_mode = (not bootstrap_mode) and is_hermes_setup_needed()
             device_info = get_device_details()
             system_prompt = build_system_prompt(
                 workspace_ctx,
@@ -84,6 +86,7 @@ class ContextManager:
                 bootstrap_content=bootstrap_content,
                 device_details=device_info,
                 use_omni_parser=USE_OMNI_PARSER,
+                hermes_setup_mode=hermes_setup_mode,
             )
             self._history[session_id] = [
                 PreviousMessage(role=MessageRole.system, content=system_prompt.strip())

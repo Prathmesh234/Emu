@@ -25,16 +25,24 @@ TOOLS: list[dict] = [
     {
         "name": "list_dir",
         "description": (
-            "List the files and subdirectories inside a directory under .emu/. "
-            "Pass a path relative to .emu/ (e.g. 'sessions' or 'workspace/memory'). "
-            "Returns a JSON array of entry names."
+            "List the entries inside a directory under .emu/. "
+            "You should RARELY need this — `sessions/index.json` already tells you "
+            "every session id and date, so do NOT call list_dir on `sessions`. "
+            "Acceptable uses: `list_dir(\"workspace/memory\")` to see which "
+            "daily-log files exist if you are unsure. "
+            "Returns a JSON array like "
+            "[{\"name\": \"2026-04-19.md\", \"type\": \"file\"}, ...]."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Directory path relative to .emu/",
+                    "description": (
+                        "Directory path relative to .emu/. "
+                        "Examples: 'workspace/memory', 'sessions/<session_id>/logs'. "
+                        "Do NOT pass 'sessions' — use sessions/index.json instead."
+                    ),
                 },
             },
             "required": ["path"],
@@ -44,26 +52,47 @@ TOOLS: list[dict] = [
         "name": "read_file",
         "description": (
             "Read the UTF-8 text content of a file under .emu/. "
-            "Pass a path relative to .emu/ (e.g. 'workspace/MEMORY.md'). "
-            "For large files, use start_line and max_lines to read in chunks — "
-            "the response will include a header showing which lines were returned "
-            "and the total line count so you know whether to read more. "
-            "Returns the file content as a string, or an error message."
+            "Returns the file content, or '[error] file does not exist: ...' "
+            "if it isn't there (which is a normal, expected outcome — handle "
+            "it by skipping that file, not by retrying).\n\n"
+            "Common paths you will read:\n"
+            "  - 'sessions/index.json'              ← MUST be your FIRST call every tick\n"
+            "  - 'workspace/MEMORY.md'\n"
+            "  - 'workspace/AGENTS.md'\n"
+            "  - 'workspace/memory/2026-04-20.md'   (daily log for a given date)\n"
+            "  - 'sessions/<session_id>/plan.md'\n"
+            "  - 'sessions/<session_id>/notes.md'\n"
+            "  - 'sessions/<session_id>/logs/conversation.json'  (often LARGE — chunk it)\n\n"
+            "For large files use start_line and max_lines. The reply will include a "
+            "header like '[lines 0-399 of 832 total]' so you know whether to read "
+            "the next chunk with start_line=400."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "File path relative to .emu/",
+                    "description": (
+                        "File path relative to .emu/. "
+                        "Examples: 'sessions/index.json', "
+                        "'workspace/memory/2026-04-20.md', "
+                        "'sessions/abc-123/logs/conversation.json'."
+                    ),
                 },
                 "start_line": {
                     "type": "integer",
-                    "description": "0-indexed line to start reading from (default: 0).",
+                    "description": (
+                        "0-indexed line to start reading from (default 0). "
+                        "Use this to chunk through large files like conversation.json."
+                    ),
                 },
                 "max_lines": {
                     "type": "integer",
-                    "description": "Maximum number of lines to return (default: all).",
+                    "description": (
+                        "Maximum number of lines to return (default: all). "
+                        "Recommend 400 for conversation.json, then advance "
+                        "start_line by 400 each call until you reach the total."
+                    ),
                 },
             },
             "required": ["path"],
@@ -73,23 +102,40 @@ TOOLS: list[dict] = [
         "name": "write_file",
         "description": (
             "Write UTF-8 text content to a file under .emu/. "
-            "Allowed targets (paths relative to .emu/): "
-            "workspace/AGENTS.md, workspace/MEMORY.md, workspace/USER.md, "
-            "workspace/IDENTITY.md, workspace/memory/YYYY-MM-DD.md. "
-            "SOUL.md and all other paths are forbidden. "
-            "The file is created or fully overwritten. "
-            "Returns 'ok' on success or an error message."
+            "**This FULLY OVERWRITES the file.** If you are editing an existing "
+            "file (e.g. appending one new session block to a daily log), you MUST "
+            "first `read_file` the current content, build the new full content in "
+            "your head, then pass the COMPLETE new content here. Never pass only "
+            "the new bits.\n\n"
+            "Allowed write targets (everything else is rejected):\n"
+            "  - 'workspace/AGENTS.md'\n"
+            "  - 'workspace/MEMORY.md'\n"
+            "  - 'workspace/USER.md'\n"
+            "  - 'workspace/IDENTITY.md'\n"
+            "  - 'workspace/memory/YYYY-MM-DD.md'   (filename must match exactly: "
+            "zero-padded month + day, .md extension)\n\n"
+            "Forbidden: 'workspace/SOUL.md', anything outside the list above. "
+            "Returns 'ok' on success or '[policy_error] ...' on rejection."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "File path relative to .emu/ (must be in the allowlist)",
+                    "description": (
+                        "File path relative to .emu/ (must be in the allowlist). "
+                        "Daily-log example: 'workspace/memory/2026-04-20.md'. "
+                        "Do NOT use today's date for a session whose date in "
+                        "sessions/index.json is older — use that session's date."
+                    ),
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full UTF-8 content to write",
+                    "description": (
+                        "Full UTF-8 content to write. Replaces the entire file. "
+                        "If editing, this must include the prior content you "
+                        "want to keep."
+                    ),
                 },
             },
             "required": ["path", "content"],
@@ -98,16 +144,24 @@ TOOLS: list[dict] = [
     {
         "name": "finish",
         "description": (
-            "Signal that the curation pass is complete. "
-            "Call this once all memory files have been updated. "
-            "Provide a brief summary of what was changed."
+            "Signal that the curation pass is complete and end the tick. "
+            "Call this exactly once, after all `write_file` calls are done "
+            "(or immediately if nothing needed updating). "
+            "Provide a one-paragraph summary of what changed (or 'No changes — "
+            "all sessions already captured.' if you wrote nothing)."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "summary": {
                     "type": "string",
-                    "description": "One-paragraph summary of changes made this tick",
+                    "description": (
+                        "One-paragraph summary of changes made this tick. "
+                        "Examples: 'Captured session abc-123 into "
+                        "workspace/memory/2026-04-20.md; pruned 2 stale rules "
+                        "from AGENTS.md.' or 'No changes — all 7 sessions in "
+                        "the index were already captured.'"
+                    ),
                 },
             },
             "required": ["summary"],

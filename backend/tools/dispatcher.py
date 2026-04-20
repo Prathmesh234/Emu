@@ -5,6 +5,7 @@ from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory
 from .compaction import handle_compact_context
+from .hermes import handle_invoke_hermes
 
 
 async def execute_agent_tool(
@@ -65,6 +66,21 @@ async def execute_agent_tool(
         return await handle_compact_context(
             session_id, context_manager, compact_model, manager,
             focus=args.get("focus", ""),
+        )
+
+    elif name == "invoke_hermes":
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "hermes_invoked",
+            "goal": args.get("goal", ""),
+        })
+        return await handle_invoke_hermes(
+            session_id=session_id,
+            goal=args.get("goal", ""),
+            context=args.get("context", ""),
+            file_paths=args.get("file_paths") or [],
+            output_target=args.get("output_target", ""),
+            constraints=args.get("constraints", ""),
         )
 
     else:

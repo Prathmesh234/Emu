@@ -149,7 +149,10 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     action_type = raw_action.get("type", "")
     if action_type in AGENT_TOOL_NAMES:
         args = {k: v for k, v in raw_action.items() if k != "type"}
-        for key in ("content", "skill_name", "filename", "target", "date", "focus"):
+        for key in (
+            "content", "skill_name", "filename", "target", "date", "focus",
+            "goal", "context", "file_paths", "output_target", "constraints",
+        ):
             if key not in args and key in data:
                 args[key] = data[key]
         print(f"[baseten] Rerouting text action '{action_type}' → function tool call")

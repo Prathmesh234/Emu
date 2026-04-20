@@ -33,8 +33,20 @@ LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
 
 def build_system_prompt() -> str:
+    # Inject today's date (local time) so the agent knows which daily-log file
+    # corresponds to "today" and which sessions in the index to prioritize.
+    today = datetime.now().strftime("%Y-%m-%d")
+    header = (
+        f"## TODAY\n"
+        f"Today's date is **{today}**.\n"
+        f"- Sessions whose value in `sessions/index.json` equals `{today}` are TODAY'S sessions. "
+        f"Process them FIRST.\n"
+        f"- Today's daily log is `workspace/memory/{today}.md`.\n"
+        f"- After today, work backwards through older dates (yesterday, then earlier) "
+        f"only if you still have turn/token budget.\n\n"
+    )
     # Hook: if/when skills land, concatenate their bodies here before returning.
-    return DAEMON_PROMPT
+    return header + DAEMON_PROMPT
 
 
 def _log_tick(log_path: Path, record: dict) -> None:
