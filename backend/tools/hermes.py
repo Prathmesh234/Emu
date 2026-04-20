@@ -20,6 +20,7 @@ The full prompt is also persisted to the session directory as
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from pathlib import Path
 
@@ -30,6 +31,39 @@ from workspace import write_session_file
 HERMES_BIN = "hermes"
 DEFAULT_TIMEOUT_S = 600   # 10 minutes — Hermes can be slow on big tasks
 MAX_OUTPUT_CHARS = 60_000  # truncate huge stdouts before returning to Emu
+
+# When Emu is launched as Emu.app from Finder/Spotlight, PATH is the minimal
+# /usr/bin:/bin:/usr/sbin:/sbin — the user's shell rc files never run, so any
+# binary installed under ~/.hermes/bin or ~/.local/bin is invisible to
+# shutil.which / subprocess. Prepend the canonical Hermes install locations
+# (and the common user-bin locations) so detection and exec both work.
+_HOME = Path.home()
+_HERMES_PATH_EXTRAS = [
+    str(_HOME / ".hermes" / "bin"),
+    str(_HOME / ".local" / "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+]
+
+
+def _augmented_env() -> dict[str, str]:
+    """Return os.environ with Hermes install dirs prepended to PATH."""
+    env = os.environ.copy()
+    existing = env.get("PATH", "")
+    existing_parts = existing.split(os.pathsep) if existing else []
+    # Prepend extras, dropping anything already present to avoid duplicates.
+    extras = [p for p in _HERMES_PATH_EXTRAS if p and p not in existing_parts]
+    if extras:
+        env["PATH"] = os.pathsep.join(extras + existing_parts)
+    return env
+
+
+_AUGMENTED_PATH = _augmented_env()["PATH"]
+
+
+def _resolve_hermes_bin() -> str | None:
+    """Locate the hermes binary using the augmented PATH."""
+    return shutil.which(HERMES_BIN, path=_AUGMENTED_PATH)
 
 
 def _build_prompt_document(
@@ -95,13 +129,15 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
 
 async def _run_hermes(prompt: str, timeout_s: int) -> tuple[int, str, str]:
     """Run `hermes chat -q <prompt>` and return (returncode, stdout, stderr)."""
+    hermes_bin = _resolve_hermes_bin() or HERMES_BIN
     proc = await asyncio.create_subprocess_exec(
-        HERMES_BIN,
+        hermes_bin,
         "chat",
         "-q",
         prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=_augmented_env(),
     )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
@@ -145,7 +181,7 @@ async def handle_invoke_hermes(
             "the full context."
         )
 
-    if shutil.which(HERMES_BIN) is None:
+    if _resolve_hermes_bin() is None:
         manifest_path = f"{get_emu_path_str()}/manifest.json"
         return (
             "Hermes Agent is not installed on this machine.\n\n"
