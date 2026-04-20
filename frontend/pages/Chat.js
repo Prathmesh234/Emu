@@ -370,42 +370,12 @@ function enableInput() {
 }
 
 // ── Message actions ──────────────────────────────────────────────────────
-
-function editMessage(index) {
-    const chat = store.getCurrentChat();
-    if (!chat) return;
-
-    const content = chat.messages[index].content;
-    store.truncateMessages(chat.id, index);
-
-    const msgs = chatWrapper.querySelectorAll('.message');
-    for (let i = index; i < msgs.length; i++) msgs[i].remove();
-
-    if (chat.messages.length === 0) showEmpty();
-
-    chatInput.textarea.value = content;
-    chatInput.textarea.style.height = 'auto';
-    chatInput.textarea.style.height = Math.min(chatInput.textarea.scrollHeight, 160) + 'px';
-    chatInput.sendBtn.disabled = false;
-    chatInput.textarea.focus();
-}
-
-async function regenerate(index) {
-    const chat = store.getCurrentChat();
-    if (!chat) return;
-
-    store.truncateMessages(chat.id, index);
-    const msgs = chatWrapper.querySelectorAll('.message');
-    for (let i = index; i < msgs.length; i++) msgs[i].remove();
-
-    showStatus('Capturing screen...');
-    const screenshot = await captureScreenshot();
-    updateStatus(screenshot.success ? 'Screen captured' : 'Screenshot failed');
-    await sleep(500);
-    removeStatus();
-
-    await respond(chat, screenshot.success ? screenshot.base64 : null);
-}
+//
+// editMessage / regenerate were removed during the Emu Design System v1
+// refactor: the new TurnYou / TurnEmu blocks have no edit or regenerate
+// affordance, and the old implementations queried `.message` (a class that
+// no longer exists). If those affordances ever come back, they should
+// query `.turn-you` / `.turn-emu` and use store.truncateMessages.
 
 // ── Send / respond / stop ────────────────────────────────────────────────
 

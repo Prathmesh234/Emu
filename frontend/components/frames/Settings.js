@@ -61,6 +61,15 @@ function Settings({ onClose }) {
         const next = !store.state.dangerousMode;
         store.setDangerousMode(next);
         dangerRow.val.textContent = next ? 'on' : 'off';
+        // Keep the chrome-bar danger slider visually in sync (mirrors the
+        // theme-toggle pattern below: settings is the single source of truth,
+        // but the chrome bar shows the live value too).
+        const dangerWrap = document.querySelector('.mac-danger-wrap');
+        if (dangerWrap) {
+            dangerWrap.classList.toggle('active', next);
+            const input = dangerWrap.querySelector('input[type="checkbox"]');
+            if (input) input.checked = next;
+        }
     });
     group2.appendChild(dangerRow.row);
     body.appendChild(group2);
