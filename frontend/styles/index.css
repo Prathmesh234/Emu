@@ -26,4 +26,6 @@
 @import './conversation/greeting.css';
 @import './conversation/confirm.css';
 @import './conversation/markdown.css';
+@import './conversation/emu-runner.css';
+@import './frames/settings.css';
 @import './sidebar.css';

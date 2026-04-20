@@ -55,6 +55,12 @@ const ACTION_MAP = {
         label: 'Navigate & Click',
         icon:  '🖱️',
         ipc:   'mouse:navigate-and-click',
+        // Single-click is the right default for cursor placement in
+        // terminals, text fields, buttons, etc. Double-click was tried but
+        // broke terminal interaction (it selects a word instead of placing
+        // the cursor). For URL bar "select existing content then replace"
+        // scenarios the agent should emit `navigate_and_triple_click` —
+        // that action already exists and selects the full line cleanly.
         dispatch: async (a) => {
             const { screenWidth, screenHeight } = getScreenDimensions();
             const absX = Math.round(a.coordinates.x * screenWidth);

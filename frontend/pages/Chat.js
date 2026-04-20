@@ -12,6 +12,7 @@
 const { ipcRenderer } = require('electron');
 const { StepCard, DoneCard, ErrorCard, PlanCard, FileCard, SkillCard, HistoryPanel } = require('../components');
 const { Greeting } = require('../components/conversation/Greeting');
+const { Settings } = require('../components/frames/Settings');
 const { TurnYou }      = require('../components/conversation/TurnYou');
 const { TurnEmu }      = require('../components/conversation/TurnEmu');
 const { MacWindow }    = require('../components/chrome/MacWindow');
@@ -114,8 +115,8 @@ function showEmpty() {
 // with TurnYou / TurnEmu blocks matching the handoff design.
 // Returns: user → turn element; assistant → turn.body (mount point for trace lines).
 function addMessage(role, content, index) {
-    const empty = chatWrapper.querySelector('.empty-state, .idle-greeting');
-    if (empty) empty.remove();
+    const greeting = chatWrapper.querySelector('.idle-greeting');
+    if (greeting) greeting.remove();
 
     if (role === 'user') {
         const turn = TurnYou(content);
@@ -1032,6 +1033,13 @@ async function initSession() {
     }
 }
 
+// ── Settings modal ───────────────────────────────────────────────────────
+
+function openSettings() {
+    const settings = Settings({});
+    document.body.appendChild(settings.element);
+}
+
 // ── Mount ────────────────────────────────────────────────────────────────
 
 function mount(appEl) {
@@ -1047,6 +1055,7 @@ function mount(appEl) {
         onClose:           () => window.close(),
         onNewTask:         newChat,
         onToggleSidebar:   toggleHistoryPanel,
+        onOpenSettings:    openSettings,
     });
 
     appEl.appendChild(header.chromeEl);

@@ -15,7 +15,7 @@
 
 const store = require('../../state/store');
 
-function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar }) {
+function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar, onOpenSettings }) {
     // ── Chrome bar (32px drag region) ────────────────────────────────────
     const chrome = document.createElement('div');
     chrome.className = 'mac-chrome';
@@ -75,21 +75,31 @@ function MacWindow({ onExpand, onMinimize, onClose, onNewTask, onToggleSidebar }
     dangerWrap.appendChild(dangerSlider);
     actions.appendChild(dangerWrap);
 
-    // Theme toggle (moon / sun glyph)
+    // Theme toggle — moved into Settings, but keep in chrome too for one-click access
     const themeBtn = document.createElement('button');
-    themeBtn.className = 'mac-action-btn';
+    themeBtn.className = 'mac-action-btn theme-toggle';
     themeBtn.type = 'button';
     themeBtn.title = store.state.darkMode ? 'Switch to light mode' : 'Switch to dark mode';
     themeBtn.textContent = store.state.darkMode ? '☀' : '☽';
     themeBtn.onclick = () => {
         const newDark = !store.state.darkMode;
         store.setDarkMode(newDark);
-        // New: toggle .ink on <body> (Emu Design System v1)
         document.body.classList.toggle('ink', newDark);
         themeBtn.textContent = newDark ? '☀' : '☽';
         themeBtn.title = newDark ? 'Switch to light mode' : 'Switch to dark mode';
     };
     actions.appendChild(themeBtn);
+
+    // Settings (gear) — opens the Settings modal
+    if (onOpenSettings) {
+        const settingsBtn = document.createElement('button');
+        settingsBtn.className = 'mac-action-btn settings-btn';
+        settingsBtn.type = 'button';
+        settingsBtn.title = 'Settings';
+        settingsBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="2"/><path d="M11.5 8.3a.95.95 0 0 0 .19 1.05l.04.04a1.15 1.15 0 1 1-1.63 1.63l-.04-.04a.95.95 0 0 0-1.05-.19.95.95 0 0 0-.58.87v.12a1.15 1.15 0 1 1-2.3 0v-.06a.95.95 0 0 0-.62-.87.95.95 0 0 0-1.05.19l-.04.04a1.15 1.15 0 1 1-1.63-1.63l.04-.04a.95.95 0 0 0 .19-1.05.95.95 0 0 0-.87-.58h-.12a1.15 1.15 0 1 1 0-2.3h.06a.95.95 0 0 0 .87-.62.95.95 0 0 0-.19-1.05l-.04-.04a1.15 1.15 0 1 1 1.63-1.63l.04.04a.95.95 0 0 0 1.05.19h.01a.95.95 0 0 0 .58-.87v-.12a1.15 1.15 0 1 1 2.3 0v.06a.95.95 0 0 0 .58.87.95.95 0 0 0 1.05-.19l.04-.04a1.15 1.15 0 1 1 1.63 1.63l-.04.04a.95.95 0 0 0-.19 1.05v.01a.95.95 0 0 0 .87.58h.12a1.15 1.15 0 1 1 0 2.3h-.06a.95.95 0 0 0-.87.58z"/></svg>';
+        settingsBtn.addEventListener('click', onOpenSettings);
+        actions.appendChild(settingsBtn);
+    }
 
     chrome.appendChild(actions);
 

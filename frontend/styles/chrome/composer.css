@@ -54,14 +54,16 @@
   gap: 18px;
 }
 
-/* Serif italic textarea — no border, no background */
+/* Typed text uses Inter Tight (matches user-turn text and the rest of
+ * the app). Only the empty-state placeholder uses serif italic, per the
+ * design's editorial hint feel. No border, no background. */
 .composer-input {
   flex: 1;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: var(--size-md);   /* 17px */
-  font-style: italic;
-  color: var(--ink-30);        /* placeholder colour — text not yet entered */
+  font-style: normal;
   font-weight: 400;
+  color: var(--ink);
   line-height: 1.4;
   padding: 4px 0;
   background: none;
@@ -70,16 +72,11 @@
   resize: none;
   overflow: hidden;
   max-height: 160px;
-  transition: color 0.15s;
 }
 
-/* Once user starts typing, switch to full-ink non-italic */
-.composer-input.has-value {
-  font-style: normal;
-  color: var(--ink);
-}
-
+/* Placeholder only — serif italic "Ask anything…" matches the handoff hint */
 .composer-input::placeholder {
+  font-family: var(--font-serif);
   font-style: italic;
   color: var(--ink-30);
 }

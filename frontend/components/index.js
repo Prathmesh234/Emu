@@ -1,39 +1,21 @@
-// Export all components
+// components/index.js — Public exports
+//
+// Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+// After Phase 9 cleanup, only the in-flight components are exported here.
+// Chrome and conversation primitives are imported directly by pages.
 
-const { Button, icons } = require('./Button');
-const { Message } = require('./Message');
-const { ChatInput } = require('./ChatInput');
-const { Sidebar, HistoryItem } = require('./Sidebar');
 const { StepCard, DoneCard, ErrorCard } = require('./StepCard');
-const { PlanCard } = require('./PlanCard');
-const { FileCard } = require('./FileCard');
-const { SkillCard } = require('./SkillCard');
-const { Tooltip } = require('./Tooltip');
-const { Header } = require('./Header');
-const { EmptyState } = require('./EmptyState');
-const { StatusIndicator } = require('./StatusIndicator');
+const { PlanCard }    = require('./PlanCard');
+const { FileCard }    = require('./FileCard');
+const { SkillCard }   = require('./SkillCard');
 const { HistoryPanel } = require('./HistoryPanel');
-const { PanelButton } = require('./PanelButton');
-const { PanelToggle } = require('./PanelToggle');
 
 module.exports = {
-    Button,
-    icons,
-    Message,
-    ChatInput,
-    Sidebar,
-    HistoryItem,
     StepCard,
     DoneCard,
     ErrorCard,
     PlanCard,
     FileCard,
     SkillCard,
-    Tooltip,
-    Header,
-    EmptyState,
-    StatusIndicator,
     HistoryPanel,
-    PanelButton,
-    PanelToggle,
 };

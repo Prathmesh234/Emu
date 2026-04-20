@@ -45,12 +45,11 @@ function Composer(onSend, onStop) {
     textarea.placeholder = 'Ask anything…';
     textarea.rows = 1;
 
-    // Keep textarea height fitted to content
+    // Keep textarea height fitted to content. The empty-state placeholder
+    // styling is handled natively by ::placeholder, so no class toggle needed.
     textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
         textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
-        // Swap italic/upright styling based on content presence
-        textarea.classList.toggle('has-value', !!textarea.value.trim());
         if (_mode === 'send') {
             sendBtn.disabled = !textarea.value.trim();
         }

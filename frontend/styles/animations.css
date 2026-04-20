@@ -4,8 +4,9 @@
  * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
  * Design source: Emu-handoff.zip → project/Emu Frames.html
  *
- * emuPulse  — status dot, hint dot (1.8s breathing)
- * emuBlink  — text cursor in composing state (1s step blink)
+ * emuPulse    — status / hint dot (1.8s breathing)
+ * emuBlink    — text caret (1s step blink)
+ * traceEnter  — subtle fade+rise when a new card/trace/turn is appended
  */
 
 @keyframes emuPulse {
@@ -15,4 +16,28 @@
 
 @keyframes emuBlink {
   50% { opacity: 0; }
+}
+
+/* Smooth entrance for any element appended to a conversation flow */
+@keyframes traceEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Apply to direct children of the chat flow and agent body so every new
+   user turn, Emu turn, trace line, or card fades + rises into place.
+   Duration matches the design's unhurried feel (220ms). */
+.chat-wrapper > *,
+.turn-emu-body > * {
+  animation: traceEnter 0.22s var(--ease) both;
+}
+
+/* Don't animate the caret itself (it has its own blink) — it's already
+   inside a trace block, so the parent's entrance handles it. */
+.trace-caret { animation: emuBlink 1s steps(1) infinite; }
+
+/* Sidebar items get a quieter version when the panel opens and populates */
+.history-item,
+.history-group-label {
+  animation: traceEnter 0.18s var(--ease) both;
 }

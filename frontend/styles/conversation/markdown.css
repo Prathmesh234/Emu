@@ -13,8 +13,13 @@
  */
 
 /* ── Inline code — subtle tint, no border ─────────────────────────────── */
+/* Selectors re-specify .turn-text / .trace-done-text / .file-dialog-body
+   so they win over the wildcard-font rule in turns.css / trace.css. */
 
-.md-inline-code {
+.md-inline-code,
+.turn-text .md-inline-code,
+.trace-done-text .md-inline-code,
+.file-dialog-body .md-inline-code {
   background: var(--ink-08);
   border: 1px solid var(--ink-14);
   border-radius: var(--radius-sm);
@@ -26,7 +31,10 @@
 
 /* ── Code block — dim surface, no harsh black ─────────────────────────── */
 
-.md-code-block {
+.md-code-block,
+.turn-text .md-code-block,
+.trace-done-text .md-code-block,
+.file-dialog-body .md-code-block {
   background: var(--ink-08);
   color: var(--ink);
   border: 1px solid var(--ink-14);
@@ -75,4 +83,79 @@
 .md-check-item.checked {
   color: var(--ink-55);
   text-decoration: line-through;
+}
+
+/* ── Global markdown element styling (unscoped) ──────────────────────────
+ * These rules apply anywhere markdown is rendered: turn bodies, trace
+ * done-text, file-dialog previews, future artifact views, etc. Everything
+ * pulls from tokens so light/dark swap naturally.
+ */
+
+.md-h1 {
+  font-family: var(--font-sans);
+  font-size: var(--size-xl);     /* 22px */
+  font-weight: 500;
+  color: var(--ink);
+  margin: 10px 0 4px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.md-h2 {
+  font-family: var(--font-sans);
+  font-size: var(--size-md);     /* 17px */
+  font-weight: 500;
+  color: var(--ink);
+  margin: 10px 0 4px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.md-h3,
+.md-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--size-md);
+  font-weight: 500;
+  color: var(--ink);
+  margin: 8px 0 2px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.md-list {
+  margin: 4px 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.md-list li {
+  font-family: var(--font-sans);
+  font-size: var(--size-md);
+  color: var(--ink);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.md-checklist { list-style: none; padding-left: 4px; }
+
+.md-check-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: var(--size-md);
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.md-spacer { height: 8px; }
+
+/* Plain paragraph divs (markdown renderer wraps lines in <div>) */
+.turn-text > div:not([class]),
+.trace-done-text > div:not([class]),
+.file-dialog-body > div:not([class]) {
+  font-family: var(--font-sans);
+  font-size: var(--size-md);
+  color: var(--ink);
+  line-height: 1.6;
 }

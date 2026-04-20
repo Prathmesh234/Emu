@@ -1,0 +1,62 @@
+/*
+ * emu-runner.css — Refined thinking indicator
+ *
+ * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+ * Overrides the legacy .typing / .emu-runner styles in styles.css with a
+ * quieter, smaller, token-coloured running bird. Trailing dots gone.
+ *
+ * Design:
+ *   - 26×26 (was 32×32) — fits the body type better
+ *   - Animation 0.48s (was 0.35s) — calmer, not frantic
+ *   - Colours: --ink / --ink-55 — re-tints with Linen/Ink
+ *   - Reduced leg swing: ±18° (was ±25°) — subtler stride
+ */
+
+.typing {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.typing .emu-runner {
+  width: 26px;
+  height: 26px;
+  display: inline-block;
+}
+
+.typing .emu-runner svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ── Token-driven fills / strokes ─────────────────────────────────────── */
+
+.emu-runner-svg .emu-main-fill   { fill:   var(--ink); }
+.emu-runner-svg .emu-main-stroke { stroke: var(--ink); }
+.emu-runner-svg .emu-accent-fill   { fill:   var(--ink-55); }
+.emu-runner-svg .emu-accent-stroke { stroke: var(--ink-55); }
+
+/* ── Gait animations (softer + slower) ────────────────────────────────── */
+
+@keyframes emuLegBack  { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
+@keyframes emuLegFront { 0%, 100% { transform: rotate(18deg); }  50% { transform: rotate(-18deg); } }
+@keyframes emuBob      { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+
+.typing .emu-runner svg .emu-body-group {
+  animation: emuBob 0.48s ease-in-out infinite;
+}
+
+.typing .emu-runner svg .emu-leg-back {
+  transform-origin: 18px 22px;
+  animation: emuLegBack 0.48s ease-in-out infinite;
+}
+
+.typing .emu-runner svg .emu-leg-front {
+  transform-origin: 22px 22px;
+  animation: emuLegFront 0.48s ease-in-out infinite;
+}
+
+/* ── Hide the legacy trailing dots if the old HTML is ever rendered ──── */
+
+.typing .thinking-dots { display: none !important; }

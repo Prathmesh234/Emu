@@ -49,18 +49,32 @@
   max-width: 560px;
 }
 
-/* Conversational / done text inside an Emu turn */
+/* Conversational / done text inside an Emu turn.
+ * Explicitly pin to Inter Tight so markdown children can't inherit a
+ * serif/browser default. All child markdown elements (p, li, strong,
+ * code, etc.) cascade from this. */
 .turn-text {
+  font-family: var(--font-sans);
   font-size: var(--size-md);      /* 17px */
   line-height: 1.6;
   color: var(--ink);
 }
 
+/* Force Inter Tight on every descendant, then let code elements
+   re-specify monospace at higher specificity (see markdown.css). */
+.turn-text,
+.turn-text * {
+  font-family: var(--font-sans);
+}
+
 .turn-text p { margin: 0; }
 .turn-text p + p { margin-top: 0.6em; }
-.turn-text em {
-  font-family: var(--font-serif);
+
+/* Italic stays italic but keeps the sans font so style + font are coherent */
+.turn-text em,
+.trace-done-text em {
   font-style: italic;
+  /* inherits font-family from parent → Inter Tight */
 }
 
 /* ── Typing indicator (EmuRunner) override ────────────────────────────── */

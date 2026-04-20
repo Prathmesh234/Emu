@@ -120,7 +120,9 @@
 
 .trace-file-link:hover { color: var(--ink); }
 
-/* Final message inside an Emu turn — not italic, full ink, larger */
+/* Final message inside an Emu turn — not italic, full ink, larger.
+ * Font is pinned on all descendants so markdown children can't inherit
+ * a serif default from anywhere upstream. */
 .trace-done-text {
   font-family: var(--font-sans);
   font-style: normal;
@@ -129,6 +131,13 @@
   color: var(--ink);
   padding-left: 0;
   border-left: none;
+}
+
+/* Force Inter Tight on every descendant; code elements re-specify
+   monospace at higher specificity (see markdown.css). */
+.trace-done-text,
+.trace-done-text * {
+  font-family: var(--font-sans);
 }
 
 .trace-done-text p { margin: 0; }
