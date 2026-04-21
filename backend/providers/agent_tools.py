@@ -73,6 +73,128 @@ AGENT_TOOLS_OPENAI = [
     {
         "type": "function",
         "function": {
+            "name": "create_skill",
+            "description": (
+                "Save a recurring user-personal workflow as a reusable skill "
+                "(e.g. 'check my Chase balance', 'file weekly expenses in Concur', "
+                "'pay rent on Zelle'). Do NOT use for generic app knowledge — those "
+                "are bundled. Writes to .emu/skills/<slug>/ following the open Agent "
+                "Skills spec; immediately discoverable via use_skill."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Human-readable skill name. Slugified for the folder "
+                            "(lowercase, hyphenated): 'Check Chase Balance' -> "
+                            "'check-chase-balance'. Pick something unique and "
+                            "task-specific — avoid generic names like 'banking'."
+                        ),
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "ONE sentence (≤200 chars) describing WHEN to trigger this "
+                            "skill. This is the ONLY part loaded into every prompt turn, "
+                            "so it must be specific and trigger-rich. Mention the app, "
+                            "the user-facing intent, and concrete trigger phrases. "
+                            "Good: 'Check Chase checking-account balance via chase.com — "
+                            "use when user asks about bank balance, recent deposits, or "
+                            "available funds.' "
+                            "Bad: 'Banking stuff.' / 'Helps with money.'"
+                        ),
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "description": (
+                            "FULL markdown body of SKILL.md (everything after the YAML "
+                            "frontmatter). Do NOT include the `---` fences or "
+                            "`name:`/`description:` — those are auto-generated.\n\n"
+                            "REQUIRED structure (use these exact H2 headings, in order):\n"
+                            "  • `# <Title>` — H1 skill title.\n"
+                            "  • `## When to use this skill` — concrete user trigger "
+                            "phrases, target app/site, ambiguities to watch for.\n"
+                            "  • `## Prerequisites` — bullet list of required app/browser "
+                            "state, hardware, data locations, and bundled files.\n"
+                            "  • `## Steps` — numbered list, ONE concrete action per item. "
+                            "Must reference exact UI labels, URLs, keyboard shortcuts, and "
+                            "field names actually observed. No vague verbs like 'navigate'.\n"
+                            "  • `## Pitfalls` — bullet list of known failure modes and "
+                            "how to recover from each.\n"
+                            "  • `## Bundled scripts` — one bullet per file in `files`: "
+                            "purpose, how to invoke via shell_exec, expected output. "
+                            "OMIT this section entirely if no `files`.\n\n"
+                            "Rules:\n"
+                            "  • Headings must match exactly (case + wording).\n"
+                            "  • NEVER embed secrets, passwords, OTPs, full account "
+                            "numbers, SSNs, or API keys — reference their location "
+                            "instead (OS keychain, preferences.md, etc.).\n"
+                            "  • For steps that move money, delete data, or send external "
+                            "comms, the step itself must say 'PAUSE and confirm with the "
+                            "user before clicking'.\n"
+                            "  • Keep body under ~400 lines; long data goes in `files` "
+                            "under references/.\n"
+                            "  • Bundled scripts should be self-contained, idempotent, "
+                            "and print machine-readable output (JSON or single value).\n"
+                            "  • Folder layout: SKILL.md (required) + optional scripts/, "
+                            "references/, assets/."
+                        ),
+                    },
+                    "files": {
+                        "type": "array",
+                        "description": (
+                            "Optional bundled text files written alongside SKILL.md. "
+                            "Each item is {path, content}. Path is RELATIVE to the skill "
+                            "folder and must live under one of the spec'd subdirs:\n"
+                            "  • scripts/  — executable code the skill instructs the agent "
+                            "to run via shell_exec (Python, shell, JS). Make scripts "
+                            "self-contained and print machine-readable output.\n"
+                            "  • references/ — lookup data, docs, account maps, API "
+                            "schemas, anything too long to inline in instructions.\n"
+                            "  • assets/   — templates, sample inputs, snippets to paste.\n"
+                            "Text only — no binaries. Path traversal ('../') is rejected. "
+                            "Your `instructions` MUST tell future-you exactly when and how "
+                            "to use each file."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": (
+                                        "Relative path under the skill folder, e.g. "
+                                        "'scripts/fetch.py', 'references/accounts.md', "
+                                        "'assets/email-template.txt'."
+                                    ),
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "File contents (UTF-8 text).",
+                                },
+                            },
+                            "required": ["path", "content"],
+                        },
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, replace the existing skill with the same slug "
+                            "(SKILL.md + any provided files are rewritten; other "
+                            "untouched files in the folder remain). Default false — "
+                            "refuses to clobber and returns an error so you can pick a "
+                            "different name or explicitly opt in."
+                        ),
+                    },
+                },
+                "required": ["name", "description", "instructions"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_session_file",
             "description": (
                 "Save data to a session file. You MUST call this after seeing any factual "

@@ -903,6 +903,18 @@ async function handleWsMessage(data) {
                     } else {
                         state.currentAssistantEl.appendChild(skillCard.element);
                     }
+                } else if (data.event === 'hermes_invoked') {
+                    // Generic tool trace — matches the replay-path style
+                    // ("used <tool_name>") used for any tool call without
+                    // a dedicated card.
+                    const toolWrap = document.createElement('div');
+                    toolWrap.className = 'trace resolved';
+                    toolWrap.textContent = 'used invoke_hermes';
+                    if (container) {
+                        container.appendChild(toolWrap);
+                    } else {
+                        state.currentAssistantEl.appendChild(toolWrap);
+                    }
                 }
             }
             scrollToBottom();

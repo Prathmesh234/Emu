@@ -3,7 +3,7 @@ import platform
 from utilities.connection import ConnectionManager
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
-from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory
+from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory, handle_create_skill
 from .compaction import handle_compact_context
 from .hermes import handle_invoke_hermes
 
@@ -32,6 +32,21 @@ async def execute_agent_tool(
             "skill_name": skill_name,
         })
         return handle_use_skill(skill_name)
+
+    elif name == "create_skill":
+        result = handle_create_skill(
+            name=args.get("name", ""),
+            description=args.get("description", ""),
+            instructions=args.get("instructions", ""),
+            files=args.get("files") or [],
+            overwrite=bool(args.get("overwrite", False)),
+        )
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "skill_created",
+            "skill_name": args.get("name", ""),
+        })
+        return result
 
     elif name == "read_memory":
         return handle_read_memory(target=args.get("target", "long_term"), date=args.get("date", ""))

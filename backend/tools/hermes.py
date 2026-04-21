@@ -128,13 +128,20 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
 
 
 async def _run_hermes(prompt: str, timeout_s: int) -> tuple[int, str, str]:
-    """Run `hermes chat -q <prompt>` and return (returncode, stdout, stderr)."""
+    """Run `hermes chat -q <prompt>` and return (returncode, stdout, stderr).
+
+    stdin is closed (DEVNULL) so Hermes cannot block waiting on an inherited
+    stdin if it ever decides to prompt for confirmation. Anything Hermes wants
+    to say back — including "need more info" / "please clarify X" — will come
+    out on stdout (or stderr) and is returned verbatim to the agent loop.
+    """
     hermes_bin = _resolve_hermes_bin() or HERMES_BIN
     proc = await asyncio.create_subprocess_exec(
         hermes_bin,
         "chat",
         "-q",
         prompt,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=_augmented_env(),
@@ -248,12 +255,28 @@ async def handle_invoke_hermes(
     body = stdout if stdout else "(no stdout)"
     err_block = f"\n\n--- Hermes stderr ---\n{stderr}" if stderr else ""
 
+    # Treat Hermes's reply as the tool result. If Hermes asked a clarifying
+    # question, requested approval, or reported partial progress, that text
+    # is in `body` — the agent loop should read it and respond accordingly
+    # (typically: ask the user, gather the missing info, re-invoke with a
+    # refined `goal` / `context`).
+    guidance = (
+        "\n\n--- How to read this ---\n"
+        "The text above is exactly what Hermes printed. If it asks a question, "
+        "requests approval, or says it needs more information, do NOT silently "
+        "retry \u2014 respond to the user with what Hermes is asking, gather the "
+        "missing detail, then call invoke_hermes again with a refined `goal` "
+        "or expanded `context`. If it announces success and a file path, you "
+        "can confirm to the user and move on."
+    )
+
     if rc != 0:
         return (
-            f"{header}\n{body}{err_block}\n\n"
+            f"{header}\n{body}{err_block}{guidance}\n\n"
             f"Hermes exited non-zero ({rc}). Inspect the output above; if it "
-            "is recoverable (e.g. a missing dependency Hermes named), fix it "
-            "and call invoke_hermes again with a refined prompt."
+            "is recoverable (e.g. a missing dependency Hermes named, or a "
+            "clarification request), fix the input and call invoke_hermes "
+            "again with a refined prompt."
         )
 
-    return f"{header}\n{body}{err_block}"
+    return f"{header}\n{body}{err_block}{guidance}"
