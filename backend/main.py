@@ -3,7 +3,6 @@ import os
 import secrets
 import sys
 import uuid
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -79,44 +78,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# ── Memory daemon (in-process background task) ──────────────────────────────
-# Runs daemon.run.main() every EMU_DAEMON_INTERVAL_SECONDS (default 300).
-# Fires once ~10s after startup, then loops. Lives with the backend
-# lifecycle — exits when uvicorn exits.
-
-_DAEMON_INITIAL_DELAY_S = 10
-_DAEMON_DEFAULT_INTERVAL_S = 300
+# ── Memory daemon ───────────────────────────────────────────────────────────
+# The memory daemon is driven by macOS launchd (see daemon/launchd/ and
+# daemon/install_macos.py), NOT by this process. That way it keeps ticking
+# every 2 minutes even when uvicorn is shut down. The backend shares the
+# same .emu/ directory with the daemon — no IPC between them.
 
 
-async def _daemon_ticker():
-    from daemon.run import main as daemon_main
-
-    interval = int(os.environ.get("EMU_DAEMON_INTERVAL_SECONDS", _DAEMON_DEFAULT_INTERVAL_S))
-    print(f"[daemon] ticker started — first tick in {_DAEMON_INITIAL_DELAY_S}s, then every {interval}s")
-    await asyncio.sleep(_DAEMON_INITIAL_DELAY_S)
-
-    while True:
-        try:
-            await asyncio.to_thread(daemon_main)
-        except Exception as exc:
-            print(f"[daemon] tick raised: {exc}")
-        await asyncio.sleep(interval)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_daemon_ticker())
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-
-app = FastAPI(title="Emulation Agent API", lifespan=lifespan)
+app = FastAPI(title="Emulation Agent API")
 
 # Middleware execution order in Starlette: LAST added = OUTERMOST.
 # We need CORS to be outermost so its headers appear on ALL responses

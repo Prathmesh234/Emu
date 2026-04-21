@@ -179,11 +179,24 @@ if [ "${EMU_DEV:-0}" = "1" ]; then
 fi
 UVICORN_ARGS="main:app ${_RELOAD_FLAG} --host 127.0.0.1 --port 8000"
 
-# ── Memory daemon config (runs in-process inside uvicorn) ───────────────────
-# Export the detected provider so daemon/llm_client.py picks it up without
-# requiring EMU_DAEMON_PROVIDER in .env.
+# ── Memory daemon config ────────────────────────────────────────────────────
+# The daemon runs OUT-OF-PROCESS via macOS launchd so it keeps ticking even
+# when this backend is shut down. Export the detected provider so
+# daemon/llm_client.py picks it up when launchd fires run.sh.
 
 export EMU_DAEMON_PROVIDER="${EMU_DAEMON_PROVIDER:-$PROVIDER}"
+
+# ── Memory daemon install prompt (macOS only, first run) ────────────────────
+# Skips silently if:
+#   - not macOS
+#   - stdin isn't a TTY (CI / nohup)
+#   - plist already installed
+#   - user previously answered "never"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    # Stdlib only — no need to spin up the backend venv.
+    (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos prompt-install) || true
+fi
 
 # ── Start the backend ───────────────────────────────────────────────────────
 

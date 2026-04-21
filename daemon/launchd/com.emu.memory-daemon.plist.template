@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.emu.memory-daemon</string>
+
+    <!-- Every 2 minutes. launchd coalesces missed ticks across sleep. -->
+    <key>StartInterval</key>
+    <integer>120</integer>
+
+    <!-- Wrapper shell sources backend/.env so provider keys reach the daemon
+         without baking secrets into this plist. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>{{REPO}}/daemon/launchd/run.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>EMU_ROOT</key>      <string>{{EMU_ROOT}}</string>
+        <key>HOME</key>          <string>{{HOME}}</string>
+        <key>PATH</key>          <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{REPO}}</string>
+
+    <!-- Never auto-restart; the StartInterval is restart enough. -->
+    <key>KeepAlive</key>             <false/>
+    <key>RunAtLoad</key>             <false/>
+    <key>AbandonProcessGroup</key>   <false/>
+
+    <!-- Be polite about CPU/IO. -->
+    <key>Nice</key>                  <integer>5</integer>
+    <key>LowPriorityIO</key>         <true/>
+    <key>ProcessType</key>           <string>Background</string>
+
+    <key>StandardOutPath</key>       <string>{{EMU_ROOT}}/global/daemon/logs/stdout.log</string>
+    <key>StandardErrorPath</key>     <string>{{EMU_ROOT}}/global/daemon/logs/stderr.log</string>
+</dict>
+</plist>
