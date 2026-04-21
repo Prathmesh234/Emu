@@ -1,256 +1,170 @@
-# Emu (v0.1) — Setup Guide
+# Emu Setup Guide
 
-Everything you need to get Emu running, from zero to working desktop agent.
-
----
+This guide is the practical setup path for running Emu locally.
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| **Node.js** | v18+ | [nodejs.org](https://nodejs.org/) |
-| **Python** | 3.12+ | [python.org](https://www.python.org/downloads/) |
-| **uv** | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+- Node.js 18+
+- Python 3.12+
+- `uv` package manager
 
-### Platform dependencies
-
-**macOS** — install cliclick:
-- `brew install cliclick`
-- Grant **Accessibility** permission to Terminal/Electron in System Settings > Privacy & Security
-- Grant **Screen Recording** permission to Electron in System Settings > Privacy & Security
-
----
-
-## Quick Start (two terminals)
+Install `uv`:
 
 ```bash
-# Terminal 1 — backend
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+macOS-only dependencies:
+
+```bash
+brew install cliclick
+```
+
+Then grant permissions:
+
+- Accessibility
+- Screen Recording
+
+## Quick start
+
+Open two terminals at repo root.
+
+```bash
+# Terminal 1
 ./backend.sh
 
-# Terminal 2 — frontend
+# Terminal 2
 ./frontend.sh
 ```
 
-That's it. Both scripts handle dependency installation, Modal deployments, and startup automatically.
+## What startup scripts do
 
----
+## `backend.sh`
 
-## What the scripts do
+- Loads `backend/.env` if present.
+- Creates `.venv` with `uv venv` when needed.
+- Runs `uv sync`.
+- Detects provider from env vars.
+- Deploys Modal model automatically when provider resolves to `modal`.
+- Deploys OmniParser when `USE_OMNI_PARSER` is enabled.
+- Starts FastAPI at `127.0.0.1:8000`.
+- On macOS, prompts one-time memory daemon install via `daemon.install_macos`.
 
-### `backend.sh`
+## `frontend.sh`
 
-1. Creates a Python virtual environment via `uv venv` (skips if `.venv/` exists)
-2. Installs all Python dependencies via `uv sync`
-3. Loads `backend/.env` if present
-4. Auto-detects your model provider from environment variables
-5. **If provider is `modal`** — runs `modal deploy` for the Qwen VLM automatically
-6. **If `USE_OMNI_PARSER=1`** — runs `modal deploy` for OmniParser V2 automatically
-7. Starts the FastAPI server on `http://127.0.0.1:8000`
+- Installs npm dependencies if missing.
+- Runs Electron (`npm start`).
 
-### `frontend.sh`
+## Provider setup
 
-1. Runs `npm install` (skips if `node_modules/` exists)
-2. Launches the Electron desktop app
+Create `backend/.env` (or export vars in shell) and set one provider key.
 
----
-
-## Choosing a model provider
-
-Emu auto-detects your provider from environment variables. Set **one** API key and go.
-
-### Option 1: Create a `backend/.env` file
+Examples:
 
 ```bash
-# backend/.env — pick ONE provider
-
-# Claude (recommended)
-ANTHROPIC_API_KEY=sk-ant-...
+# Claude
+ANTHROPIC_API_KEY=...
 
 # OpenAI
-# OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=...
 
-# Google Gemini
-# GOOGLE_API_KEY=AIza...
+# OpenRouter
+OPENROUTER_API_KEY=...
 
-# OpenRouter (200+ models)
-# OPENROUTER_API_KEY=sk-or-...
+# Gemini
+GOOGLE_API_KEY=...
 
-# Self-hosted (vLLM, SGLang, Ollama)
-# OPENAI_BASE_URL=http://localhost:8000/v1
-# OPENAI_API_KEY=none
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=...
+AZURE_OPENAI_API_KEY=...
 
-# Force a specific provider (overrides auto-detection)
-# EMU_PROVIDER=claude
+# OpenAI-compatible endpoint (vLLM/SGLang/Ollama)
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=none
 ```
 
-### Option 2: Export in your shell
+Optional overrides:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-./backend.sh
-```
-
-### Auto-detection order
-
-If multiple keys are set, Emu picks the first match:
-
-| Priority | Env var | Provider |
-|----------|---------|----------|
-| 1 | `EMU_PROVIDER` | Explicit override |
-| 2 | `ANTHROPIC_API_KEY` | Claude (Anthropic) |
-| 3 | `OPENROUTER_API_KEY` | OpenRouter |
-| 4 | `OPENAI_BASE_URL` + `OPENAI_API_KEY` | OpenAI-compatible (self-hosted) |
-| 5 | `OPENAI_API_KEY` | OpenAI |
-| 6 | `GOOGLE_API_KEY` | Google Gemini |
-| 7 | *(none)* | Modal (free GPU fallback) |
-
----
-
-## Modal deployment (automatic)
-
-If no API keys are set, Emu falls back to **Modal** — running Qwen3.5 on remote GPUs. `backend.sh` handles the deployment automatically:
-
-```
-./backend.sh
-# [emu] Detected provider: modal
-# [emu] Provider is 'modal' — deploying Qwen VLM on Modal...
-# [emu] Modal VLM deployment complete
-# [emu] Emu Backend Starting
-```
-
-### First-time Modal setup
-
-If you haven't used Modal before:
-
-```bash
-# Install is handled by uv sync, but you need to authenticate:
-uv run modal setup
-```
-
-This opens a browser to link your Modal account. You only need to do this once.
-
----
-
-## OmniParser (optional)
-
-OmniParser V2 adds UI element detection — it annotates screenshots with bounding boxes and labels so the model sees precise coordinates instead of guessing from raw pixels.
-
-### Enable it
-
-```bash
-# Option A: environment variable
-export USE_OMNI_PARSER=1
-./backend.sh
-
-# Option B: add to backend/.env
+EMU_PROVIDER=claude
 USE_OMNI_PARSER=1
+EMU_DEV=1
 ```
 
-When enabled, `backend.sh` automatically deploys OmniParser to Modal (A10G GPU) before starting the server. This works with **any** provider — Claude, OpenAI, Gemini, or Modal.
+## Memory daemon setup (macOS)
 
-### What happens under the hood
-
-1. `backend.sh` detects `USE_OMNI_PARSER=1`
-2. Runs `modal deploy providers/modal/omni_parser/deploy.py`
-3. OmniParser deploys on an A10G GPU (YOLO + EasyOCR)
-4. Every screenshot the agent takes is routed through OmniParser
-5. The model receives an annotated image + structured element list
-
-### Performance
-
-| Metric | Value |
-|--------|-------|
-| Warm latency | ~1.5s per screenshot |
-| Cold start | ~15s (first request after idle) |
-| GPU | NVIDIA A10G |
-
----
-
-## Self-hosted models (vLLM / SGLang / Ollama)
-
-Run any vision-language model on your own hardware:
+If you skipped the backend prompt or want manual control:
 
 ```bash
-# Terminal 1 — start your model server
-vllm serve Qwen/Qwen2.5-VL-72B-Instruct --port 8080
-
-# Terminal 2 — point Emu at it
-export OPENAI_BASE_URL=http://localhost:8080/v1
-export OPENAI_API_KEY=none
-./backend.sh
+python3 -m daemon.install_macos install
 ```
 
-Works with any OpenAI-compatible server. The backend polls `/v1/models` to auto-detect the model name.
-
-### Server examples
+Check it:
 
 ```bash
-# vLLM
-vllm serve Qwen/Qwen2.5-VL-72B-Instruct --port 8080
-
-# SGLang
-python -m sglang.launch_server --model Qwen/Qwen2.5-VL-72B-Instruct --port 30000
-
-# Ollama
-ollama serve
-ollama pull llava
-# Then: OPENAI_BASE_URL=http://localhost:11434/v1
+python3 -m daemon.install_macos status
 ```
 
----
+Force a tick:
 
-## Manual setup (without scripts)
+```bash
+python3 -m daemon.install_macos run-now
+```
 
-If you prefer running commands yourself:
+Remove it:
+
+```bash
+python3 -m daemon.install_macos uninstall
+```
+
+## Manual launch commands (without scripts)
 
 ```bash
 # Backend
 cd backend
 uv venv
 uv sync
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
 
-# (Optional) Deploy Modal model
-uv run modal deploy providers/modal/deploy.py
-
-# (Optional) Deploy OmniParser
-uv run modal deploy providers/modal/omni_parser/deploy.py
-
-# Start server
-uv run uvicorn main:app --reload --port 8000
-# Add --use-omni-parser flag if you want OmniParser enabled
-
-# Frontend (separate terminal)
+# Frontend
 cd ..
 npm install
 npm start
 ```
 
----
-
 ## Troubleshooting
 
-### `uv: command not found`
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# Then restart your terminal or: source ~/.bashrc
-```
+## `uv` not found
 
-### `modal: command not found` (when using Modal provider)
-The modal CLI is installed as a Python dependency. `backend.sh` handles this by running `uv run modal deploy ...` which uses the venv's modal. If running manually:
+- Reinstall `uv`.
+- Restart terminal session.
+
+## API calls failing with 401
+
+- Backend enforces auth token in `X-Emu-Token`.
+- Ensure frontend is using `.emu/.auth_token` from current backend run.
+
+## Frontend starts but no backend response
+
+- Verify backend logs show server listening at `127.0.0.1:8000`.
+- Verify no stale backend process is writing a different auth token.
+
+## Modal issues
+
 ```bash
 cd backend
-uv run modal setup    # authenticate (first time only)
-uv run modal deploy providers/modal/deploy.py
+uv run modal setup
 ```
 
-### Backend starts but frontend can't connect
-Make sure the backend is running on port 8000 before starting the frontend. The Electron app connects to `http://127.0.0.1:8000`.
+Then rerun `./backend.sh`.
 
-### OmniParser cold start is slow
-First request after the Modal container idles takes ~15s. Subsequent requests are ~1.5s. The container stays warm for 5 minutes after the last request.
+## Hermes tool use fails
 
-### macOS permissions not granted
-If mouse/keyboard actions fail silently, check System Settings > Privacy & Security:
-- **Accessibility**: Add your Terminal app and the Electron app
-- **Screen Recording**: Add the Electron app
-You may need to restart the app after granting permissions.
+- Install Hermes if missing (tool guidance is returned automatically).
+- Confirm Hermes binary is on PATH.
+- Use `check_hermes` polling for long jobs.
+
+## Daemon install refused
+
+Installer blocks transient paths like app translocation or mounted disk images.
+Use a stable path (`/Applications` for app bundle or a normal source checkout) and retry.

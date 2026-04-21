@@ -1,234 +1,85 @@
-# Frontend Architecture (v0.1)
+# Frontend Reference
 
-The core philosophy of this frontend is **reusability**. Every UI element should be a self-contained component that can be imported, composed, and reused across different parts of the application. This reduces code duplication, improves maintainability, and makes it easier to build new features by combining existing components.
+Frontend is an Electron renderer app under `frontend/` with modular UI, service, and action layers.
 
-## Directory Structure
+## Main structure
 
-```
-frontend/
-├── app.js                 # Minimal entry point — mounts the active page
-├── index.html             # HTML shell
-├── styles.css             # Global styles
-├── state/
-│   └── store.js           # Centralized state management
-├── services/
-│   ├── api.js             # HTTP API calls to backend
-│   └── websocket.js       # WebSocket connection management
-├── pages/
-│   ├── index.js           # Page exports
-│   └── Chat.js            # Chat page (messages, input, WS handler, actions)
-├── components/            # Reusable UI components
-│   ├── index.js           # Component exports
-│   ├── Button.js          # Button with icon support
-│   ├── ChatInput.js       # Text input with send button
-│   ├── Message.js         # Chat message bubble
-│   ├── Sidebar.js         # Navigation sidebar
-│   ├── StepCard.js        # Agent step display (screenshot, reasoning, action)
-│   └── Tooltip.js         # Hover tooltip wrapper
-├── actions/               # IPC action handlers
-│   ├── index.js           # Action registration
-│   ├── actionProxy.js     # Action dispatcher and mapping
-│   ├── screenshot.js      # Screen capture
-│   ├── fullCapture.js     # Full screen capture (excludes panel)
-│   ├── leftClick.js       # Left click action
-│   ├── rightClick.js      # Right click action
-│   ├── leftClickOpen.js   # Double click action
-│   ├── navigate.js        # Mouse move action
-│   ├── scroll.js          # Scroll action
-│   └── window.js          # Window positioning
-└── process/
-    └── psProcess.js       # Persistent shell process manager (zsh on macOS, bash on Linux)
-```
+- `app.js`: app bootstrap and page mount.
+- `pages/Chat.js`: chat orchestration and user interaction.
+- `components/`: reusable UI modules.
+- `services/api.js`: HTTP backend calls.
+- `services/websocket.js`: realtime event channel.
+- `state/store.js`: centralized client state.
+- `actions/`: desktop action bridge (renderer -> main process handlers).
+- `process/psProcess.js`: persistent shell process manager.
 
-## Components
+## Action execution path
 
-### Core Components
+1. Backend returns desktop action payload.
+2. Frontend maps action type in `actions/actionProxy.js`.
+3. Renderer invokes IPC handler.
+4. Main process executes OS command path and returns result.
+5. Frontend posts action completion back to backend.
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `Button` | `Button.js` | Reusable button with SVG icon support |
-| `ChatInput` | `ChatInput.js` | Text area with send button and tooltip integration |
-| `Message` | `Message.js` | Chat message bubble (user/assistant variants) |
-| `StepCard` | `StepCard.js` | Displays agent step with screenshot, reasoning, and action |
-| `DoneCard` | `StepCard.js` | Task completion card |
-| `ErrorCard` | `StepCard.js` | Error display card |
-| `Tooltip` | `Tooltip.js` | Wraps any element with a hover tooltip |
-| `Sidebar` | `Sidebar.js` | Chat history navigation |
+## Action modules
 
-### Component Pattern
+Key handlers include:
 
-All components follow the same pattern:
+- screenshot and full capture
+- pointer move/click variants
+- drag and scroll
+- keyboard typing and keypress
+- window controls
 
-```javascript
-function ComponentName(props) {
-    const element = document.createElement('div');
-    // ... build DOM structure
-    return {
-        element,           // The DOM element to append
-        // ... any methods to update the component
-    };
-}
+## State model
 
-module.exports = { ComponentName };
+The store tracks:
+
+- active chat/session identifiers
+- generation status (`isGenerating`, stop state)
+- websocket connection state
+- message timeline
+- side panel and UI mode flags
+
+## UI redesign status
+
+The frontend styling/layout is being aligned to the redesign specification in `FRONTEND_REDESIGN.md` with:
+
+- tokenized styles in `frontend/styles/`
+- chrome/conversation/frame CSS separation
+- cleaner state-driven frame rendering
+
+## Startup
+
+Preferred:
+
+```bash
+./frontend.sh
 ```
 
-### Recent Additions
+Manual:
 
-**Tooltip Component** (`Tooltip.js`)
-- Wraps any element with a tooltip
-- Automatically shows tooltip when the wrapped element is disabled
-- Methods: `setText(text)`, `show()`, `hide()`, `destroy()`
-
-**StepCard Component** (`StepCard.js`)
-- Displays agent processing steps
-- Shows screenshot thumbnail (click to expand)
-- Displays reasoning and action with confidence indicator
-- Handles error states with `onerror` fallback
-
-**ChatInput Updates** (`ChatInput.js`)
-- Integrated Tooltip component for send button
-- Exposes `setTooltip(text)` method for dynamic tooltip updates
-
-## Actions
-
-The `actions/` directory contains IPC handlers that bridge the renderer process with the main process. Each action file exports:
-
-1. A renderer-side function to invoke the action
-2. A `register()` function to set up the IPC handler
-
-**actionProxy.js** maps backend `ActionType` values to frontend handlers:
-
-| Action Type | Handler | Description |
-|-------------|---------|-------------|
-| `screenshot` | `captureScreenshot()` | Capture current screen |
-| `navigate_and_click` | `navigateMouse(x, y)` + `leftClick()` | Move to coords then left click |
-| `navigate_and_right_click` | `navigateMouse(x, y)` + `rightClick()` | Move to coords then right click |
-| `navigate_and_triple_click` | `navigateMouse(x, y)` + `tripleClick()` | Move to coords then triple click |
-| `mouse_move` | `navigateMouse(x, y)` | Move cursor only (no click) |
-| `drag` | `drag(startX, startY, endX, endY)` | Drag from start to end coords |
-| `scroll` | `scroll(dir, amt)` | Scroll at current position |
-| `type_text` | `typeText(text)` | Type text string |
-| `key_press` | `keyPress(key, modifiers)` | Press key with optional modifiers |
-| `wait` | `setTimeout()` | Pause execution |
-| `done` | (no action) | Task complete signal |
-
-## State Management
-
-Centralized in `state/store.js`. All state lives in a single `state` object; components read from it and call mutation functions to update.
-
-| State | Purpose |
-|-------|---------|
-| `chats` | Array of chat conversations |
-| `currentChatId` | Active chat ID |
-| `isGenerating` | Whether agent is processing |
-| `isSidePanel` | Whether window is in side-panel mode |
-| `sessionId` | Backend session ID |
-| `ws` | WebSocket connection |
-| `currentAssistantEl` | Current assistant message element |
-| `currentChat` | Current chat object reference |
-
-**Key functions:** `createChat()`, `setCurrentChat()`, `pushMessage()`, `truncateMessages()`, `getLastUserMessage()`.
-
-## Services
-
-| Service | File | Purpose |
-|---------|------|---------|
-| API | `services/api.js` | HTTP calls — `createSession()`, `postStep()`, `notifyActionComplete()` |
-| WebSocket | `services/websocket.js` | WS connection, reconnect, message routing |
-
-## Pages
-
-| Page | File | Description |
-|------|------|-------------|
-| Chat | `pages/Chat.js` | Full chat UI — messages, input, status, WS handling, action execution |
-
-Pages expose a `mount(appEl)` function. `app.js` calls `Chat.mount(app)` to render.
-
-### Helper Functions
-
-**`syncGeneratingUI(boolean)`** - Manages the generating state and send button:
-- When `true`: Disables send button, shows processing tooltip
-- When `false`: Enables send button, clears tooltip
-
-## WebSocket Integration
-
-The frontend maintains a WebSocket connection to receive real-time updates:
-
-```javascript
-initWebSocket(sessionId)  // Connect to ws://localhost:8000/ws/{sessionId}
+```bash
+npm install
+npm start
 ```
 
-**Message Types:**
-- `status` - Show status indicator
-- `step` - Display agent step (screenshot, reasoning, action)
-- `done` - Task completion
-- `error` - Error display
+## Common frontend issues
 
----
+## Blank responses or no updates
 
-## FUTURE
+- Backend not reachable on `127.0.0.1:8000`.
+- WebSocket session mismatch.
 
-### 1. Modular App Architecture  ✅ DONE
+## Unauthorized API calls
 
-Implemented — `app.js` is now a minimal entry point. State lives in `state/store.js`, HTTP calls in `services/api.js`, WebSocket management in `services/websocket.js`, and the chat UI in `pages/Chat.js`.
+- Token mismatch between frontend and backend process.
 
-### 2. Simplified UI
+## Desktop actions not firing
 
-**Current State:** StepCard shows screenshot, reasoning, action, confidence, and status badge - too much information for most users.
+- Missing OS permissions (especially on macOS).
+- IPC handler not registered or action map mismatch.
 
-**Goals:**
-- Remove reasoning section (or make it collapsible/hidden by default)
-- Simplify completion messages (no "after X steps")
-- Cleaner, more minimal step cards
-- Focus on what the agent is doing, not how it's thinking
+## Inconsistent UI state after failures
 
-**Possible Design:**
-```
-┌─────────────────────────────┐
-│ [Screenshot thumbnail]      │
-│ Clicking "Submit" button    │  ← Simple action description
-│ ✓ Done                      │  ← Status only
-└─────────────────────────────┘
-```
-
-### 3. Dynamic/Flexible UI
-
-**Goals:**
-- Resizable panels (drag to resize chat vs preview areas)
-- Collapsible sections (minimize chat history, expand screenshot)
-- Detachable windows (pop out screenshot viewer)
-- Keyboard shortcuts for common actions
-- Responsive layout for different window sizes
-- Remember user's layout preferences
-
-**Components to Add:**
-- `Resizer` - Draggable divider between panels
-- `Collapsible` - Expandable/collapsible container
-- `Modal` - Popup dialog/lightbox for screenshots
-- `Tabs` - Tab navigation component
-
-### 4. General UX Improvements
-
-**Accessibility:**
-- Keyboard navigation throughout
-- Screen reader support
-- High contrast mode
-- Focus indicators
-
-**Feedback:**
-- Loading skeletons instead of spinners
-- Optimistic UI updates
-- Better error messages with recovery options
-- Toast notifications for background events
-
-**Polish:**
-- Smooth animations and transitions
-- Consistent spacing and typography
-- Dark mode support
-- Customizable themes
-
-**Performance:**
-- Virtual scrolling for long chat histories
-- Lazy load screenshots
-- Debounced input handling
-- Efficient DOM updates (consider virtual DOM library)
+- Verify `isGenerating` and stop/reset transitions in page/store logic.

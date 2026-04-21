@@ -1,5 +1,16 @@
 # HARNESS_IMPROVEMENTS.md
 
+## Current-State Addendum (April 2026)
+
+Since the original comparison was written, Emu has shipped meaningful harness-adjacent improvements:
+
+- Async Hermes delegation with job polling and cancellation (`invoke_hermes`, `check_hermes`, `cancel_hermes`, `list_hermes_jobs`).
+- Background memory daemon on macOS using launchd (`daemon/install_macos.py`, `daemon/run.py`, launchd wrapper script).
+- Expanded provider support and clearer provider auto-detection behavior.
+- Per-launch auth token protection for backend HTTP routes.
+
+The strategic gaps in deterministic replay, formal fixtures, typed tool schemas, and cost accounting still remain valid and should continue to drive roadmap prioritization.
+
 ## Diff-Style Comparative Analysis: Emu Harness vs Claude Code Harness
 
 ### Executive Summary

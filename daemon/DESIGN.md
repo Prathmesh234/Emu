@@ -1,11 +1,10 @@
 # Emu Memory Daemon — Design Document
 
-> Status: design draft (no executable code yet — see "Code Snippets" for the
-> shape of the implementation we will build). Inspiration: Hermes Agent's
-> gateway daemon, which ticks every 60s and runs due jobs in fresh isolated
-> agent sessions. Ours is simpler: a single fixed job that ticks every 5
-> minutes via `launchd`, runs the prompt from `backend/prompts/daemon.md`
-> (embedded into the script at build time), and is hard-sandboxed to `.emu/`.
+> Status: implemented and running in production code. This document remains
+> design-oriented, but the core system is now live: a launchd-driven background
+> daemon that runs `python -m daemon.run` at fixed intervals (currently 120s in
+> the launchd template) and curates `.emu/` memory files using strict path
+> policy constraints.
 >
 > **Distribution model.** The daemon ships **bundled inside the Emu macOS
 > app** (`.dmg`). The user never runs an install script; the first time the
@@ -18,7 +17,7 @@
 
 ## 1. Purpose
 
-Run the **Emu Memory Daemon** unattended on the user's Mac. Every 5 minutes it
+Run the **Emu Memory Daemon** unattended on the user's Mac. Every 2 minutes it
 wakes, scans `.emu/sessions/`, and curates the workspace memory files
 (`AGENTS.md`, `MEMORY.md`, daily logs, etc.) per the rules in
 `backend/prompts/daemon.md`.
@@ -78,17 +77,17 @@ recorded in the audit log. We do **not** silently allow.
 
 ## 3. Runtime Topology
 
-The daemon runs as an in-process asyncio task inside the FastAPI backend
-(`backend/main.py` lifespan). Every `EMU_DAEMON_INTERVAL_SECONDS` (default
-300) the ticker invokes `daemon.run.main()` via `asyncio.to_thread`.
+The daemon runs out-of-process via macOS launchd. It is intentionally decoupled
+from FastAPI backend uptime so memory curation can continue while backend is
+offline.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ backend/main.py  (uvicorn process)                                    │
-│   lifespan startup → asyncio.create_task(_daemon_ticker)              │
-│     loop: sleep(interval) → asyncio.to_thread(daemon.run.main)        │
+│ launchd (user LaunchAgent)                                            │
+│   StartInterval=120                                                    │
+│   ProgramArguments -> daemon/launchd/run.sh                            │
 └─────────────────────────────┬─────────────────────────────────────────┘
-                              │ call
+                              │ exec
                               ▼
 ┌───────────────────────────────────────────────────────────────────────┐
 │ daemon.run.main()   (one tick — no persistent process)                │
@@ -113,8 +112,7 @@ The daemon runs as an in-process asyncio task inside the FastAPI backend
 Two independent path enforcement points: the tool dispatcher (L2) and a final
 post-pass before the daemon commits to disk.
 
-Lifecycle note: the daemon lives with the backend. If uvicorn is stopped,
-the ticker is cancelled; consolidation resumes on next `backend.sh`.
+Lifecycle note: launchd controls daemon invocation cadence independently.
 
 ---
 
@@ -159,9 +157,9 @@ the Emu app at install time.
     <key>Label</key>
     <string>com.emu.memory-daemon</string>
 
-    <!-- Every 5 minutes. launchd coalesces missed ticks across sleep. -->
+    <!-- Every 2 minutes. launchd coalesces missed ticks across sleep. -->
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>120</integer>
 
     <key>ProgramArguments</key>
     <array>
@@ -208,7 +206,7 @@ the Emu app at install time.
 ```
 
 Notes:
-- `StartInterval=300` handles sleep/wake more gracefully than calendar intervals.
+- `StartInterval=120` handles sleep/wake more gracefully than calendar intervals.
 - `RunAtLoad=false` — fire on the next 5-min tick, not on install.
 - `KeepAlive=false` — don't respawn a crash loop tightly.
 - `EnvironmentVariables` carries `EMU_ROOT` and `EMU_DAEMON_PROVIDER`. The
@@ -611,7 +609,7 @@ The app re-runs `installMemoryDaemon` to refresh the plist (paths inside the
 `launchctl unload && load` cleanly hot-swaps.
 
 The user sees a single checkbox in preferences: **"Run memory daemon in
-background every 5 minutes."** That toggle calls install/uninstall above.
+background every 2 minutes."** That toggle calls install/uninstall above.
 
 ---
 

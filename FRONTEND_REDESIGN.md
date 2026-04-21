@@ -1,5 +1,12 @@
 # Frontend Redesign — Emu Handoff Implementation Plan
 
+## Status Update (April 2026)
+
+- The frontend is now actively using the modular style architecture under `frontend/styles/`.
+- The store/services/action split is in place and is the baseline for new UI work.
+- Documentation in `frontend/FRONTEND.md` now reflects the current module boundaries.
+- Remaining redesign work should be treated as incremental frame parity and polish, not a greenfield rewrite.
+
 Ground truth: `Emu-handoff.zip → project/Emu Frames.html` plus the shared chrome + frame JSX files in `project/frames/`. Everything in this doc derives from those five source files.
 
 **Non-goals.** No backend changes. No tech-stack migration (staying vanilla JS / `Component.mount()` / Electron renderer). No Sign-in / Onboarding / Permissions frames (deferred — not in current Emu).
