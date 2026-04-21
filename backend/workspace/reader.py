@@ -259,12 +259,18 @@ def append_session_notes(session_id: str, note: str) -> Path:
 
 
 def write_session_file(session_id: str, filename: str, content: str) -> Path:
-    """Write an arbitrary file into the session directory."""
+    """Write an arbitrary file into the session directory.
+
+    `filename` may include forward-slash subdirectories (e.g. "hermes/task_brief_01.md");
+    any missing parent directories are created. Path traversal above the session
+    directory is blocked.
+    """
     session_dir = ensure_session_dir(session_id)
     file_path = (session_dir / filename).resolve()
     # Prevent path traversal — resolved path must stay within session dir
     if not str(file_path).startswith(str(session_dir.resolve())):
         raise ValueError(f"Path traversal blocked: {filename}")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
     return file_path
 

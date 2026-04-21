@@ -300,8 +300,16 @@ AGENT_TOOLS_OPENAI = [
                 "Delegate a heavy generation, transformation, or codified task to "
                 "Hermes Agent (Nous Research) — an autonomous terminal agent that "
                 "runs locally. Hermes is invoked HEADLESSLY in the background "
-                "(via `hermes chat -q`); you do NOT need to open or focus a "
-                "terminal. Hermes's stdout is returned to you as the tool result.\n\n"
+                "(via `hermes chat -Q -q`); you do NOT need to open or focus a "
+                "terminal.\n\n"
+                "ASYNC SEMANTICS — IMPORTANT: this call returns IMMEDIATELY with a "
+                "`job_id`. Hermes runs in the background; Emu is NOT blocked. "
+                "After invoking, you MUST either (a) call `check_hermes(job_id, "
+                "wait_s=60)` to wait for the result, or (b) continue helping the "
+                "user with other things and call `check_hermes(job_id)` later to "
+                "see if it finished. The final Hermes output only arrives via "
+                "check_hermes — never assume the task is done just because "
+                "invoke_hermes returned.\n\n"
                 "USE THIS WHEN the next step is far easier in code/shell than in a GUI:\n"
                 "  • Building a PowerPoint from scratch (slide structure, bullets, "
                 "speaker notes, programmatic .pptx via python-pptx).\n"
@@ -379,6 +387,86 @@ AGENT_TOOLS_OPENAI = [
                     },
                 },
                 "required": ["goal", "context"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_hermes",
+            "description": (
+                "Poll a background Hermes job started by `invoke_hermes`. "
+                "Returns one of:\n"
+                "  • Completed: the full final stdout + saved-output path. "
+                "Read this carefully and act on it (confirm to user, follow "
+                "up on clarifying questions Hermes asked, etc).\n"
+                "  • Still running: a status snapshot with runtime, last-output "
+                "age, and the most recent stdout lines. If `wait_s > 0` you'll "
+                "block up to that many seconds for the job to finish first.\n\n"
+                "Polling cadence guidance:\n"
+                "  • If you have nothing else to do, call with wait_s=60 and "
+                "loop until done.\n"
+                "  • If you're doing other work in parallel, call with wait_s=0 "
+                "every few turns.\n"
+                "  • If the snapshot warns 'no output in 120s', the job may be "
+                "stuck — tell the user and offer cancel_hermes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": (
+                            "The job_id returned by invoke_hermes. Use "
+                            "list_hermes_jobs() if you've forgotten it."
+                        ),
+                    },
+                    "wait_s": {
+                        "type": "number",
+                        "description": (
+                            "Optional: how many seconds to block waiting for "
+                            "completion before returning the current snapshot. "
+                            "Capped at 300. Default 0 (return immediately)."
+                        ),
+                    },
+                },
+                "required": ["job_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_hermes",
+            "description": (
+                "Terminate a running Hermes job. Use when the user asks to "
+                "abort, when a job is clearly stuck (no output for >120s), or "
+                "when you've decided to take a different approach."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The job_id returned by invoke_hermes.",
+                    },
+                },
+                "required": ["job_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_hermes_jobs",
+            "description": (
+                "List every Hermes job started in the current session with "
+                "id, status, runtime, and goal. Use to recover a job_id you "
+                "forgot, or to see what's still running."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
             },
         },
     },

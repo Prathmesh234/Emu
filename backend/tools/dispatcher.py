@@ -5,7 +5,12 @@ from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory, handle_create_skill
 from .compaction import handle_compact_context
-from .hermes import handle_invoke_hermes
+from .hermes import (
+    handle_invoke_hermes,
+    handle_check_hermes,
+    handle_cancel_hermes,
+    handle_list_hermes_jobs,
+)
 
 
 async def execute_agent_tool(
@@ -96,7 +101,29 @@ async def execute_agent_tool(
             file_paths=args.get("file_paths") or [],
             output_target=args.get("output_target", ""),
             constraints=args.get("constraints", ""),
+            manager=manager,
         )
+
+    elif name == "check_hermes":
+        # No WS event — the model polls this repeatedly and we don't want a
+        # trace card per poll. The frontend gets `hermes_done` from the job
+        # itself when work actually completes.
+        return await handle_check_hermes(
+            job_id=args.get("job_id", ""),
+            wait_s=float(args.get("wait_s", 0) or 0),
+        )
+
+    elif name == "cancel_hermes":
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "hermes_done",   # treat cancel like a completion for the UI
+            "job_id": args.get("job_id", ""),
+            "status": "cancelled",
+        })
+        return await handle_cancel_hermes(job_id=args.get("job_id", ""))
+
+    elif name == "list_hermes_jobs":
+        return handle_list_hermes_jobs(session_id)
 
     else:
         args_str = json.dumps(args, ensure_ascii=False)

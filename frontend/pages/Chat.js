@@ -906,14 +906,39 @@ async function handleWsMessage(data) {
                 } else if (data.event === 'hermes_invoked') {
                     // Generic tool trace — matches the replay-path style
                     // ("used <tool_name>") used for any tool call without
-                    // a dedicated card.
+                    // a dedicated card. Tag it so hermes_done can update it.
                     const toolWrap = document.createElement('div');
-                    toolWrap.className = 'trace resolved';
-                    toolWrap.textContent = 'used invoke_hermes';
+                    toolWrap.className = 'trace resolved hermes-trace';
+                    toolWrap.dataset.hermes = 'running';
+                    toolWrap.textContent = 'using hermes agent…';
                     if (container) {
                         container.appendChild(toolWrap);
                     } else {
                         state.currentAssistantEl.appendChild(toolWrap);
+                    }
+                } else if (data.event === 'hermes_done') {
+                    // Update the most recent still-running hermes trace card
+                    // (if any) with the final status. Keeps the UI to a
+                    // single line per Hermes invocation.
+                    const root = state.currentAssistantEl || document;
+                    const cards = root.querySelectorAll('.hermes-trace[data-hermes="running"]');
+                    const card = cards.length ? cards[cards.length - 1] : null;
+                    const status = data.status || 'completed';
+                    const label = status === 'completed'
+                        ? 'hermes agent finished'
+                        : `hermes agent ${status}`;
+                    if (card) {
+                        card.dataset.hermes = status;
+                        card.textContent = label;
+                    } else {
+                        // No matching start card (race / replay) — append a
+                        // standalone done line so the user still sees it.
+                        const wrap = document.createElement('div');
+                        wrap.className = 'trace resolved hermes-trace';
+                        wrap.dataset.hermes = status;
+                        wrap.textContent = label;
+                        if (container) container.appendChild(wrap);
+                        else state.currentAssistantEl.appendChild(wrap);
                     }
                 }
             }
