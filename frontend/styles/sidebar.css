@@ -22,26 +22,35 @@
  */
 
 .history-panel {
-  max-width: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
   width: 240px;
   overflow: hidden;
-  flex-shrink: 0;
-  border-right: 1px solid transparent;
   background: var(--paper);
   display: flex;
   flex-direction: column;
-  will-change: max-width, border-right-color;
+  border-right: 1px solid transparent;
+  transform: translateX(-100%);
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  will-change: transform, box-shadow, border-right-color;
   transition:
-    max-width        0.32s cubic-bezier(.32, .72, 0, 1),
+    transform          0.32s cubic-bezier(.32, .72, 0, 1),
+    box-shadow         0.32s cubic-bezier(.32, .72, 0, 1),
     border-right-color 0.32s cubic-bezier(.32, .72, 0, 1);
 }
 
 .history-panel.open {
-  max-width: 240px;
+  transform: translateX(0);
+  pointer-events: auto;
   border-right-color: var(--ink-14);
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.08);
 }
 
-/* ── Inner body (slides in from left with a small stagger) ──────────── */
+/* ── Inner body ─────────────────────────────────────────────────────── */
 
 .history-panel-inner {
   width: 240px;
@@ -49,17 +58,6 @@
   display: flex;
   flex-direction: column;
   padding: 22px 6px 14px;
-  opacity: 0;
-  transform: translateX(-12px);
-  will-change: opacity, transform;
-  transition:
-    opacity   0.22s var(--ease) 0.04s,
-    transform 0.28s cubic-bezier(.32, .72, 0, 1) 0.04s;
-}
-
-.history-panel.open .history-panel-inner {
-  opacity: 1;
-  transform: translateX(0);
 }
 
 /* ── "Emu" mark + close button ──────────────────────────────────────── */

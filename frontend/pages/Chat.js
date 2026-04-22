@@ -1069,7 +1069,6 @@ function mount(appEl) {
         onMinimize:        minimizeWindow,
         onClose:           () => window.close(),
         onNewTask:         newChat,
-        onToggleSidebar:   toggleHistoryPanel,
         onOpenSettings:    openSettings,
     });
 
@@ -1091,8 +1090,8 @@ function mount(appEl) {
     macMain.className = 'mac-main';
     header.contentEl.appendChild(macMain);
 
-    // Window header: "Emu" mark + status pill
-    winHeader = WindowHeader();
+    // Window header: "Emu" mark + sidebar toggle + status pill
+    winHeader = WindowHeader({ onToggleSidebar: toggleHistoryPanel });
     macMain.appendChild(winHeader.element);
 
     // Chat body (scrollable)

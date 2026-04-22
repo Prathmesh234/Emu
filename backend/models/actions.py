@@ -18,7 +18,6 @@ class ActionType(str, Enum):
     SCROLL         = "scroll"
     TYPE_TEXT       = "type_text"
     KEY_PRESS       = "key_press"
-    SHELL_EXEC     = "shell_exec"
     WAIT           = "wait"
     DONE           = "done"
     UNKNOWN        = "unknown"
@@ -98,7 +97,7 @@ class Action(BaseModel):
     # Shell exec
     command: Optional[str] = Field(
         default=None,
-        description="Shell command to execute (used with SHELL_EXEC)"
+        description="(Deprecated; shell_exec is now a function tool, not an action.)"
     )
 
     # Agent tool params

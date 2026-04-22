@@ -16,7 +16,7 @@ _DESKTOP_ACTION_TYPES = {
     "navigate_and_click", "navigate_and_right_click",
     "navigate_and_triple_click",
     "mouse_move", "drag", "scroll", "type_text", "key_press",
-    "shell_exec", "screenshot", "wait",
+    "screenshot", "wait",
 }
 _ACTION_PATTERN = re.compile(
     r'(?:^|["\s:,])(' + "|".join(re.escape(a) for a in _DESKTOP_ACTION_TYPES) + r')(?:["\s:,}]|$)'
@@ -140,12 +140,12 @@ class ActionValidator:
                 )
 
         if action_type == "shell_exec":
-            command = action.get("command")
-            if not command or not command.strip():
-                return False, (
-                    "shell_exec requires a non-empty 'command' field. "
-                    'Example: {"action": {"type": "shell_exec", "command": "Get-Process"}, "done": false}'
-                )
+            return False, (
+                "shell_exec is now a FUNCTION TOOL, not a desktop action. "
+                "Call it as a tool: "
+                '{"name": "shell_exec", "arguments": {"command": "..."}}. '
+                "It runs sandboxed inside the .emu directory."
+            )
 
         # ── Rule 8: Negative / zero-zero coordinates ─────────────────────────
         if action_type in _COORD_ACTIONS and coords:
@@ -206,18 +206,6 @@ class ActionValidator:
                         f"(keyboard shortcut, shell_exec)."
                     )
 
-        # ── Rule 3: Same action type 5+ consecutive times ─────────────────────
-        if action_type not in self._NO_THROTTLE and len(history) >= 4:
-            if all(h == action_type for h in history[-4:]):
-                return False, (
-                    f"You've performed '{action_type}' 5 times in a row. "
-                    f"This approach is not working — switch strategy entirely:\n"
-                    f"  • Keyboard: Cmd+Tab, Tab/Enter, keyboard shortcuts\n"
-                    f"  • Shell: shell_exec with open, osascript, or "
-                    f"a shell one-liner\n"
-                    f"  • Different element: look for another button, link, or menu"
-                )
-
         # ── Rule 4: Minimum scroll amount ─────────────────────────────────────
         if action_type == "scroll":
             amount = action.get("amount", 0)
@@ -248,7 +236,7 @@ class ActionValidator:
                 "Valid types: navigate_and_click, navigate_and_right_click, "
                 "navigate_and_triple_click, "
                 "left_click, right_click, double_click, triple_click, "
-                "mouse_move, type_text, key_press, scroll, drag, shell_exec, "
+                "mouse_move, type_text, key_press, scroll, drag, "
                 "screenshot, wait, done."
             )
 

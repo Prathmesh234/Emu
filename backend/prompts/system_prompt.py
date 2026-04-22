@@ -210,18 +210,16 @@ Desktop action reference:
 
   scroll       → {{"action": {{"type": "scroll",       "direction": "down", "amount": 5}}}}
   drag         → {{"action": {{"type": "drag",         "coordinates": {{"x": 0.3, "y": 0.5}}, "end_coordinates": {{"x": 0.7, "y": 0.5}}}}}}
-  shell_exec   → {{"action": {{"type": "shell_exec",   "command": "open -a TextEdit"}}}}
 
-SHELL_EXEC RULES:
-  • NEVER use find from root or ls -R — they flood the shell buffer and will always fail.
-    List one specific directory at a time instead.
-  • ⚠️ NEVER use shell_exec to read .emu files. Use these function tools instead:
-      read_memory(target, date) — MEMORY.md, preferences, or daily logs
-      read_plan()              — your current session plan
-      read_session_file(name)  — files you wrote this session
-      list_session_files()     — see what's in your session
-    The .emu path is already resolved for you by these tools.
-    Do NOT try to discover or navigate .emu/ with shell commands.
+SHELL_EXEC (FUNCTION TOOL — call it like read_plan / write_session_file, NOT as a JSON action):
+  • shell_exec(command) runs a sandboxed shell command inside the .emu directory.
+  • cwd is pinned to .emu. Absolute paths must be inside .emu or the command is refused.
+  • Blocked: curl, wget, ssh, scp, nc, rsync, sudo, rm -rf, chmod, chown, kill,
+    pkill, launchctl, systemctl, mount, mkfs, dd, pipe-to-shell (| bash), eval, source.
+  • 30s timeout, 100 KB output cap.
+  • Use it for inspecting or editing files UNDER .emu. For .emu memory/plan/session files,
+    prefer the dedicated tools (read_memory, read_plan, read_session_file) — they are faster
+    and don't need to shell out.
   screenshot   → {{"action": {{"type": "screenshot"}}}}
   wait         → {{"action": {{"type": "wait",         "ms": 1000}}}}
   done         → {{"action": {{"type": "done"}}, "done": true, "final_message": "Task complete."}}
@@ -374,14 +372,14 @@ These control the screen. Return them as a JSON object in your response text:
   Valid action types: navigate_and_click, navigate_and_right_click,
   navigate_and_triple_click,
   left_click, right_click, double_click, triple_click,
-  mouse_move, type_text, key_press, scroll, drag, shell_exec, screenshot, wait, done
+  mouse_move, type_text, key_press, scroll, drag, screenshot, wait, done
 
 ⚠️  CRITICAL ROUTING RULES:
   • update_plan, read_plan, write_session_file, read_session_file, list_session_files,
-    use_skill, read_memory, compact_context, invoke_hermes, check_hermes,
+    use_skill, read_memory, compact_context, shell_exec, invoke_hermes, check_hermes,
     cancel_hermes, list_hermes_jobs → ALWAYS use function-calling API.
     Returning {{"action": {{"type": "update_plan", ...}}}} WILL FAIL.
-  • shell_exec, type_text, screenshot, done, navigate_and_click, navigate_and_right_click, mouse_move, etc.
+  • type_text, screenshot, done, navigate_and_click, navigate_and_right_click, mouse_move, etc.
     → ALWAYS return as JSON text. Calling them as function tools WILL FAIL.
 
 MEMORY: At task start, call read_memory(target="long_term") for past learnings.

@@ -13,15 +13,32 @@
 //   'finished' → dot dim, text "finished"
 //   'stopped'  → dot dim, text "stopped"
 
-function WindowHeader() {
+function WindowHeader({ onToggleSidebar } = {}) {
     const header = document.createElement('div');
     header.className = 'window-header';
+
+    // Left group: sidebar toggle + "Emu" wordmark
+    const left = document.createElement('div');
+    left.className = 'window-header-left';
+
+    if (onToggleSidebar) {
+        const sidebarBtn = document.createElement('button');
+        sidebarBtn.className = 'window-header-sidebar-btn';
+        sidebarBtn.type = 'button';
+        sidebarBtn.title = 'Toggle sessions sidebar';
+        sidebarBtn.setAttribute('aria-label', 'Toggle sessions sidebar');
+        sidebarBtn.innerHTML = '<svg width="14" height="11" viewBox="0 0 13 10" fill="none"><rect x="0" y="0" width="4" height="10" rx="1" fill="currentColor" opacity=".4"/><rect x="6" y="0" width="7" height="1.5" rx=".75" fill="currentColor"/><rect x="6" y="4.25" width="7" height="1.5" rx=".75" fill="currentColor"/><rect x="6" y="8.5" width="7" height="1.5" rx=".75" fill="currentColor"/></svg>';
+        sidebarBtn.addEventListener('click', onToggleSidebar);
+        left.appendChild(sidebarBtn);
+    }
 
     // "Emu" wordmark (italic serif 22px)
     const title = document.createElement('div');
     title.className = 'window-header-title';
     title.textContent = 'Emu';
-    header.appendChild(title);
+    left.appendChild(title);
+
+    header.appendChild(left);
 
     // Status pill: pulsing dot + italic status text
     const status = document.createElement('div');

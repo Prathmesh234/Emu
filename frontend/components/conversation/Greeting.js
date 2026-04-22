@@ -42,14 +42,22 @@ function Greeting() {
     wrap.appendChild(sub);
 
     _fetchContextualSubtitle().then(text => {
-        if (!text || !sub.isConnected) return;
+        if (!text) {
+            console.warn('[greeting] no contextual subtitle — keeping fallback');
+            return;
+        }
+        if (!sub.isConnected) {
+            console.warn('[greeting] subtitle element detached before update');
+            return;
+        }
+        console.log('[greeting] ✓ contextual subtitle:', JSON.stringify(text));
         sub.style.opacity = '0';
         setTimeout(() => {
             sub.textContent = text;
             sub.style.transition = 'opacity 0.3s var(--ease, ease)';
             sub.style.opacity = '1';
         }, 180);
-    }).catch((e) => { console.warn('[greeting]', e.message); });
+    }).catch((e) => { console.warn('[greeting] fetch threw:', e.message); });
 
     return { element: wrap };
 }
@@ -58,9 +66,10 @@ function Greeting() {
 
 function _timeGreeting() {
     const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 18) return 'Good afternoon';
-    return 'Good evening';
+    if (h >= 6  && h < 12) return 'Good morning';
+    if (h >= 12 && h < 16) return 'Good afternoon';
+    if (h >= 16 && h < 20) return 'Good evening';
+    return 'Late night session ☕';
 }
 
 function _firstName() {
@@ -81,39 +90,65 @@ function _firstName() {
  * provider to summarize what was worked on. Returns null on any failure.
  */
 async function _fetchContextualSubtitle() {
+    console.log('[greeting] fetching contextual subtitle…');
+
     // 1. Find the newest daily memory file
     const memDir = path.join(EMU_ROOT, 'workspace', 'memory');
-    if (!fs.existsSync(memDir)) return null;
+    console.log('[greeting] memory dir:', memDir);
+    if (!fs.existsSync(memDir)) {
+        console.warn('[greeting] ✗ memory dir does not exist');
+        return null;
+    }
 
     const files = fs.readdirSync(memDir)
         .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
         .sort()
         .reverse();
-    if (!files.length) return null;
+    console.log('[greeting] daily log files found:', files);
+    if (!files.length) {
+        console.warn('[greeting] ✗ no YYYY-MM-DD.md files in memory dir');
+        return null;
+    }
 
     const latestPath = path.join(memDir, files[0]);
     const content = fs.readFileSync(latestPath, 'utf-8').trim();
-    if (!content) return null;
+    console.log('[greeting] using', files[0], '— chars:', content.length);
+    if (!content) {
+        console.warn('[greeting] ✗ latest memory file is empty');
+        return null;
+    }
 
     // 2. Load provider credentials from backend/.env
     const env = _readEnv();
     const apiKey = (env.EMU_DAEMON_API_KEY || env.OPENROUTER_API_KEY || '').trim();
     const model  = (env.EMU_DAEMON_MODEL   || 'openai/gpt-5.4').trim();
-    if (!apiKey) return null;
+    console.log('[greeting] model:', model, '| key:', apiKey ? apiKey.slice(0, 10) + '…' : '(missing)');
+    if (!apiKey) {
+        console.warn('[greeting] ✗ no API key (EMU_DAEMON_API_KEY / OPENROUTER_API_KEY)');
+        return null;
+    }
 
-    // 3. Prompt: one-sentence recap in second person, no dates
+    // 3. Prompt: one quirky, clever nudge that teases the user back into the work
     const system = [
-        'Write ONE ultra-short sentence (max 14 words) telling the user what',
-        'they were recently working on, in second person. Start with "You".',
-        'Do not mention dates, session ids, or filenames. Do not greet.',
-        'Examples:',
-        '  "You were researching Perplexity Computer pricing."',
-        '  "You were drafting a reply to Priya about the Q3 invoices."',
-    ].join(' ');
+        'You write ONE short, witty line (max 18 words) that teases the user',
+        'back into what they were recently working on. Voice: warm, clever,',
+        'a little cheeky — like a sharp friend poking fun, not a butler. Use',
+        'second person. No greetings ("hey", "hi"), no dates, no session ids,',
+        'no filenames, no emoji, no preamble, no quotes. Output ONLY the line.',
+        '',
+        'Examples (match this vibe, do not copy):',
+        '  "That SemiAnalysis deck isn\'t gonna build itself… or is it?"',
+        '  "Priya\'s Q3 reply is still staring at you, y\'know."',
+        '  "Perplexity pricing rabbit hole — shall we go deeper?"',
+        '  "The scrollbar hunt continues. Ready for round two?"',
+    ].join('\n');
 
     const snippet = content.slice(0, 1500);
 
-    // 4. Call OpenRouter (direct chat/completions)
+    // 4. Call OpenRouter (direct chat/completions). max_tokens is generous
+    //    to accommodate reasoning models (nemotron, o-series, etc.) that
+    //    consume tokens on internal reasoning before emitting content.
+    const t0 = Date.now();
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -128,22 +163,90 @@ async function _fetchContextualSubtitle() {
                 { role: 'system', content: system },
                 { role: 'user',   content: snippet },
             ],
-            max_tokens: 60,
-            temperature: 0.4,
+            max_tokens: 400,
+            temperature: 0.85,
         }),
     });
+    const elapsed = Date.now() - t0;
+    console.log('[greeting] openrouter status:', resp.status, `(${elapsed}ms)`);
 
     if (!resp.ok) {
-        console.warn('[greeting] openrouter returned', resp.status);
+        const body = await resp.text().catch(() => '');
+        console.warn('[greeting] ✗ openrouter', resp.status, body.slice(0, 300));
         return null;
     }
 
     const data = await resp.json();
-    const text = data?.choices?.[0]?.message?.content?.trim();
-    if (!text) return null;
+    const msg  = data?.choices?.[0]?.message;
+    console.log('[greeting] raw message keys:', msg ? Object.keys(msg) : '(none)',
+        '| finish_reason:', data?.choices?.[0]?.finish_reason);
+    // Reasoning models may return content=null with the visible text buried
+    // in `reasoning`. Fall back to that, and also handle array-shaped content.
+    let text = msg?.content;
+    if (Array.isArray(text)) {
+        text = text.map(p => p?.text || '').join(' ');
+    }
+    if (!text || !String(text).trim()) {
+        console.log('[greeting] content empty — falling back to reasoning field');
+        text = msg?.reasoning || '';
+    }
+    text = String(text || '').trim();
+    if (!text) {
+        console.warn('[greeting] ✗ both content and reasoning are empty');
+        return null;
+    }
 
-    // Strip quotes the model sometimes wraps the sentence in
-    return text.replace(/^["'"'`\s]+|["'"'`\s]+$/g, '');
+    // Extract the actual line. Reasoning models (nemotron, etc.) often dump
+    // their internal monologue with tiny quoted word-fragments scattered
+    // throughout ("a", "is", etc.), so picking "the last quoted string"
+    // grabs garbage. Strategy: find complete-looking sentences (start with
+    // capital, end with . ! or ?, at least 25 chars) and take the last one.
+    // Prefer quoted sentences; fall back to unquoted.
+    function _scoreSentence(s) {
+        if (!s) return 0;
+        const len = s.length;
+        if (len < 25 || len > 180) return 0;
+        if (!/^[A-Z"'`“‘]/.test(s)) return 0;           // starts capital-ish
+        if (!/[.!?"'”’`]$/.test(s)) return 0;           // ends terminal-ish
+        if (!/\s/.test(s)) return 0;                    // has at least one space (multi-word)
+        return len;
+    }
+
+    // 1. Look inside quoted spans first (model often wraps its final answer)
+    const quoteRe = /["'`“”‘’]([^"'`“”‘’\n]{20,200})["'`“”‘’]/g;
+    const quotedCandidates = [...text.matchAll(quoteRe)]
+        .map(m => m[1].trim())
+        .filter(s => _scoreSentence(s) > 0);
+
+    // 2. Look at non-meta lines as candidates
+    const metaRe = /^(count|length|words?|note|here|let me|let's|thinking|so\b|ok\b|okay\b|actually\b|maybe:?\s*$|final:|answer:)/i;
+    const lineCandidates = text
+        .split(/\n+/)
+        .map(l => l.trim())
+        .filter(Boolean)
+        .filter(l => !metaRe.test(l) && !/^\d+\s*$/.test(l))
+        .filter(s => _scoreSentence(s) > 0);
+
+    // 3. Look at ALL complete sentences across the whole blob (last resort)
+    const allSentences = (text.match(/[A-Z"'`“‘][^.!?\n]{20,180}[.!?"'”’`]/g) || [])
+        .map(s => s.trim())
+        .filter(s => _scoreSentence(s) > 0);
+
+    const pools = [quotedCandidates, lineCandidates, allSentences];
+    let picked = null;
+    for (const pool of pools) {
+        if (pool.length) { picked = pool[pool.length - 1]; break; }
+    }
+    if (!picked) {
+        console.warn('[greeting] ✗ no complete sentence found in output');
+        return null;
+    }
+    text = picked;
+
+    // Strip quotes / backticks / stray markdown the model sometimes adds
+    const final = text.replace(/^["'`*_\s“”‘’]+|["'`*_\s“”‘’]+$/g, '');
+    console.log('[greeting] ✓ final subtitle:', JSON.stringify(final));
+    return final;
 }
 
 /**

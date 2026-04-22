@@ -439,8 +439,6 @@ The full prompt is also persisted to the session directory as
 `hermes_prompt_NN.md` for traceability/debugging.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import shutil

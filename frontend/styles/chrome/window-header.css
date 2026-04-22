@@ -16,6 +16,37 @@
   flex-shrink: 0;
 }
 
+/* Left group: sidebar toggle sits just before the "Emu" wordmark */
+.window-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.window-header-sidebar-btn {
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-30);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.14s var(--ease), color 0.14s var(--ease);
+  -webkit-app-region: no-drag;
+}
+.window-header-sidebar-btn:hover {
+  background: var(--ink-08);
+  color: var(--ink);
+}
+.window-header-sidebar-btn:active {
+  background: var(--ink-14);
+}
+
 /* "Emu" wordmark */
 .window-header-title {
   font-family: var(--font-serif);

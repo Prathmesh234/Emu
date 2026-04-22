@@ -44,16 +44,8 @@ function MacWindow({ onMaximize, onMinimize, onClose, onNewTask, onToggleSidebar
     const actions = document.createElement('div');
     actions.className = 'mac-actions';
 
-    // Sessions sidebar toggle
-    if (onToggleSidebar) {
-        const sidebarBtn = document.createElement('button');
-        sidebarBtn.className = 'mac-action-btn';
-        sidebarBtn.type = 'button';
-        sidebarBtn.title = 'Toggle sessions sidebar';
-        sidebarBtn.innerHTML = '<svg width="13" height="10" viewBox="0 0 13 10" fill="none"><rect x="0" y="0" width="4" height="10" rx="1" fill="currentColor" opacity=".4"/><rect x="6" y="0" width="7" height="1.5" rx=".75" fill="currentColor"/><rect x="6" y="4.25" width="7" height="1.5" rx=".75" fill="currentColor"/><rect x="6" y="8.5" width="7" height="1.5" rx=".75" fill="currentColor"/></svg>';
-        sidebarBtn.addEventListener('click', onToggleSidebar);
-        actions.appendChild(sidebarBtn);
-    }
+    // Sessions sidebar toggle — moved to WindowHeader (left of "Emu")
+    // so it sits beside the inner title, per design. No-op here.
 
     // Danger mode toggle (compact slider)
     const dangerWrap = document.createElement('label');

@@ -5,6 +5,7 @@ from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory, handle_create_skill
 from .compaction import handle_compact_context
+from .shell import handle_shell_exec
 from .hermes import (
     handle_invoke_hermes,
     handle_check_hermes,
@@ -125,12 +126,43 @@ async def execute_agent_tool(
     elif name == "list_hermes_jobs":
         return handle_list_hermes_jobs(session_id)
 
+    elif name == "shell_exec":
+        command = args.get("command", "")
+        result = handle_shell_exec(command)
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "shell_exec",
+            "command": command,
+            "result": result[:500],
+        })
+        return result
+
     else:
         args_str = json.dumps(args, ensure_ascii=False)
+
+        # Build a concrete example JSON using the args the model sent, so it
+        # can literally copy-paste the corrected shape.
+        try:
+            example_action = {"type": name, **(args if isinstance(args, dict) else {})}
+        except Exception:
+            example_action = {"type": name}
+        example_json = json.dumps({"action": example_action}, ensure_ascii=False)
+
         return (
-            f"ERROR: Unknown function tool '{name}' called with arguments: {args_str}\n\n"
-            f"If '{name}' is a desktop action (like shell_exec or mouse_move), "
-            f"you MUST return it as a plain JSON text response "
-            f"(e.g. {{\"action\": {{\"type\": \"{name}\", ...}}}}), "
-            f"NOT as a function tool call. Please try again using the proper format."
+            f"ERROR: '{name}' is NOT a function tool — it is a DESKTOP ACTION.\n"
+            f"You called it as a function tool with arguments: {args_str}\n"
+            f"Nothing was executed.\n\n"
+            f"FIX: Stop calling '{name}' as a function tool. Instead, return a plain "
+            f"JSON text response (no function/tool call) with this exact shape:\n\n"
+            f"  {example_json}\n\n"
+            f"Desktop actions that MUST be returned as JSON text (never as tool calls):\n"
+            f"  shell_exec, screenshot, mouse_move, navigate_and_click, "
+            f"navigate_and_right_click, navigate_and_triple_click, left_click, "
+            f"right_click, double_click, triple_click, drag, scroll, type_text, "
+            f"key_press, wait, done.\n\n"
+            f"Function tools are ONLY: update_plan, read_plan, write_session_file, "
+            f"read_session_file, list_session_files, read_memory, use_skill, "
+            f"create_skill, compact_context, invoke_hermes, check_hermes, "
+            f"cancel_hermes, list_hermes_jobs."
         )
+

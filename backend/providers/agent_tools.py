@@ -470,6 +470,44 @@ AGENT_TOOLS_OPENAI = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "shell_exec",
+            "description": (
+                "Run a shell command inside the .emu directory and return its "
+                "combined stdout+stderr. This is a SANDBOXED backend tool, not "
+                "a desktop action.\n\n"
+                "SCOPE (enforced):\n"
+                "  • cwd is pinned to the .emu directory. Relative paths "
+                "resolve there. `~` expands to .emu.\n"
+                "  • Any absolute /path argument must be inside .emu or the "
+                "command is refused.\n"
+                "  • Blocked programs: curl, wget, ssh, scp, nc, rsync, ftp, "
+                "telnet, sudo, su, rm -rf, chmod, chown, kill, pkill, killall, "
+                "launchctl, systemctl, mount, umount, mkfs, dd, eval, source.\n"
+                "  • Blocked patterns: `| bash`, `| sh`, writes to /dev/*.\n"
+                "  • 30s timeout, 100 KB output cap.\n\n"
+                "USE FOR: reading/writing .emu files (cat, ls, grep, sed, "
+                "python3 -c on .emu paths, jq on .emu json, etc.). "
+                "DO NOT USE FOR: installing software, network fetches, "
+                "launching apps, or touching anything outside .emu."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": (
+                            "Shell command line to execute. Runs via "
+                            "/bin/bash -c with cwd=.emu."
+                        ),
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
 
 

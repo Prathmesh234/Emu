@@ -300,23 +300,30 @@ async def agent_step(req: AgentRequest):
             response.action = Action(type=ActionType.SCREENSHOT)
             response.done = False
 
-        # ── Rescue: model returned plain-text prose instead of a JSON action.
-        # The provider wraps that as action=unknown with the prose in
-        # final_message. If the prose doesn't look like a truncated action
-        # (validate_done_response agrees), treat it as an implicit "done"
-        # so the user actually sees the summary instead of a bare DONE tile.
-        if (
-            response.action.type == ActionType.UNKNOWN
-            and response.final_message
-            and response.final_message.strip()
-        ):
-            done_ok, _ = context_manager.action_validator.validate_done_response(
-                response.final_message
+        # ── Recovery: model returned an unparseable / unknown action.
+        # The provider wraps plain-text or malformed-JSON responses as
+        # action=unknown. Never promote these to "done" — a garbled action
+        # payload is not evidence the task is complete. Instead, nudge the
+        # model to re-orient with a fresh screenshot and try again.
+        if response.action.type == ActionType.UNKNOWN:
+            preview = (response.final_message or "").strip()[:200]
+            print(f"[agent/step] unknown action received, requesting retry: {preview!r}")
+            context_manager.add_assistant_turn(
+                session_id,
+                response.model_dump_json(exclude_none=True),
             )
-            if done_ok:
-                print("[agent/step] promoting unknown+prose to done action")
-                response.action = Action(type=ActionType.DONE)
-                response.done = True
+            context_manager.add_user_message(
+                session_id,
+                "[MALFORMED RESPONSE] Your previous response could not be parsed as a "
+                "valid desktop action. Do NOT treat this as task completion. Take a "
+                "screenshot to re-orient and then emit a well-formed action JSON.",
+            )
+            response.action = Action(type=ActionType.SCREENSHOT)
+            response.done = False
+            response.final_message = None
+            await manager.send(session_id, {"type": "status", "message": "Unparseable action, retaking screenshot..."})
+            if loop_i < MAX_TOOL_LOOPS:
+                continue
 
         action_type = response.action.type.value
         action_payload = response.action.model_dump(exclude_none=True)
@@ -407,7 +414,7 @@ async def agent_step(req: AgentRequest):
     if needs_compact:
         print(f"[auto-compact] Safety net triggered at {context_manager.chain_length(session_id)} messages")
 
-    needs_confirm = action_type == "shell_exec" and not response.done
+    needs_confirm = False
 
     await manager.send(session_id, {
         "type":                 "step",
