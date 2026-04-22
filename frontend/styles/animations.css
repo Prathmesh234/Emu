@@ -20,24 +20,53 @@
 
 /* Smooth entrance for any element appended to a conversation flow */
 @keyframes traceEnter {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Gentler variant for nested elements inside a card (command preview,
+   confirm buttons, detail blocks) so they don't all pop in flat together. */
+@keyframes traceEnterInner {
+  from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Apply to direct children of the chat flow and agent body so every new
    user turn, Emu turn, trace line, or card fades + rises into place.
-   Duration matches the design's unhurried feel (220ms). */
+   Slightly longer than the previous 220ms for a softer cadence. */
 .chat-wrapper > *,
 .turn-emu-body > * {
-  animation: traceEnter 0.22s var(--ease) both;
+  animation: traceEnter 0.32s var(--ease) both;
 }
 
-/* Don't animate the caret itself (it has its own blink) — it's already
-   inside a trace block, so the parent's entrance handles it. */
-.trace-caret { animation: emuBlink 1s steps(1) infinite; }
+/* Nested bits inside a trace card animate with a tiny stagger so the
+   action line lands first, then the command preview / confirm row. */
+.trace > .trace-cmd,
+.trace > .action-row,
+.trace > .confirm-card,
+.trace > .trace-status {
+  animation: traceEnterInner 0.28s var(--ease) both;
+  animation-delay: 0.08s;
+}
 
 /* Sidebar items get a quieter version when the panel opens and populates */
 .history-item,
 .history-group-label {
   animation: traceEnter 0.18s var(--ease) both;
+}
+
+/* Respect OS-level "Reduce motion" — skip the rise, keep only a short fade. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-wrapper > *,
+  .turn-emu-body > *,
+  .trace > .trace-cmd,
+  .trace > .action-row,
+  .trace > .confirm-card,
+  .trace > .trace-status,
+  .history-item,
+  .history-group-label {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }

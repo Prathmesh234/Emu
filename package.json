@@ -8,7 +8,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development electron ."
+    "dev": "NODE_ENV=development EMU_SKIP_DAEMON_INSTALL=1 electron ."
   },
   "dependencies": {
     "electron": "^40.6.1"

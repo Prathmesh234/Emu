@@ -16,9 +16,10 @@
 const fs   = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getEmuRoot } = require('../../emu/root');
 
 const FALLBACK_SUB = "Tell me what to do and I'll take it from there.";
-const EMU_ROOT = path.join(__dirname, '..', '..', '..', '.emu');
+const EMU_ROOT = getEmuRoot();
 
 function Greeting() {
     const wrap = document.createElement('div');

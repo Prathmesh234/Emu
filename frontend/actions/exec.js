@@ -13,6 +13,7 @@ const { ipcRenderer } = require('electron');
 const psProcess = require('../process/psProcess');
 const fs = require('fs');
 const path = require('path');
+const { getEmuRoot } = require('../emu/root');
 
 // Protected files that the agent must NEVER modify.
 // Read access is fine — only write/modify operations are blocked.
@@ -129,11 +130,11 @@ function register(ipcMain) {
     ipcMain.handle('memory:read', async (_event, { path: filePath }) => {
         console.log(`[memory:read] reading: ${filePath}`);
         try {
-            // Resolve relative to cwd (project root)
-            const resolved = path.resolve(process.cwd(), filePath);
+            // Resolve relative to the .emu root (works in dev + packaged).
+            const emuDir = path.resolve(getEmuRoot());
+            const resolved = path.resolve(emuDir, filePath);
             // Security: only allow reading from .emu/ directory
-            const emuDir = path.resolve(process.cwd(), '.emu');
-            if (!resolved.startsWith(emuDir)) {
+            if (!resolved.startsWith(emuDir + path.sep) && resolved !== emuDir) {
                 const msg = 'BLOCKED: memory_read only allows reading files under .emu/';
                 console.warn(`[memory:read] ${msg}`);
                 return { success: false, error: msg };

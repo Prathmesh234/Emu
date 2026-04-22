@@ -58,7 +58,12 @@ def _load_state() -> dict:
 def _save_state(data: dict) -> None:
     p = _state_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Atomic write: tempfile + rename. A crash mid-write would otherwise
+    # leave state.json truncated/corrupt, which permanently wedges the
+    # consecutive-failures counter and last_tick_at.
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(p)
 
 
 def mark_tick_complete() -> None:

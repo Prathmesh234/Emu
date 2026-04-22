@@ -65,9 +65,13 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # CORS preflight and health checks are exempt
         if request.method == "OPTIONS" or request.url.path == "/health":
             return await call_next(request)
-        # WebSocket upgrades are validated in the endpoint itself
-        if request.headers.get("upgrade", "").lower() == "websocket":
-            return await call_next(request)
+        # NOTE: Do NOT exempt requests based on an `Upgrade: websocket` header —
+        # FastAPI routes by path, not by the upgrade header, so a plain HTTP
+        # POST that sets `Upgrade: websocket` would otherwise bypass auth on
+        # normal HTTP routes (e.g. /agent/step, which can run shell_exec).
+        # Real WebSocket upgrades are dispatched on the separate ASGI `websocket`
+        # scope that never passes through HTTP middleware, and the endpoint
+        # validates the token from the query param itself.
         token = request.headers.get("x-emu-token", "")
         if not token or not secrets.compare_digest(token, AUTH_TOKEN):
             print(f"[security] 401 on {request.method} {request.url.path} — token present={bool(token)}")

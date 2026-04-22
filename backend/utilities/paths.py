@@ -5,8 +5,15 @@ Canonical .emu path resolution.
 
 Every part of the codebase that needs to reference .emu/ (or any path
 derived from it) should import from here instead of computing its own.
+
+Resolution order for ``.emu``:
+    1. ``$EMU_ROOT`` environment variable (set by Electron main.js so
+       packaged DMG runs use ``userData/.emu`` and dev runs use
+       ``<repo>/.emu``).
+    2. Fallback to ``<project_root>/.emu`` — the source-checkout layout.
 """
 
+import os
 from pathlib import Path
 
 # ── Project root discovery ────────────────────────────────────────────────────
@@ -26,9 +33,12 @@ def get_project_root() -> Path:
 def get_emu_path() -> Path:
     """Return the absolute path to the ``.emu`` directory.
 
-    This is the canonical accessor — use it everywhere instead of
-    manually joining ``project_root / ".emu"``.
+    Honors ``$EMU_ROOT`` when set (packaged DMG / CI / tests), else
+    falls back to ``<project_root>/.emu``.
     """
+    from_env = os.environ.get("EMU_ROOT", "").strip()
+    if from_env:
+        return Path(from_env).resolve()
     return _PROJECT_ROOT / ".emu"
 
 

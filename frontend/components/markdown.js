@@ -92,8 +92,23 @@ function inline(text) {
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         // Italic
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        // Links [text](url)
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<span class="md-link" title="$2">$1</span>');
+        // Links [text](url) — escape " in the URL so it can't break out of
+        // the title= attribute, and refuse javascript:/data:/vbscript: so
+        // a future clickable variant can't become a script sink. Link text
+        // was already HTML-escaped by md() before we get here.
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => {
+            const safeUrl = String(url)
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            const lower = safeUrl.trim().toLowerCase();
+            if (lower.startsWith('javascript:') ||
+                lower.startsWith('data:') ||
+                lower.startsWith('vbscript:')) {
+                return `<span class="md-link">${label}</span>`;
+            }
+            return `<span class="md-link" title="${safeUrl}">${label}</span>`;
+        });
 }
 
 /**

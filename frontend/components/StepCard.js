@@ -47,11 +47,6 @@ function StepCard(data, stepNum) {
         actionEl.textContent = describeAction(data.action);
         wrap.appendChild(actionEl);
 
-        // Live caret — removed when step resolves (see .resolved class)
-        const caret = document.createElement('span');
-        caret.className = 'trace-caret';
-        wrap.appendChild(caret);
-
         // Shell exec: structured details card + Allow / Deny buttons
         // Design: matches F_Confirm frame — details in a bordered card,
         // primary filled "Allow" + outlined "Deny".

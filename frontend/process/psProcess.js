@@ -73,6 +73,46 @@ function _flush() {
 }
 
 // ── Public: start the persistent process ──────────────────────────────────
+// Secrets are stripped from the child environment so that an LLM-triggered
+// `env`, `printenv`, `cat /proc/self/environ`, or shell substitution cannot
+// exfiltrate provider API keys. The Node/Electron main process still has
+// them (needed for its own API calls); only the agent-controlled shell is
+// sanitized. Extend this list whenever a new provider lands.
+const _SECRET_ENV_KEYS = [
+    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    'OPENROUTER_API_KEY',
+    'GOOGLE_API_KEY',
+    'GEMINI_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_ENDPOINT',
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN',
+    'FIREWORKS_API_KEY',
+    'TOGETHER_API_KEY',
+    'BASETEN_API_KEY',
+    'BASETEN_API_URL',
+    'H_COMPANY_API_KEY',
+    'EMU_DAEMON_API_KEY',
+    'EMU_AUTH_TOKEN',
+    'GITHUB_TOKEN',
+    'HF_TOKEN',
+    'HUGGING_FACE_HUB_TOKEN',
+];
+
+function _sanitizeEnv() {
+    const out = { ...process.env, TERM: 'dumb' };
+    for (const k of _SECRET_ENV_KEYS) delete out[k];
+    // Defense-in-depth: drop anything that looks like a credential by name.
+    for (const k of Object.keys(out)) {
+        if (/(_API_KEY|_SECRET|_TOKEN|_PASSWORD|_PRIVATE_KEY)$/i.test(k)) {
+            delete out[k];
+        }
+    }
+    return out;
+}
+
 function start() {
     if (ps) return;
 
@@ -80,7 +120,7 @@ function start() {
     const shellArgs = isMac ? ['-f'] : ['--norc', '--noprofile'];
     ps = spawn(shell, shellArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, TERM: 'dumb' }
+        env: _sanitizeEnv()
     });
 
     ps.stdout.on('data', chunk => {

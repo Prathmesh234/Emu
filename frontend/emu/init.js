@@ -12,10 +12,15 @@ const path = require('path');
 const os   = require('os');
 const crypto = require('crypto');
 const { screen } = require('electron');
+const { getEmuRoot } = require('./root');
 
 // ── Paths ──────────────────────────────────────────────────────────────────
+// EMU_DIR is resolved through root.js — respects process.env.EMU_ROOT set by
+// main.js (so packaged builds write to <userData>/.emu, dev writes to
+// <repo>/.emu). PROJECT_ROOT is still useful for detecting "is this a git
+// checkout" in the manifest, but it's NOT the source of EMU_DIR anymore.
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
-const EMU_DIR      = path.join(PROJECT_ROOT, '.emu');
+const EMU_DIR      = getEmuRoot();
 const WORKSPACE    = path.join(EMU_DIR, 'workspace');
 const MEMORY       = path.join(WORKSPACE, 'memory');
 const SESSIONS     = path.join(EMU_DIR, 'sessions');

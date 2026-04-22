@@ -1,10 +1,21 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
 const psProcess = require('./frontend/process/psProcess');
+const backendProcess = require('./frontend/process/backendProcess');
+const daemonInstaller = require('./frontend/process/daemonInstaller');
+const { resolveEmuRoot } = require('./frontend/emu/root');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
+
+// Resolve .emu/ location BEFORE anything else runs. Publishing it via
+// process.env means every child process (backend, daemon installer) and
+// every renderer module inherits the same resolved path without having
+// to re-derive it from __dirname (which is wrong inside app.asar).
+const EMU_ROOT = resolveEmuRoot(app);
+process.env.EMU_ROOT = EMU_ROOT;
+console.log(`[emu] EMU_ROOT = ${EMU_ROOT}`);
 
 let mainWindow;
 let borderWindow;
@@ -100,6 +111,11 @@ app.whenReady().then(() => {
   });
 
   psProcess.start();
+  // Spawn the backend (dev: backend.sh; packaged: frozen binary).
+  // The backend writes .emu/.auth_token on startup; the renderer reads
+  // it for every HTTP/WS call. See frontend/services/api.js.
+  backendProcess.start({ app, emuRoot: EMU_ROOT });
+  daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
   createWindow();
 
   app.on('activate', () => {
@@ -119,4 +135,5 @@ app.on('will-quit', () => {
   // Close WebSocket first to prevent reconnect loop, then kill the shell process
   try { require('./frontend/services/websocket').closeWebSocket(); } catch (_) {}
   psProcess.stop();
+  backendProcess.stop();
 });

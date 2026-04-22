@@ -56,21 +56,6 @@
   /* inherits .trace typography */
 }
 
-/* ── Live caret (blinks while step is executing) ─────────────────────── */
-
-.trace-caret {
-  display: inline-block;
-  width: 6px;
-  height: 13px;
-  background: var(--ink-55);
-  vertical-align: -1px;
-  margin-left: 3px;
-  animation: emuBlink 1s steps(1) infinite;
-}
-
-/* Hide caret once step is resolved */
-.trace.resolved .trace-caret { display: none; }
-
 /* ── Shell exec: command preview ─────────────────────────────────────── */
 
 .trace-cmd {

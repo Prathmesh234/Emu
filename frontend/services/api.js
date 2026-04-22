@@ -1,12 +1,13 @@
 // services/api.js — HTTP API calls to backend
 
 const fs = require('fs');
-const path = require('path');
+const { authTokenPath } = require('../emu/root');
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
 
-// Auth token written by the backend at startup
-const TOKEN_PATH = path.join(__dirname, '..', '..', '.emu', '.auth_token');
+// Auth token path resolves via EMU_ROOT so it works in both source-checkout
+// and packaged-DMG layouts.
+const TOKEN_PATH = authTokenPath();
 
 function getToken() {
     try {

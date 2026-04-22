@@ -8,7 +8,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 const fs = require('fs');
-const path = require('path');
+const { authTokenPath } = require('./frontend/emu/root');
 
 // ── Allowed IPC channels ───────────────────────────────────────────────────
 // Only these channels can be invoked / sent from the renderer.
@@ -40,8 +40,10 @@ const ALLOWED_SEND_CHANNELS = new Set([
 ]);
 
 // ── Read auth token for API calls ──────────────────────────────────────────
-const PROJECT_ROOT = path.resolve(__dirname);
-const TOKEN_PATH = path.join(PROJECT_ROOT, '.emu', '.auth_token');
+// Token path is derived from EMU_ROOT (set by main.js before preload loads),
+// NOT from __dirname — inside a packaged app.asar, __dirname points into the
+// read-only bundle and the token file lives elsewhere (<userData>/.emu).
+const TOKEN_PATH = authTokenPath();
 
 function readAuthToken() {
     try {
