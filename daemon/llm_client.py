@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -281,6 +282,12 @@ def _run_openai_compat(
     tokens_out = 0
     turns = 0
 
+    # Bounded retry for transient upstream hiccups (OpenRouter occasionally
+    # returns a 200 with {"error": {...}} and no choices — we retry rather
+    # than failing the whole tick).
+    EMPTY_CHOICE_RETRIES = 3
+    empty_choice_attempts = 0
+
     while turns < max_turns:
         resp = client.chat.completions.create(
             model=model,
@@ -305,6 +312,30 @@ def _run_openai_compat(
                 status="max_tokens",
             )
 
+        if not resp.choices:
+            # Upstream returned an error envelope with no choices; retry a
+            # few times before giving up.
+            empty_choice_attempts += 1
+            err_obj = getattr(resp, "error", None)
+            print(
+                f"[daemon] empty choices from upstream "
+                f"(attempt {empty_choice_attempts}/{EMPTY_CHOICE_RETRIES}) — "
+                f"error={err_obj!r}",
+                file=sys.stderr,
+            )
+            if empty_choice_attempts >= EMPTY_CHOICE_RETRIES:
+                return AgentRunResult(
+                    run_id=run_id, turns=turns,
+                    tokens_in=tokens_in, tokens_out=tokens_out,
+                    written_paths=dispatch_state.written_paths,
+                    policy_violations=dispatch_state.policy_violations,
+                    finish_summary=dispatch_state.finish_summary,
+                    status="error",
+                    error=f"upstream returned no choices after {EMPTY_CHOICE_RETRIES} retries: {err_obj!r}",
+                )
+            continue  # retry without advancing the conversation
+
+        empty_choice_attempts = 0  # reset after a successful response
         choice = resp.choices[0]
         msg = choice.message
         messages.append(msg.model_dump(exclude_none=True))

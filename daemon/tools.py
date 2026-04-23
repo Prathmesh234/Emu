@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -19,6 +21,18 @@ from . import policy
 MAX_PER_FILE_BYTES = 512 * 1024       # 512 KB per single write
 MAX_TOTAL_BYTES_TICK = 2 * 1024 * 1024  # 2 MB total across all writes in one tick
 MAX_READ_BYTES = 512 * 1024           # 512 KB per single read
+
+# ── search_text budgets ───────────────────────────────────────────────────────
+# Keep search bounded so a pathological regex can't stall a tick. These are
+# per-call caps; the regex itself still runs in-process so a catastrophically
+# backtracking pattern against a single large file could hang — we mitigate by
+# capping per-file size (MAX_READ_BYTES) and pattern length.
+MAX_SEARCH_RESULTS = 200
+MAX_SEARCH_FILES = 500
+MAX_SEARCH_BYTES = 16 * 1024 * 1024   # 16 MB total scanned per call
+MAX_PATTERN_LEN = 500
+MAX_CONTEXT_LINES = 3
+MAX_LINE_CHARS = 500                  # truncate matched line in output
 
 
 TOOLS: list[dict] = [
@@ -142,6 +156,94 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "search_text",
+        "description": (
+            "Search file contents under .emu/ for a Python regular expression. "
+            "USE THIS instead of reading every daily log one-by-one when you "
+            "want to know whether a session id (or any string) is already "
+            "captured somewhere — it's the cheapest way to answer 'do I "
+            "already have an entry for session XYZ?'.\n\n"
+            "Returns a JSON object {\"matches\": [{\"path\", \"line_no\", "
+            "\"line\"}, ...], \"files_scanned\": N, \"truncated\": <reason|null>}. "
+            "Paths are relative to .emu/. Binary and oversized files (>512KB) "
+            "are skipped silently. Dotfiles and dot-directories are skipped.\n\n"
+            "Examples:\n"
+            "  search_text(pattern=r'### abc-123 —', path='workspace/memory')\n"
+            "  search_text(pattern=r'ERROR|failed', path='sessions/abc-123/logs', context_lines=1)\n"
+            "  search_text(pattern=r'OpenRouter', case_insensitive=true)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": (
+                        f"Python regex pattern. Max {MAX_PATTERN_LEN} chars. "
+                        "Invalid regex returns an error — prefer simple "
+                        "literals (escape special chars with \\) when you "
+                        "just want substring search."
+                    ),
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Directory (recursive) or single file to search, "
+                        "relative to .emu/. Omit or pass '' to search the "
+                        "entire .emu/ tree. Path is confined to .emu/ — "
+                        "anything outside is rejected."
+                    ),
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": (
+                        f"Cap on returned matches (default 50, hard max "
+                        f"{MAX_SEARCH_RESULTS})."
+                    ),
+                },
+                "context_lines": {
+                    "type": "integer",
+                    "description": (
+                        f"Lines of context before/after each match (default "
+                        f"0, max {MAX_CONTEXT_LINES}). When > 0 each result "
+                        f"gains a 'context' array."
+                    ),
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "description": "Match case-insensitively (default false).",
+                },
+            },
+            "required": ["pattern"],
+        },
+    },
+    {
+        "name": "stat_file",
+        "description": (
+            "Return metadata about a file or directory under .emu/ without "
+            "reading its contents. Use this to check whether a file is too "
+            "big to read in one call (so you can pre-plan chunking) or to "
+            "see when it was last modified. Returns JSON: "
+            "{\"type\": 'file'|'dir', \"size_bytes\": N, \"mtime\": "
+            "ISO8601, \"line_count\": N (files only, UTF-8 best-effort)}. "
+            "Returns '[error] path does not exist: ...' for missing paths — "
+            "handle that as a normal signal, not a retry trigger."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "File or directory path relative to .emu/. "
+                        "Examples: 'sessions/abc-123/logs/conversation.json', "
+                        "'workspace/memory'."
+                    ),
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "finish",
         "description": (
             "Signal that the curation pass is complete and end the tick. "
@@ -192,6 +294,10 @@ def dispatch(name: str, args: dict, state: DispatchState) -> str:
             return _read_file(args, state)
         elif name == "write_file":
             return _write_file(args, state)
+        elif name == "search_text":
+            return _search_text(args, state)
+        elif name == "stat_file":
+            return _stat_file(args, state)
         elif name == "finish":
             return _finish(args, state)
         else:
@@ -297,6 +403,135 @@ def _write_file(args: dict, state: DispatchState) -> str:
     state.bytes_written += len(content_bytes)
     state.written_paths.append(resolved)
     return "ok"
+
+
+def _search_text(args: dict, state: DispatchState) -> str:
+    pattern = args.get("pattern", "")
+    raw_path = args.get("path", "") or ""
+    case_insensitive = bool(args.get("case_insensitive", False))
+
+    try:
+        max_results = min(int(args.get("max_results") or 50), MAX_SEARCH_RESULTS)
+    except (TypeError, ValueError):
+        return "[error] max_results must be an integer"
+    try:
+        context_lines = min(max(int(args.get("context_lines") or 0), 0), MAX_CONTEXT_LINES)
+    except (TypeError, ValueError):
+        return "[error] context_lines must be an integer"
+
+    if not isinstance(pattern, str) or not pattern:
+        return "[error] pattern is required (non-empty string)"
+    if len(pattern) > MAX_PATTERN_LEN:
+        return f"[error] pattern too long (max {MAX_PATTERN_LEN} chars)"
+
+    try:
+        flags = re.IGNORECASE if case_insensitive else 0
+        rx = re.compile(pattern, flags)
+    except re.error as exc:
+        return f"[error] invalid regex: {exc}"
+
+    # L2 path check — also handles "" as "search EMU_ROOT itself"
+    root = policy.check_read(raw_path) if raw_path else policy.EMU_ROOT
+    if not root.exists():
+        return f"[error] path does not exist: {raw_path!r}"
+
+    matches: list[dict] = []
+    files_scanned = 0
+    bytes_scanned = 0
+    truncated: str | None = None
+
+    def _iter_candidates(r: Path):
+        if r.is_file():
+            yield r
+            return
+        if not r.is_dir():
+            return
+        # Use rglob + manual filter so we can prune dot-dirs early.
+        for entry in sorted(r.rglob("*")):
+            rel_parts = entry.relative_to(r).parts
+            if any(part.startswith(".") for part in rel_parts):
+                continue
+            if entry.is_file():
+                yield entry
+
+    for fpath in _iter_candidates(root):
+        if files_scanned >= MAX_SEARCH_FILES:
+            truncated = f"file limit reached ({MAX_SEARCH_FILES})"
+            break
+        if bytes_scanned >= MAX_SEARCH_BYTES:
+            truncated = f"byte budget reached ({MAX_SEARCH_BYTES})"
+            break
+
+        # Defense in depth: re-validate every descendant through check_read.
+        # If a symlinked file inside .emu points outside, this rejects it.
+        try:
+            rel = fpath.relative_to(policy.EMU_ROOT)
+            policy.check_read(str(rel))
+        except (ValueError, policy.PolicyError):
+            continue
+
+        try:
+            size = fpath.stat().st_size
+        except OSError:
+            continue
+        if size > MAX_READ_BYTES:
+            continue  # skip huge files rather than stalling
+
+        try:
+            content = fpath.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue  # binary / unreadable
+
+        files_scanned += 1
+        bytes_scanned += size
+
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            if rx.search(line):
+                entry: dict = {
+                    "path": str(rel),
+                    "line_no": i + 1,
+                    "line": line[:MAX_LINE_CHARS],
+                }
+                if context_lines > 0:
+                    lo = max(0, i - context_lines)
+                    hi = min(len(lines), i + context_lines + 1)
+                    entry["context"] = [ln[:MAX_LINE_CHARS] for ln in lines[lo:hi]]
+                matches.append(entry)
+                if len(matches) >= max_results:
+                    truncated = truncated or f"result limit reached ({max_results})"
+                    break
+        if len(matches) >= max_results:
+            break
+
+    return json.dumps({
+        "matches": matches,
+        "files_scanned": files_scanned,
+        "truncated": truncated,
+    })
+
+
+def _stat_file(args: dict, state: DispatchState) -> str:
+    raw_path = args.get("path", "")
+    resolved = policy.check_read(raw_path)
+
+    if not resolved.exists():
+        return f"[error] path does not exist: {raw_path!r}"
+
+    st = resolved.stat()
+    info: dict = {
+        "path": raw_path,
+        "type": "dir" if resolved.is_dir() else "file" if resolved.is_file() else "other",
+        "size_bytes": st.st_size,
+        "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+    }
+    if resolved.is_file():
+        try:
+            with resolved.open("rb") as f:
+                info["line_count"] = sum(1 for _ in f)
+        except OSError:
+            pass
+    return json.dumps(info)
 
 
 def _finish(args: dict, state: DispatchState) -> str:
