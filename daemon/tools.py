@@ -21,6 +21,7 @@ from . import policy
 MAX_PER_FILE_BYTES = 512 * 1024       # 512 KB per single write
 MAX_TOTAL_BYTES_TICK = 2 * 1024 * 1024  # 2 MB total across all writes in one tick
 MAX_READ_BYTES = 512 * 1024           # 512 KB per single read
+MAX_READ_LINES = 200                  # hard cap on read_file chunk size (see prompt)
 
 # ── search_text budgets ───────────────────────────────────────────────────────
 # Keep search bounded so a pathological regex can't stall a tick. These are
@@ -65,21 +66,27 @@ TOOLS: list[dict] = [
     {
         "name": "read_file",
         "description": (
-            "Read the UTF-8 text content of a file under .emu/. "
-            "Returns the file content, or '[error] file does not exist: ...' "
-            "if it isn't there (which is a normal, expected outcome — handle "
-            "it by skipping that file, not by retrying).\n\n"
-            "Common paths you will read:\n"
-            "  - 'sessions/index.json'              ← MUST be your FIRST call every tick\n"
+            "Read a bounded chunk of a UTF-8 text file under .emu/. "
+            "**Paged reads are mandatory** — you must pass `start_line` "
+            "and `max_lines` on every call. There is NO 'read the whole "
+            "file' mode. This is a hard defence against runaway token "
+            "cost: every turn re-sends the conversation history, so one "
+            "oversized read inflates every subsequent turn.\n\n"
+            f"`max_lines` is capped at {200} per call. If you need more, "
+            "advance `start_line` and call again. The response header "
+            "`[lines X-Y of N total]` tells you when you've reached the "
+            "end.\n\n"
+            "Returns the chunk content, or '[error] file does not exist: "
+            "...' if it isn't there (normal — handle by skipping, not "
+            "retrying).\n\n"
+            "Common paths:\n"
+            "  - 'sessions/index.json'\n"
             "  - 'workspace/MEMORY.md'\n"
             "  - 'workspace/AGENTS.md'\n"
-            "  - 'workspace/memory/2026-04-20.md'   (daily log for a given date)\n"
+            "  - 'workspace/memory/2026-04-20.md'\n"
             "  - 'sessions/<session_id>/plan.md'\n"
             "  - 'sessions/<session_id>/notes.md'\n"
-            "  - 'sessions/<session_id>/logs/conversation.json'  (often LARGE — chunk it)\n\n"
-            "For large files use start_line and max_lines. The reply will include a "
-            "header like '[lines 0-399 of 832 total]' so you know whether to read "
-            "the next chunk with start_line=400."
+            "  - 'sessions/<session_id>/logs/conversation.json'  (use stat_file first)"
         ),
         "input_schema": {
             "type": "object",
@@ -96,20 +103,24 @@ TOOLS: list[dict] = [
                 "start_line": {
                     "type": "integer",
                     "description": (
-                        "0-indexed line to start reading from (default 0). "
-                        "Use this to chunk through large files like conversation.json."
+                        "0-indexed line to start reading from. Start at 0; "
+                        "advance by `max_lines` on each subsequent call."
                     ),
+                    "minimum": 0,
                 },
                 "max_lines": {
                     "type": "integer",
                     "description": (
-                        "Maximum number of lines to return (default: all). "
-                        "Recommend 400 for conversation.json, then advance "
-                        "start_line by 400 each call until you reach the total."
+                        "Number of lines to return this call. "
+                        "Hard max: 200. For small files you expect to be "
+                        "<200 lines, passing 200 is fine — the response "
+                        "will include a header showing the true total."
                     ),
+                    "minimum": 1,
+                    "maximum": 200,
                 },
             },
-            "required": ["path"],
+            "required": ["path", "start_line", "max_lines"],
         },
     },
     {
@@ -376,35 +387,51 @@ def _read_file(args: dict, state: DispatchState) -> str:
     if not resolved.is_file():
         return f"[error] path is not a file: {raw_path!r}"
 
+    # Paged reads are mandatory — start_line and max_lines must be present
+    # on every call. This caps how much content can land in the conversation
+    # history in one turn, which otherwise re-inflates the input on every
+    # subsequent turn and burns the token budget for no reason.
+    if "start_line" not in args or "max_lines" not in args:
+        return (
+            "[error] read_file requires both start_line and max_lines. "
+            f"Pass start_line=0 and max_lines up to {MAX_READ_LINES} on "
+            "the first call, then advance start_line by max_lines until "
+            "the response header reports you've reached the total."
+        )
+
+    try:
+        start_line = int(args["start_line"])
+        max_lines = int(args["max_lines"])
+    except (TypeError, ValueError):
+        return "[error] start_line and max_lines must be integers"
+
+    if start_line < 0:
+        return "[error] start_line must be >= 0"
+    if max_lines < 1:
+        return "[error] max_lines must be >= 1"
+    if max_lines > MAX_READ_LINES:
+        return (
+            f"[error] max_lines={max_lines} exceeds hard cap of "
+            f"{MAX_READ_LINES}. Issue multiple calls, advancing start_line "
+            f"by at most {MAX_READ_LINES} each time."
+        )
+
     try:
         content = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return f"[error] file is not valid UTF-8: {raw_path!r}"
 
-    start_line = int(args.get("start_line") or 0)
-    max_lines = args.get("max_lines")
-
-    if start_line or max_lines is not None:
-        lines = content.splitlines(keepends=True)
-        total = len(lines)
-        end = start_line + int(max_lines) if max_lines is not None else total
-        chunk = "".join(lines[start_line:end])
-        if len(chunk.encode("utf-8")) > MAX_READ_BYTES:
-            return (
-                f"[error] chunk too large. Reduce max_lines "
-                f"(requested lines {start_line}-{end} of {total})."
-            )
-        return f"[lines {start_line}-{min(end, total) - 1} of {total} total]\n{chunk}"
-
-    # Full file — guard against oversized reads
-    if len(content.encode("utf-8")) > MAX_READ_BYTES:
-        lines_count = content.count("\n") + 1
+    lines = content.splitlines(keepends=True)
+    total = len(lines)
+    end = start_line + max_lines
+    chunk = "".join(lines[start_line:end])
+    if len(chunk.encode("utf-8")) > MAX_READ_BYTES:
         return (
-            f"[error] file too large to read in full ({resolved.stat().st_size} bytes). "
-            f"File has ~{lines_count} lines. Use start_line and max_lines to read in chunks."
+            f"[error] chunk too large. Reduce max_lines "
+            f"(requested lines {start_line}-{end} of {total})."
         )
-
-    return content
+    last = min(end, total) - 1 if total else -1
+    return f"[lines {start_line}-{last} of {total} total]\n{chunk}"
 
 
 def _write_file(args: dict, state: DispatchState) -> str:
