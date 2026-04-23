@@ -115,6 +115,13 @@ def _run_tick(tick_log: Path) -> int:
     if not sessions:
         return 0
 
+    # Self-heal: backfill captured_at from existing daily-log headings.
+    # Cheap (reads a handful of small markdown files) and guards against
+    # drift — e.g., pre-upgrade data, or a mark_captured call the agent
+    # forgot on a previous tick.
+    state.reconcile_captured_from_memory()
+    sessions = state.list_all_sessions()
+
     print(f"[daemon] examining {len(sessions)} session(s) against memory", file=sys.stderr)
 
     result = run_agent_loop(

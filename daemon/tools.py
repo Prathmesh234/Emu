@@ -244,6 +244,41 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "mark_captured",
+        "description": (
+            "Mark one or more session ids as captured in "
+            "`sessions/index.json`. Call this RIGHT AFTER every successful "
+            "`write_file` to a daily log, listing the session ids whose "
+            "`### <sid> — ...` headings you just wrote. This flips each "
+            "entry's `captured_at` to the current UTC time so the next "
+            "tick skips them instead of re-reading their session files.\n\n"
+            "Forgetting to call this after a write is the single biggest "
+            "reason the daemon re-does work and runs out of token budget. "
+            "If you refine an existing entry (re-write a daily log that "
+            "already had that session), call this again — it's safe and "
+            "updates the timestamp.\n\n"
+            "Returns JSON: {\"captured\": [ids updated], "
+            "\"unknown\": [ids not in the index]}. Unknown ids are not "
+            "an error — they just weren't in the index."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Session ids (exactly as they appear in "
+                        "`sessions/index.json`) to mark as captured. "
+                        "Typically the ids whose headings you just wrote "
+                        "into a daily log."
+                    ),
+                },
+            },
+            "required": ["session_ids"],
+        },
+    },
+    {
         "name": "finish",
         "description": (
             "Signal that the curation pass is complete and end the tick. "
@@ -298,6 +333,8 @@ def dispatch(name: str, args: dict, state: DispatchState) -> str:
             return _search_text(args, state)
         elif name == "stat_file":
             return _stat_file(args, state)
+        elif name == "mark_captured":
+            return _mark_captured(args, state)
         elif name == "finish":
             return _finish(args, state)
         else:
@@ -539,3 +576,23 @@ def _finish(args: dict, state: DispatchState) -> str:
     state.finished = True
     state.finish_summary = summary
     return "done"
+
+
+def _mark_captured(args: dict, state: DispatchState) -> str:
+    # Import here to avoid a circular import at module load time
+    # (state.py is imported by run.py and pulls in policy, which we
+    # already import — but keep tools.py free of state.py at the top).
+    from . import state as _state
+
+    raw = args.get("session_ids", [])
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return "[error] session_ids must be an array of strings"
+    ids = [s for s in raw if isinstance(s, str) and s]
+    if not ids:
+        return "[error] session_ids must be a non-empty array of strings"
+
+    updated = _state.mark_sessions_captured(ids)
+    unknown = [sid for sid in ids if sid not in updated]
+    return json.dumps({"captured": updated, "unknown": unknown})

@@ -9,6 +9,7 @@ Supports:
   together_ai      → OpenAI SDK, base_url=https://api.together.xyz/v1
   openai_compatible→ OpenAI SDK, base_url=OPENAI_BASE_URL
   baseten          → OpenAI SDK, base_url=BASETEN_API_URL
+  ollama           → OpenAI SDK, base_url=OLLAMA_BASE_URL (default http://localhost:11434/v1)
 
 Provider is selected by EMU_DAEMON_PROVIDER env var (default: claude).
 API key comes from EMU_DAEMON_API_KEY env var, then macOS Keychain, then
@@ -43,6 +44,7 @@ _PROVIDER_DEFAULTS: dict[str, dict] = {
     "together_ai":       {"model": "meta-llama/Llama-3.1-70B-Instruct-Turbo", "base_url": "https://api.together.xyz/v1"},
     "openai_compatible": {"model": os.environ.get("OPENAI_MODEL", "default"), "base_url": os.environ.get("OPENAI_BASE_URL", "")},
     "baseten":           {"model": os.environ.get("BASETEN_MODEL", ""), "base_url": os.environ.get("BASETEN_API_URL", "")},
+    "ollama":            {"model": os.environ.get("OLLAMA_MODEL", "qwen3.5:9b"), "base_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")},
 }
 
 _KEY_ENV_MAP: dict[str, str] = {
@@ -53,6 +55,7 @@ _KEY_ENV_MAP: dict[str, str] = {
     "together_ai":       "TOGETHER_API_KEY",
     "openai_compatible": "OPENAI_API_KEY",
     "baseten":           "BASETEN_API_KEY",
+    "ollama":            "OLLAMA_API_KEY",
 }
 
 _UNSUPPORTED_PROVIDERS = {"bedrock", "gemini", "h_company", "modal"}
@@ -131,6 +134,11 @@ def _resolve_api_key(provider: str) -> str:
         key = os.environ.get(env_var, "").strip()
         if key:
             return key
+
+    # Ollama (and similar local servers) don't require an API key, but the
+    # OpenAI SDK still demands a non-empty string. Provide a dummy.
+    if provider == "ollama":
+        return "ollama-local"
 
     raise RuntimeError(
         f"No API key found for provider {provider!r}. "
