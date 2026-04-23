@@ -59,8 +59,17 @@ class ActionValidator:
     # Positions within this fraction of screen size are treated as "same spot"
     COORD_EPSILON = 0.01
 
-    # Actions that are legitimately repeated many times — don't throttle
-    _NO_THROTTLE = {"screenshot", "scroll"}
+    # Actions that are legitimately repeated many times — don't throttle.
+    # - screenshot: may be spammed while waiting for UI to settle
+    # - scroll: large pages may genuinely need many scrolls
+    # - shell_exec: tool calls (cat/ls/grep/etc.) may legitimately chain in a
+    #   row while the model explores the filesystem. Different commands per
+    #   call, so a streak isn't a "stuck in a loop" signal.
+    _NO_THROTTLE = {"screenshot", "scroll", "shell_exec"}
+
+    # Max consecutive repetitions of the same action type before we force a
+    # strategy change. 4 repeats allowed; the 5th is rejected.
+    MAX_CONSECUTIVE_REPEATS = 4
 
     def __init__(self):
         self._history: dict[str, list[str]] = {}
@@ -239,6 +248,22 @@ class ActionValidator:
                 "mouse_move, type_text, key_press, scroll, drag, "
                 "screenshot, wait, done."
             )
+
+        # ── Rule 3: Throttle consecutive repeats of same action type ──────────
+        # (excludes screenshot, scroll, shell_exec — see _NO_THROTTLE)
+        if action_type and action_type not in self._NO_THROTTLE:
+            tail = history[-self.MAX_CONSECUTIVE_REPEATS:]
+            if (
+                len(tail) == self.MAX_CONSECUTIVE_REPEATS
+                and all(a == action_type for a in tail)
+            ):
+                return False, (
+                    f"'{action_type}' has been called {self.MAX_CONSECUTIVE_REPEATS} "
+                    f"times in a row without progress. Change strategy: take a "
+                    f"screenshot to reassess, try a different element, use a "
+                    f"keyboard shortcut, or call shell_exec if this is a "
+                    f"filesystem/text task."
+                )
 
         # ── Record action ─────────────────────────────────────────────────────
         if action_type == "mouse_move":

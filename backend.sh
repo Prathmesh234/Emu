@@ -21,6 +21,9 @@
 #   OPENROUTER_API_KEY  — auto-selects OpenRouter
 #   OPENAI_API_KEY      — auto-selects OpenAI (or OpenAI-compatible if OPENAI_BASE_URL set)
 #   GOOGLE_API_KEY      — auto-selects Gemini
+#   EMU_DAEMON_AUTO_INSTALL — 1 (default) installs/refreshes the macOS launchd
+#                             memory daemon non-interactively; 0 falls back to
+#                             an interactive y/N/never prompt.
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -195,7 +198,16 @@ export EMU_DAEMON_PROVIDER="${EMU_DAEMON_PROVIDER:-$PROVIDER}"
 
 if [[ "$(uname)" == "Darwin" ]]; then
     # Stdlib only — no need to spin up the backend venv.
-    (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos prompt-install) || true
+    # EMU_DAEMON_AUTO_INSTALL=1 (default) installs/repairs the launchd agent
+    # non-interactively. Set to 0 to fall back to the interactive y/N/never
+    # prompt (useful if you want the user to opt in explicitly).
+    if [[ "${EMU_DAEMON_AUTO_INSTALL:-1}" == "1" ]]; then
+        info "Installing/refreshing memory daemon (EMU_DAEMON_AUTO_INSTALL=1)..."
+        (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos install) || \
+            warn "Memory daemon install failed (continuing without it)"
+    else
+        (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos prompt-install) || true
+    fi
 fi
 
 # ── Start the backend ───────────────────────────────────────────────────────

@@ -94,6 +94,15 @@ async function moveToSidePanel() {
     }
 }
 
+async function moveToCentered() {
+    if (store.state.isSidePanel) {
+        await ipcRenderer.invoke('window:centered');
+        store.setSidePanel(false);
+        header.setExpandVisible(false);
+        header.setCompact(false);
+    }
+}
+
 async function minimizeWindow() {
     try {
         await ipcRenderer.invoke('window:minimize');
@@ -646,9 +655,21 @@ async function handleWsMessage(data) {
                 store.state.lastChainLength = data.chain_length;
             }
 
-            // Move to side panel only for vision/action steps (not pure chat/done)
+            // Window placement per step:
+            //   - Screen-interacting actions (clicks, keystrokes, screenshot):
+            //     move to the side panel so the agent can see the desktop.
+            //   - Non-screen actions (shell_exec, memory_read, wait) and the
+            //     wait-for-model gap between steps: return to the centered
+            //     window so the user can actually read the trace/tool output.
+            const NON_SCREEN_ACTIONS = new Set(['shell_exec', 'memory_read', 'wait']);
             if (!data.done && data.action) {
-                await moveToSidePanel();
+                if (NON_SCREEN_ACTIONS.has(data.action.type)) {
+                    await moveToCentered();
+                } else {
+                    await moveToSidePanel();
+                }
+            } else if (!data.action) {
+                await moveToCentered();
             }
 
             // Increment step counter
