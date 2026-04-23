@@ -6,10 +6,15 @@
 const { leftClick }      = require('./leftClick');
 const { rightClick }     = require('./rightClick');
 const { leftClickOpen }  = require('./leftClickOpen');
+const { doubleClick }    = require('./doubleClick');
 const { tripleClick }    = require('./tripleClick');
 const { navigateMouse }  = require('./navigate');
 const { drag }           = require('./drag');
+const { relativeMove }   = require('./relativeMove');
+const { relativeDrag }   = require('./relativeDrag');
 const { scroll }         = require('./scroll');
+const { horizontalScroll } = require('./horizontalScroll');
+const { getMousePosition } = require('./getMousePosition');
 const { captureScreenshot, getScaleFactors, getScreenDimensions } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
@@ -50,6 +55,13 @@ const ACTION_MAP = {
         ipc:   'mouse:triple-click',
         dispatch: () => tripleClick(),
         describe: () => 'Triple click (select line)',
+    },
+    double_click: {
+        label: 'Double Click',
+        icon:  '🖱️',
+        ipc:   'mouse:double-click-current',
+        dispatch: () => doubleClick(),
+        describe: () => 'Double click at current cursor',
     },
     navigate_and_click: {
         label: 'Navigate & Click',
@@ -113,6 +125,27 @@ const ACTION_MAP = {
         },
         describe: (a) => `Move cursor to (${a.coordinates.x}, ${a.coordinates.y})`,
     },
+    relative_mouse_move: {
+        label: 'Relative Mouse Move',
+        icon:  '↗️',
+        ipc:   'mouse:relative-move',
+        dispatch: (a) => {
+            // dx/dy are normalized fractions of screen size — convert to pixels.
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const dxPx = Math.round((a.dx || 0) * screenWidth);
+            const dyPx = Math.round((a.dy || 0) * screenHeight);
+            console.log(`[relative_mouse_move] dx=${a.dx} dy=${a.dy} → (${dxPx}, ${dyPx}) [screen: ${screenWidth}x${screenHeight}]`);
+            return relativeMove(dxPx, dyPx);
+        },
+        describe: (a) => `Nudge cursor by (${a.dx}, ${a.dy})`,
+    },
+    get_mouse_position: {
+        label: 'Get Mouse Position',
+        icon:  '📍',
+        ipc:   'mouse:get-position',
+        dispatch: () => getMousePosition(),
+        describe: () => 'Read current cursor position',
+    },
     drag: {
         label: 'Drag',
         icon:  '↔️',
@@ -129,12 +162,32 @@ const ACTION_MAP = {
         },
         describe: (a) => `Drag from (${a.coordinates.x}, ${a.coordinates.y}) to (${a.end_coordinates.x}, ${a.end_coordinates.y})`,
     },
+    relative_drag: {
+        label: 'Relative Drag',
+        icon:  '↔️',
+        ipc:   'mouse:relative-drag',
+        dispatch: (a) => {
+            const { screenWidth, screenHeight } = getScreenDimensions();
+            const dxPx = Math.round((a.dx || 0) * screenWidth);
+            const dyPx = Math.round((a.dy || 0) * screenHeight);
+            console.log(`[relative_drag] dx=${a.dx} dy=${a.dy} → (${dxPx}, ${dyPx}) [screen: ${screenWidth}x${screenHeight}]`);
+            return relativeDrag(dxPx, dyPx);
+        },
+        describe: (a) => `Drag from current cursor by (${a.dx}, ${a.dy})`,
+    },
     scroll: {
         label: 'Scroll',
         icon:  '📜',
         ipc:   'mouse:scroll',
         dispatch: (a) => scroll(a.direction, a.amount || 5),
         describe: (a) => `Scroll ${a.direction} ${a.amount || 5} notches`,
+    },
+    horizontal_scroll: {
+        label: 'Horizontal Scroll',
+        icon:  '📜',
+        ipc:   'mouse:horizontal-scroll',
+        dispatch: (a) => horizontalScroll(a.direction, a.amount || 5),
+        describe: (a) => `Scroll ${a.direction} ${a.amount || 5} notches (horizontal)`,
     },
     type_text: {
         label: 'Type Text',

@@ -9,8 +9,12 @@ _IPC_TO_ACTION = {
     "mouse:navigate-and-right-click":  "navigate_and_right_click",
     "mouse:navigate-and-triple-click": "navigate_and_triple_click",
     "mouse:move":                      "mouse_move",
+    "mouse:relative-move":             "relative_mouse_move",
     "mouse:drag":                      "drag",
+    "mouse:relative-drag":             "relative_drag",
     "mouse:scroll":                    "scroll",
+    "mouse:horizontal-scroll":         "horizontal_scroll",
+    "mouse:get-position":              "get_mouse_position",
     "keyboard:type":                   "type_text",
     "keyboard:key-press":              "key_press",
 }
