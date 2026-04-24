@@ -6,7 +6,7 @@ const daemonInstaller = require('./frontend/process/daemonInstaller');
 const { resolveEmuRoot } = require('./frontend/emu/root');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
-const { getActiveDisplay, lockSessionDisplay, clearSessionLock } = require('./frontend/display/activeDisplay');
+const { lockSessionDisplay, clearSessionLock } = require('./frontend/display/activeDisplay');
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
 
@@ -101,11 +101,14 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('set-generating', (event, generating) => {
+    // set-generating mirrors set-border; delegate to the same handler
+    // so both signals manage the session lock consistently.
     if (generating) {
       showBorderOnActiveDisplay();
     } else {
-      clearSessionLock();
       if (borderWindow) borderWindow.hide();
+      // Do NOT clear the session lock here — set-border:false will do it.
+      // Clearing independently could race with an in-flight set-border:true.
     }
   });
 

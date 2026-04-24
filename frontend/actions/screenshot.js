@@ -199,7 +199,7 @@ function register(ipcMain, { screen, getMainWindow }) {
             const activeDisplay = getLockedDisplay() || getActiveDisplay(screen, win);
             const { width: screenWidth, height: screenHeight } = activeDisplay.size;
             const scaleFactor = activeDisplay.scaleFactor || 1;
-            const { x: displayOffsetX, y: displayOffsetY } = activeDisplay.bounds;
+            let { x: displayOffsetX, y: displayOffsetY } = activeDisplay.bounds;
 
             console.log(`[screenshot] capturing display ${activeDisplay.id}: ${screenWidth}×${screenHeight}, scale ${scaleFactor}x, offset (${displayOffsetX},${displayOffsetY})`);
 
@@ -218,7 +218,11 @@ function register(ipcMain, { screen, getMainWindow }) {
 
             // Match source to active display by display_id; fall back to first source
             const targetId = String(activeDisplay.id);
-            const source = sources.find(s => String(s.display_id) === targetId) || sources[0];
+            const matched = sources.find(s => String(s.display_id) === targetId);
+            if (!matched) {
+                console.warn(`[screenshot] display_id ${targetId} not matched in sources (ids: ${sources.map(s => s.display_id).join(', ')}); falling back to sources[0]`);
+            }
+            const source = matched || sources[0];
             const nativeImage = source.thumbnail;
 
             let finalImage = nativeImage;
@@ -228,16 +232,28 @@ function register(ipcMain, { screen, getMainWindow }) {
                 const os = require('os');
                 const cp = require('child_process');
                 const tmpPath = path.join(os.tmpdir(), `emu_fallback_${Date.now()}.png`);
-                
+
                 try {
-                    // Try to capture using native macOS tool (-x mutes the camera shutter sound)
-                    cp.execSync(`screencapture -x "${tmpPath}"`);
+                    // -D <n> targets a specific display (1-based index in getAllDisplays order).
+                    // This ensures the fallback captures the same display as the primary path.
+                    // The resulting image covers only that display, so offset must be zeroed.
+                    const allDisplays = screen.getAllDisplays();
+                    const displayIndex = allDisplays.findIndex(d => d.id === activeDisplay.id);
+                    const displayFlag = displayIndex >= 0 ? `-D ${displayIndex + 1}` : '';
+                    if (!displayFlag) {
+                        console.warn('[screenshot] could not determine display index for screencapture fallback; capturing default display');
+                    }
+                    cp.execSync(`screencapture -x ${displayFlag} "${tmpPath}"`);
                     finalImage = nativeImageModule.createFromPath(tmpPath);
-                    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); // Cleanup
-                    
+                    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+
                     if (finalImage.isEmpty()) {
                         throw new Error('Fallback native screencapture also returned an empty image');
                     }
+                    // The -D fallback image starts at the display's own origin (0,0),
+                    // so the cursor offset used in overlayMouseCursor must be zeroed.
+                    displayOffsetX = 0;
+                    displayOffsetY = 0;
                 } catch (fallbackErr) {
                     throw new Error(`desktopCapturer failed (empty image) and screencapture fallback failed: ${fallbackErr.message}`);
                 }
