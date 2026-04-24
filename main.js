@@ -6,6 +6,7 @@ const daemonInstaller = require('./frontend/process/daemonInstaller');
 const { resolveEmuRoot } = require('./frontend/emu/root');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
+const { getActiveDisplay, lockSessionDisplay, clearSessionLock } = require('./frontend/display/activeDisplay');
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
 
@@ -23,7 +24,7 @@ let borderWindow;
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
+  const wa = primaryDisplay.workArea;
 
   // Larger default for the Design System v1 layout (chrome + body + composer
    // needs room; sidebar is 240px when open).
@@ -32,8 +33,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width:  DEFAULT_W,
     height: DEFAULT_H,
-    x: Math.round((width  - DEFAULT_W) / 2),
-    y: Math.round((height - DEFAULT_H) / 2),
+    x: wa.x + Math.round((wa.width  - DEFAULT_W) / 2),
+    y: wa.y + Math.round((wa.height - DEFAULT_H) / 2),
     minWidth: 420,
     minHeight: 440,
     frame: false,
@@ -64,12 +65,9 @@ app.whenReady().then(() => {
   // Border is shown only while the agent is executing.
   function ensureBorderWindow() {
     if (!borderWindow) {
-      const primaryDisplay = screen.getPrimaryDisplay();
+      // Created with placeholder bounds; repositioned to active display before each show.
       borderWindow = new BrowserWindow({
-        x: primaryDisplay.bounds.x,
-        y: primaryDisplay.bounds.y,
-        width: primaryDisplay.bounds.width,
-        height: primaryDisplay.bounds.height,
+        x: 0, y: 0, width: 100, height: 100,
         transparent: true,
         frame: false,
         alwaysOnTop: true,
@@ -86,18 +84,27 @@ app.whenReady().then(() => {
     return borderWindow;
   }
 
+  function showBorderOnActiveDisplay() {
+    const display = lockSessionDisplay(screen, mainWindow);
+    const bw = ensureBorderWindow();
+    bw.setBounds(display.bounds);
+    bw.show();
+  }
+
   ipcMain.on('set-border', (event, visible) => {
     if (visible) {
-      ensureBorderWindow().show();
+      showBorderOnActiveDisplay();
     } else {
+      clearSessionLock();
       if (borderWindow) borderWindow.hide();
     }
   });
 
   ipcMain.on('set-generating', (event, generating) => {
     if (generating) {
-      ensureBorderWindow().show();
+      showBorderOnActiveDisplay();
     } else {
+      clearSessionLock();
       if (borderWindow) borderWindow.hide();
     }
   });

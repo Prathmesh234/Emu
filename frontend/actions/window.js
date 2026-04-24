@@ -24,16 +24,21 @@ async function maximizeWindow() {
 function register(ipcMain, getMainWindow) {
     let originalBounds = null;
     const { screen } = require('electron');
+    const { getActiveDisplay } = require('../display/activeDisplay');
 
     ipcMain.handle('window:side-panel', async () => {
         const win = getMainWindow();
         if (!win) return { success: false };
-        const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+        const wa = getActiveDisplay(screen, win).workArea;
         originalBounds = win.getBounds();
         const panelWidth = 450;
-        const panelHeight = Math.round(height * 0.75);
-        const panelY = Math.round((height - panelHeight) / 2);
-        win.setBounds({ x: width - panelWidth - 16, y: panelY, width: panelWidth, height: panelHeight }, false);
+        const panelHeight = Math.round(wa.height * 0.75);
+        win.setBounds({
+            x: wa.x + wa.width - panelWidth - 16,
+            y: wa.y + Math.round((wa.height - panelHeight) / 2),
+            width: panelWidth,
+            height: panelHeight,
+        }, false);
         win.setAlwaysOnTop(true, 'screen-saver');
         return { success: true };
     });
@@ -42,14 +47,14 @@ function register(ipcMain, getMainWindow) {
         const win = getMainWindow();
         if (!win) return { success: false };
         win.setAlwaysOnTop(false);
-        const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+        const wa = getActiveDisplay(screen, win).workArea;
         const newWidth  = originalBounds?.width  || 1040;
         const newHeight = originalBounds?.height || 760;
         win.setBounds({
-            x: Math.round((width - newWidth) / 2),
-            y: Math.round((height - newHeight) / 2),
+            x: wa.x + Math.round((wa.width  - newWidth)  / 2),
+            y: wa.y + Math.round((wa.height - newHeight) / 2),
             width: newWidth,
-            height: newHeight
+            height: newHeight,
         }, false);
         return { success: true };
     });

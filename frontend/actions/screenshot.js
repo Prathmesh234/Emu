@@ -142,8 +142,11 @@ function drawCursorOverlay(bitmap, imgW, imgH, tipX, tipY) {
 /**
  * Get cursor position via cliclick and overlay it onto the nativeImage.
  * Returns a new nativeImage with the cursor drawn on.
+ * displayOffsetX/Y are the display's absolute origin so cursor coords
+ * (which are virtual-desktop-absolute on macOS) are made relative to the
+ * captured display before mapping to image pixels.
  */
-async function overlayMouseCursor(image, screenW, screenH) {
+async function overlayMouseCursor(image, screenW, screenH, displayOffsetX = 0, displayOffsetY = 0) {
     const psProcess = require('../process/psProcess');
     try {
         const posStr = await psProcess.run('cliclick p:.');
@@ -156,11 +159,13 @@ async function overlayMouseCursor(image, screenW, screenH) {
         const cursorY = parseInt(match[2], 10);
 
         const imgSize = image.getSize();
-        // Map screen coords → image coords
-        const imgX = Math.round((cursorX / screenW) * imgSize.width);
-        const imgY = Math.round((cursorY / screenH) * imgSize.height);
+        // Map absolute screen coords → coords relative to this display → image coords
+        const relX = cursorX - displayOffsetX;
+        const relY = cursorY - displayOffsetY;
+        const imgX = Math.round((relX / screenW) * imgSize.width);
+        const imgY = Math.round((relY / screenH) * imgSize.height);
 
-        console.log(`[screenshot] cursor at screen(${cursorX},${cursorY}) → image(${imgX},${imgY})`);
+        console.log(`[screenshot] cursor at screen(${cursorX},${cursorY}) rel(${relX},${relY}) → image(${imgX},${imgY})`);
 
         // Get raw RGBA bitmap, draw cursor, create new image
         const bitmap = image.toBitmap();
@@ -177,7 +182,7 @@ async function overlayMouseCursor(image, screenW, screenH) {
     }
 }
 
-function register(ipcMain, { screen }) {
+function register(ipcMain, { screen, getMainWindow }) {
     // Import desktopCapturer here — this runs in the main process
     desktopCapturer = require('electron').desktopCapturer;
     nativeImageModule = require('electron').nativeImage;
@@ -189,11 +194,14 @@ function register(ipcMain, { screen }) {
                 throw new Error('desktopCapturer not available — Electron main process API missing');
             }
 
-            const primaryDisplay = screen.getPrimaryDisplay();
-            const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
-            const scaleFactor = primaryDisplay.scaleFactor || 1;
+            const { getActiveDisplay, getLockedDisplay } = require('../display/activeDisplay');
+            const win = getMainWindow();
+            const activeDisplay = getLockedDisplay() || getActiveDisplay(screen, win);
+            const { width: screenWidth, height: screenHeight } = activeDisplay.size;
+            const scaleFactor = activeDisplay.scaleFactor || 1;
+            const { x: displayOffsetX, y: displayOffsetY } = activeDisplay.bounds;
 
-            console.log(`[screenshot] capturing: screen ${screenWidth}×${screenHeight}, scale ${scaleFactor}x`);
+            console.log(`[screenshot] capturing display ${activeDisplay.id}: ${screenWidth}×${screenHeight}, scale ${scaleFactor}x, offset (${displayOffsetX},${displayOffsetY})`);
 
             // Capture via desktopCapturer — grabs the full screen including all windows
             const sources = await desktopCapturer.getSources({
@@ -208,8 +216,9 @@ function register(ipcMain, { screen }) {
                 throw new Error('desktopCapturer returned no sources — check Screen Recording permission');
             }
 
-            // Use the primary display source
-            const source = sources[0];
+            // Match source to active display by display_id; fall back to first source
+            const targetId = String(activeDisplay.id);
+            const source = sources.find(s => String(s.display_id) === targetId) || sources[0];
             const nativeImage = source.thumbnail;
 
             let finalImage = nativeImage;
@@ -242,7 +251,7 @@ function register(ipcMain, { screen }) {
             }
 
             // Overlay a cursor indicator so the model can see pointer position
-            finalImage = await overlayMouseCursor(finalImage, screenWidth, screenHeight);
+            finalImage = await overlayMouseCursor(finalImage, screenWidth, screenHeight, displayOffsetX, displayOffsetY);
 
             const finalSize = finalImage.getSize();
 

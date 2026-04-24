@@ -16,9 +16,14 @@ function register(ipcMain, { screen, getMainWindow }) {
     ipcMain.handle('screenshot:fullCapture', async () => {
         try {
             const win = getMainWindow();
-            const primaryDisplay = screen.getPrimaryDisplay();
-            const { width: screenWidth, height: screenHeight } = primaryDisplay.size;
-            const scaleFactor = primaryDisplay.scaleFactor || 1;
+            const { getActiveDisplay, getLockedDisplay } = require('../display/activeDisplay');
+
+            // Resolve active display BEFORE moving window off-screen so
+            // getDisplayMatching still returns the right result.
+            const activeDisplay = getLockedDisplay() || getActiveDisplay(screen, win);
+            const { width: screenWidth, height: screenHeight } = activeDisplay.size;
+            const scaleFactor = activeDisplay.scaleFactor || 1;
+            const targetId = String(activeDisplay.id);
 
             // Move window off-screen so it doesn't appear in the capture
             let savedBounds = null;
@@ -44,7 +49,8 @@ function register(ipcMain, { screen, getMainWindow }) {
                     throw new Error('desktopCapturer returned no sources');
                 }
 
-                const nativeImage = sources[0].thumbnail;
+                // Match source to active display by display_id; fall back to first source
+                const nativeImage = (sources.find(s => String(s.display_id) === targetId) || sources[0]).thumbnail;
                 if (nativeImage.isEmpty()) {
                     throw new Error('desktopCapturer returned empty image');
                 }
