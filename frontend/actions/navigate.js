@@ -13,8 +13,13 @@ function register(ipcMain, BACKEND_URL) {
     ipcMain.handle('mouse:move', async (_event, { x, y }) => {
         console.log(`[navigate] mouse:move invoked x=${x} y=${y}`);
         try {
+            // cliclick treats any coord starting with + or - as RELATIVE.
+            // On secondary monitors the DIP origin can be negative, so we
+            // MUST force absolute interpretation with the "=" prefix,
+            // otherwise "m:-1219,-10" means "move by (-1219,-10)" not
+            // "move to (-1219,-10)" — which silently breaks multi-monitor.
             const cmd = isMac
-                ? `cliclick m:${x},${y}`
+                ? `cliclick m:=${x},=${y}`
                 : `xdotool mousemove ${x} ${y}`;
             await psProcess.run(cmd);
             console.log(`[navigate] mouse:move OK x=${x} y=${y}`);

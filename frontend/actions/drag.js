@@ -15,12 +15,14 @@ function register(ipcMain) {
     ipcMain.handle('mouse:drag', async (_event, { startX, startY, endX, endY }) => {
         try {
             if (isMac) {
-                // cliclick drag: move to start, press, interpolate to end, release
+                // cliclick drag: move to start, press, interpolate to end, release.
+                // Force-absolute "=" prefix — without it, any negative coord
+                // (secondary-monitor DIP space) is parsed as a relative move.
                 const steps = 10;
                 const cmds = [
-                    `cliclick m:${startX},${startY}`,
+                    `cliclick m:=${startX},=${startY}`,
                     `sleep 0.05`,
-                    `cliclick dd:${startX},${startY}`,   // drag down (press)
+                    `cliclick dd:=${startX},=${startY}`,   // drag down (press)
                     `sleep 0.05`,
                 ];
 
@@ -28,12 +30,12 @@ function register(ipcMain) {
                     const t = i / steps;
                     const x = Math.round(startX + (endX - startX) * t);
                     const y = Math.round(startY + (endY - startY) * t);
-                    cmds.push(`cliclick dm:${x},${y}`);   // drag move
+                    cmds.push(`cliclick dm:=${x},=${y}`);   // drag move
                     cmds.push(`sleep 0.015`);
                 }
 
                 cmds.push(`sleep 0.05`);
-                cmds.push(`cliclick du:${endX},${endY}`);  // drag up (release)
+                cmds.push(`cliclick du:=${endX},=${endY}`);  // drag up (release)
 
                 await psProcess.run(cmds.join('; '));
             } else {

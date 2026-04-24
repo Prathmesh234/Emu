@@ -202,6 +202,13 @@ function toggleHistoryPanel() {
     }
 }
 
+function closeHistoryPanel() {
+    if (!_historyPanelOpen) return;
+    _historyPanelOpen = false;
+    const panel = historyPanel ? historyPanel.element : null;
+    if (panel) panel.classList.remove('open');
+}
+
 async function refreshHistory() {
     try {
         const sessions = await api.fetchSessionHistory();
@@ -1101,7 +1108,7 @@ function mount(appEl) {
     // ── History sidebar ───────────────────────────────────────────────────
     historyPanel = HistoryPanel({
         onNewChat:       () => newChat(),
-        onSelectSession: (sid) => loadPastSession(sid),
+        onSelectSession: (sid) => { closeHistoryPanel(); loadPastSession(sid); },
         onToggle:        () => toggleHistoryPanel(),
     });
     header.contentEl.appendChild(historyPanel.element);
@@ -1110,6 +1117,16 @@ function mount(appEl) {
     const macMain = document.createElement('div');
     macMain.className = 'mac-main';
     header.contentEl.appendChild(macMain);
+
+    // Clicking anywhere in the main column collapses the sessions panel
+    // back to its original hidden state if it is currently open.
+    // Exclude the sidebar toggle button itself so the subsequent click
+    // doesn't re-open what we just closed.
+    macMain.addEventListener('mousedown', (e) => {
+        if (!_historyPanelOpen) return;
+        if (e.target.closest && e.target.closest('.window-header-sidebar-btn')) return;
+        closeHistoryPanel();
+    }, true);
 
     // Window header: "Emu" mark + sidebar toggle + status pill
     winHeader = WindowHeader({ onToggleSidebar: toggleHistoryPanel });

@@ -199,21 +199,10 @@ class ActionValidator:
                     )
 
         # ── Rule 11: navigate_and_click at same coordinates as last click ─────
-        if action_type in (
-            "navigate_and_click",
-            "navigate_and_right_click",
-            "navigate_and_triple_click",
-        ):
-            prev = self._last_click_coords.get(session_id)
-            if prev:
-                lx, ly = prev
-                if abs(cx - lx) < self.COORD_EPSILON and abs(cy - ly) < self.COORD_EPSILON:
-                    return False, (
-                        f"You already clicked at ({lx:.3f}, {ly:.3f}) in the previous step — "
-                        f"clicking the same spot again is a no-op. Either target a different "
-                        f"element, scroll to reveal new content, or switch strategy "
-                        f"(keyboard shortcut, shell_exec)."
-                    )
+        # Intentionally removed — clicking the same spot twice is legitimate
+        # (e.g., cursor placement then selection, waiting for a slow UI,
+        # re-trying after a transient failure). The validator was producing
+        # false-positive rejection loops.
 
         # ── Rule 4: Minimum scroll amount ─────────────────────────────────────
         if action_type == "scroll":

@@ -37,6 +37,12 @@ const CURSOR_ARROW = [
 let _screenWidth = 1920;
 let _screenHeight = 1080;
 
+// Origin of the active/locked display in the global virtual-desktop
+// coordinate space. Needed so mouse actions land on the same monitor
+// Emu is running on, not the primary display.
+let _displayOffsetX = 0;
+let _displayOffsetY = 0;
+
 // Scale factors for coordinate translation (image coords → screen coords)
 let _scaleX = 1;
 let _scaleY = 1;
@@ -49,6 +55,10 @@ function getScreenDimensions() {
     return { screenWidth: _screenWidth, screenHeight: _screenHeight };
 }
 
+function getDisplayOffset() {
+    return { displayOffsetX: _displayOffsetX, displayOffsetY: _displayOffsetY };
+}
+
 async function captureScreenshot() {
     const result = await ipcRenderer.invoke('screenshot:capture');
     if (result.success && result.imageWidth && result.screenWidth) {
@@ -56,7 +66,9 @@ async function captureScreenshot() {
         _scaleY = result.screenHeight / result.imageHeight;
         _screenWidth = result.screenWidth;
         _screenHeight = result.screenHeight;
-        console.log(`[screenshot] scale factors updated: ${_scaleX.toFixed(2)}x, ${_scaleY.toFixed(2)}y | screen: ${_screenWidth}x${_screenHeight}`);
+        if (typeof result.displayOffsetX === 'number') _displayOffsetX = result.displayOffsetX;
+        if (typeof result.displayOffsetY === 'number') _displayOffsetY = result.displayOffsetY;
+        console.log(`[screenshot] scale ${_scaleX.toFixed(2)}x,${_scaleY.toFixed(2)}y | screen ${_screenWidth}x${_screenHeight} @ offset(${_displayOffsetX},${_displayOffsetY})`);
     }
     return result;
 }
@@ -140,32 +152,44 @@ function drawCursorOverlay(bitmap, imgW, imgH, tipX, tipY) {
 }
 
 /**
- * Get cursor position via cliclick and overlay it onto the nativeImage.
- * Returns a new nativeImage with the cursor drawn on.
- * displayOffsetX/Y are the display's absolute origin so cursor coords
- * (which are virtual-desktop-absolute on macOS) are made relative to the
- * captured display before mapping to image pixels.
+ * Overlay the current cursor onto a nativeImage screenshot.
+ *
+ * Resolution-agnostic: uses Electron's `screen.getCursorScreenPoint()` and
+ * `activeDisplay.bounds/size`, both of which live in the same DIP
+ * coordinate space. That lets the math automatically adapt to whatever
+ * display Emu is running on — 1080p, 1440p, Retina, an external 4K, or a
+ * mixed-DPI multi-monitor rig — without hard-coding any resolution.
+ *
+ * Why not `cliclick p:.`? On multi-monitor macOS setups where displays
+ * have different scale factors, cliclick's CoreGraphics coordinates don't
+ * always agree with Electron's DIP space, which caused the cursor to fall
+ * outside the captured image and be silently dropped.
+ *
+ * `displayOffsetX/Y` are the captured display's origin (DIPs), so the
+ * cursor is first translated into display-local coords, then proportionally
+ * mapped to the image's pixel grid via (imgW/screenW, imgH/screenH).
  */
-async function overlayMouseCursor(image, screenW, screenH, displayOffsetX = 0, displayOffsetY = 0) {
-    const psProcess = require('../process/psProcess');
+async function overlayMouseCursor(image, screen, screenW, screenH, displayOffsetX = 0, displayOffsetY = 0) {
     try {
-        const posStr = await psProcess.run('cliclick p:.');
-        const match = posStr.trim().match(/^(\d+),(\d+)$/);
-        if (!match) {
-            console.warn(`[screenshot] could not parse cursor position: "${posStr}"`);
-            return image;
-        }
-        const cursorX = parseInt(match[1], 10);
-        const cursorY = parseInt(match[2], 10);
+        const { x: cursorX, y: cursorY } = screen.getCursorScreenPoint();
 
         const imgSize = image.getSize();
-        // Map absolute screen coords → coords relative to this display → image coords
         const relX = cursorX - displayOffsetX;
         const relY = cursorY - displayOffsetY;
+
+        // Proportional map: works for any screen resolution / image size.
         const imgX = Math.round((relX / screenW) * imgSize.width);
         const imgY = Math.round((relY / screenH) * imgSize.height);
 
-        console.log(`[screenshot] cursor at screen(${cursorX},${cursorY}) rel(${relX},${relY}) → image(${imgX},${imgY})`);
+        const onDisplay = relX >= 0 && relY >= 0 && relX < screenW && relY < screenH;
+        console.log(`[screenshot] cursor screen(${cursorX},${cursorY}) rel(${relX},${relY}) of ${screenW}×${screenH} → image(${imgX},${imgY}) of ${imgSize.width}×${imgSize.height}  onCapturedDisplay=${onDisplay}`);
+
+        if (!onDisplay) {
+            // Cursor is on a different monitor than the one being captured —
+            // nothing to draw, and drawing would land out of bounds.
+            console.warn('[screenshot] cursor is OFF the captured display — overlay skipped');
+            return image;
+        }
 
         // Get raw RGBA bitmap, draw cursor, create new image
         const bitmap = image.toBitmap();
@@ -188,6 +212,29 @@ function register(ipcMain, { screen, getMainWindow }) {
     nativeImageModule = require('electron').nativeImage;
     console.log(`[screenshot] register: desktopCapturer available = ${!!desktopCapturer}`);
 
+    // Live active-display info. Unlike getScreenDimensions() / getDisplayOffset()
+    // — which cache the most recent screenshot's values — this always reflects
+    // the currently locked (or computed) display, so mouse actions remain
+    // correct even when dispatched before the first screenshot of a session
+    // or after the user moves Emu to a different monitor mid-session.
+    ipcMain.handle('display:info', async () => {
+        try {
+            const { getActiveDisplay, getLockedDisplay } = require('../display/activeDisplay');
+            const d = getLockedDisplay() || getActiveDisplay(screen, getMainWindow());
+            return {
+                success: true,
+                screenWidth:  d.size.width,
+                screenHeight: d.size.height,
+                displayOffsetX: d.bounds.x,
+                displayOffsetY: d.bounds.y,
+                scaleFactor:  d.scaleFactor || 1,
+                displayId:    d.id,
+            };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    });
+
     ipcMain.handle('screenshot:capture', async () => {
         try {
             if (!desktopCapturer) {
@@ -199,7 +246,14 @@ function register(ipcMain, { screen, getMainWindow }) {
             const activeDisplay = getLockedDisplay() || getActiveDisplay(screen, win);
             const { width: screenWidth, height: screenHeight } = activeDisplay.size;
             const scaleFactor = activeDisplay.scaleFactor || 1;
-            let { x: displayOffsetX, y: displayOffsetY } = activeDisplay.bounds;
+            // The display's origin in the virtual-desktop DIP coordinate space.
+            // Both capture paths below produce a display-local image (covering
+            // exactly this display from (0,0) to (screenWidth, screenHeight)),
+            // so the cursor-overlay math consistently uses this offset to
+            // translate virtual-desktop cursor coords → image-local coords.
+            // Mouse actions also use this offset so clicks land on the right
+            // monitor regardless of which display Emu is running on.
+            const { x: displayOffsetX, y: displayOffsetY } = activeDisplay.bounds;
 
             console.log(`[screenshot] capturing display ${activeDisplay.id}: ${screenWidth}×${screenHeight}, scale ${scaleFactor}x, offset (${displayOffsetX},${displayOffsetY})`);
 
@@ -236,7 +290,6 @@ function register(ipcMain, { screen, getMainWindow }) {
                 try {
                     // -D <n> targets a specific display (1-based index in getAllDisplays order).
                     // This ensures the fallback captures the same display as the primary path.
-                    // The resulting image covers only that display, so offset must be zeroed.
                     const allDisplays = screen.getAllDisplays();
                     const displayIndex = allDisplays.findIndex(d => d.id === activeDisplay.id);
                     const displayFlag = displayIndex >= 0 ? `-D ${displayIndex + 1}` : '';
@@ -250,10 +303,11 @@ function register(ipcMain, { screen, getMainWindow }) {
                     if (finalImage.isEmpty()) {
                         throw new Error('Fallback native screencapture also returned an empty image');
                     }
-                    // The -D fallback image starts at the display's own origin (0,0),
-                    // so the cursor offset used in overlayMouseCursor must be zeroed.
-                    displayOffsetX = 0;
-                    displayOffsetY = 0;
+                    // NOTE: The -D fallback image is already display-local
+                    // (covers exactly this display from (0,0) to its size).
+                    // displayOffsetX/Y must REMAIN the display's global
+                    // origin so `cursor - offset` correctly produces
+                    // image-local coords for the cursor overlay.
                 } catch (fallbackErr) {
                     throw new Error(`desktopCapturer failed (empty image) and screencapture fallback failed: ${fallbackErr.message}`);
                 }
@@ -267,7 +321,7 @@ function register(ipcMain, { screen, getMainWindow }) {
             }
 
             // Overlay a cursor indicator so the model can see pointer position
-            finalImage = await overlayMouseCursor(finalImage, screenWidth, screenHeight, displayOffsetX, displayOffsetY);
+            finalImage = await overlayMouseCursor(finalImage, screen, screenWidth, screenHeight, displayOffsetX, displayOffsetY);
 
             const finalSize = finalImage.getSize();
 
@@ -283,6 +337,8 @@ function register(ipcMain, { screen, getMainWindow }) {
                 screenHeight,
                 imageWidth: finalSize.width,
                 imageHeight: finalSize.height,
+                displayOffsetX,
+                displayOffsetY,
                 base64,
             };
         } catch (err) {
@@ -293,4 +349,4 @@ function register(ipcMain, { screen, getMainWindow }) {
     });
 }
 
-module.exports = { captureScreenshot, register, getScaleFactors, getScreenDimensions };
+module.exports = { captureScreenshot, register, getScaleFactors, getScreenDimensions, getDisplayOffset };

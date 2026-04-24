@@ -15,10 +15,54 @@ const { relativeDrag }   = require('./relativeDrag');
 const { scroll }         = require('./scroll');
 const { horizontalScroll } = require('./horizontalScroll');
 const { getMousePosition } = require('./getMousePosition');
-const { captureScreenshot, getScaleFactors, getScreenDimensions } = require('./screenshot');
+const { captureScreenshot, getScaleFactors, getScreenDimensions, getDisplayOffset } = require('./screenshot');
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
 const { ipcRenderer }    = require('electron');
+
+// Live display dimensions, preferring main-process query. Avoids
+// stale cached values from the last screenshot (first-action case,
+// monitor switch mid-session, etc.).
+async function _liveScreen() {
+    try {
+        const info = await ipcRenderer.invoke('display:info');
+        if (info && info.success) {
+            return { screenWidth: info.screenWidth, screenHeight: info.screenHeight };
+        }
+    } catch (_) { /* fall through */ }
+    return getScreenDimensions();
+}
+
+// Convert a normalized [0,1] point from the model into absolute
+// virtual-desktop pixel coordinates for the active display.
+//
+// Queries main-process `display:info` so the offset reflects the
+// currently locked display, not whatever display was active when
+// the last screenshot was taken. This matters for the first action
+// of a session (before any screenshot has cached values) and when
+// the user moves Emu to a different monitor mid-session.
+//
+// Falls back to cached getScreenDimensions/getDisplayOffset if the
+// IPC fails, so a transient error can't break clicks.
+async function _denorm(normX, normY) {
+    try {
+        const info = await ipcRenderer.invoke('display:info');
+        if (info && info.success) {
+            return {
+                absX: Math.round(normX * info.screenWidth)  + info.displayOffsetX,
+                absY: Math.round(normY * info.screenHeight) + info.displayOffsetY,
+            };
+        }
+    } catch (err) {
+        console.warn('[actionProxy] display:info failed, using cached dimensions:', err.message);
+    }
+    const { screenWidth, screenHeight } = getScreenDimensions();
+    const { displayOffsetX, displayOffsetY } = getDisplayOffset();
+    return {
+        absX: Math.round(normX * screenWidth)  + displayOffsetX,
+        absY: Math.round(normY * screenHeight) + displayOffsetY,
+    };
+}
 
 /**
  * ActionType enum values coming from the backend (models/actions.py)
@@ -74,9 +118,7 @@ const ACTION_MAP = {
         // scenarios the agent should emit `navigate_and_triple_click` —
         // that action already exists and selects the full line cleanly.
         dispatch: async (a) => {
-            const { screenWidth, screenHeight } = getScreenDimensions();
-            const absX = Math.round(a.coordinates.x * screenWidth);
-            const absY = Math.round(a.coordinates.y * screenHeight);
+            const { absX, absY } = await _denorm(a.coordinates.x, a.coordinates.y);
             console.log(`[navigate_and_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
             await navigateMouse(absX, absY);
             return leftClick();
@@ -88,9 +130,7 @@ const ACTION_MAP = {
         icon:  '🖱️',
         ipc:   'mouse:navigate-and-right-click',
         dispatch: async (a) => {
-            const { screenWidth, screenHeight } = getScreenDimensions();
-            const absX = Math.round(a.coordinates.x * screenWidth);
-            const absY = Math.round(a.coordinates.y * screenHeight);
+            const { absX, absY } = await _denorm(a.coordinates.x, a.coordinates.y);
             console.log(`[navigate_and_right_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
             await navigateMouse(absX, absY);
             return rightClick();
@@ -102,9 +142,7 @@ const ACTION_MAP = {
         icon:  '🖱️',
         ipc:   'mouse:navigate-and-triple-click',
         dispatch: async (a) => {
-            const { screenWidth, screenHeight } = getScreenDimensions();
-            const absX = Math.round(a.coordinates.x * screenWidth);
-            const absY = Math.round(a.coordinates.y * screenHeight);
+            const { absX, absY } = await _denorm(a.coordinates.x, a.coordinates.y);
             console.log(`[navigate_and_triple_click] (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
             await navigateMouse(absX, absY);
             return tripleClick();
@@ -115,12 +153,9 @@ const ACTION_MAP = {
         label: 'Mouse Move',
         icon:  '↗️',
         ipc:   'mouse:move',
-        dispatch: (a) => {
-            // Denormalize [0,1] coordinates → absolute screen pixels
-            const { screenWidth, screenHeight } = getScreenDimensions();
-            const absX = Math.round(a.coordinates.x * screenWidth);
-            const absY = Math.round(a.coordinates.y * screenHeight);
-            console.log(`[mouse_move] denorm (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY}) [screen: ${screenWidth}x${screenHeight}]`);
+        dispatch: async (a) => {
+            const { absX, absY } = await _denorm(a.coordinates.x, a.coordinates.y);
+            console.log(`[mouse_move] denorm (${a.coordinates.x}, ${a.coordinates.y}) → (${absX}, ${absY})`);
             return navigateMouse(absX, absY);
         },
         describe: (a) => `Move cursor to (${a.coordinates.x}, ${a.coordinates.y})`,
@@ -129,9 +164,8 @@ const ACTION_MAP = {
         label: 'Relative Mouse Move',
         icon:  '↗️',
         ipc:   'mouse:relative-move',
-        dispatch: (a) => {
-            // dx/dy are normalized fractions of screen size — convert to pixels.
-            const { screenWidth, screenHeight } = getScreenDimensions();
+        dispatch: async (a) => {
+            const { screenWidth, screenHeight } = await _liveScreen();
             const dxPx = Math.round((a.dx || 0) * screenWidth);
             const dyPx = Math.round((a.dy || 0) * screenHeight);
             console.log(`[relative_mouse_move] dx=${a.dx} dy=${a.dy} → (${dxPx}, ${dyPx}) [screen: ${screenWidth}x${screenHeight}]`);
@@ -150,14 +184,10 @@ const ACTION_MAP = {
         label: 'Drag',
         icon:  '↔️',
         ipc:   'mouse:drag',
-        dispatch: (a) => {
-            // Denormalize [0,1] coordinates → absolute screen pixels
-            const { screenWidth, screenHeight } = getScreenDimensions();
-            const startX = Math.round(a.coordinates.x * screenWidth);
-            const startY = Math.round(a.coordinates.y * screenHeight);
-            const endX = Math.round(a.end_coordinates.x * screenWidth);
-            const endY = Math.round(a.end_coordinates.y * screenHeight);
-            console.log(`[drag] denorm (${a.coordinates.x},${a.coordinates.y}) → (${startX},${startY}) to (${a.end_coordinates.x},${a.end_coordinates.y}) → (${endX},${endY}) [screen: ${screenWidth}x${screenHeight}]`);
+        dispatch: async (a) => {
+            const { absX: startX, absY: startY } = await _denorm(a.coordinates.x, a.coordinates.y);
+            const { absX: endX,   absY: endY   } = await _denorm(a.end_coordinates.x, a.end_coordinates.y);
+            console.log(`[drag] (${a.coordinates.x},${a.coordinates.y}) → (${startX},${startY}) to (${a.end_coordinates.x},${a.end_coordinates.y}) → (${endX},${endY})`);
             return drag(startX, startY, endX, endY);
         },
         describe: (a) => `Drag from (${a.coordinates.x}, ${a.coordinates.y}) to (${a.end_coordinates.x}, ${a.end_coordinates.y})`,
@@ -166,8 +196,8 @@ const ACTION_MAP = {
         label: 'Relative Drag',
         icon:  '↔️',
         ipc:   'mouse:relative-drag',
-        dispatch: (a) => {
-            const { screenWidth, screenHeight } = getScreenDimensions();
+        dispatch: async (a) => {
+            const { screenWidth, screenHeight } = await _liveScreen();
             const dxPx = Math.round((a.dx || 0) * screenWidth);
             const dyPx = Math.round((a.dy || 0) * screenHeight);
             console.log(`[relative_drag] dx=${a.dx} dy=${a.dy} → (${dxPx}, ${dyPx}) [screen: ${screenWidth}x${screenHeight}]`);
