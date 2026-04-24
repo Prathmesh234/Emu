@@ -11,7 +11,7 @@
 //   { element, populate(sessions), setActive(sessionId) }
 // Preserved class: .history-panel, .history-panel.open (CSS transition).
 
-function HistoryPanel({ onNewChat, onSelectSession, onToggle }) {
+function HistoryPanel({ onNewChat, onSelectSession, onContinueSession, onToggle }) {
     const panel = document.createElement('div');
     panel.className = 'history-panel';
 
@@ -140,6 +140,16 @@ function HistoryPanel({ onNewChat, onSelectSession, onToggle }) {
                 text.className = 'history-item-text';
                 text.textContent = session.preview || 'Untitled';
                 item.appendChild(text);
+
+                const continueBtn = document.createElement('button');
+                continueBtn.className = 'history-item-continue-btn';
+                continueBtn.title = 'Continue this session';
+                continueBtn.textContent = '↩';
+                continueBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (onContinueSession) onContinueSession(session.session_id);
+                });
+                item.appendChild(continueBtn);
 
                 item.addEventListener('click', () => {
                     setActive(session.session_id);

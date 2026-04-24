@@ -218,9 +218,11 @@ async function refreshHistory() {
     }
 }
 
-async function loadPastSession(sessionId) {
+async function loadPastSession(sessionId, prefetchedMessages = null) {
     try {
-        const messages = await api.fetchSessionMessages(sessionId);
+        const messages = prefetchedMessages !== null
+            ? prefetchedMessages
+            : await api.fetchSessionMessages(sessionId);
         if (!messages || messages.length === 0) return;
 
         _viewingPastSession = true;
@@ -358,6 +360,32 @@ async function loadPastSession(sessionId) {
     }
 }
 
+async function continuePastSession(oldSessionId) {
+    try {
+        closeHistoryPanel();
+
+        // Fetch messages before the old session is deleted
+        const messages = await api.fetchSessionMessages(oldSessionId);
+
+        // Create new session pre-seeded with old context; old session dir is deleted server-side
+        const newSessionId = await api.continueSession(oldSessionId);
+
+        // Show old messages as read-only context display
+        if (messages && messages.length > 0) {
+            await loadPastSession(null, messages);
+        }
+
+        // Switch to active mode wired to the new session
+        _viewingPastSession = false;
+        store.setSession(newSessionId);
+        initWebSocket(newSessionId);
+        enableInput();
+        refreshHistory();
+    } catch (err) {
+        console.warn('[continuePastSession] failed:', err.message);
+    }
+}
+
 function disableInput() {
     const container = chatInput.element;
     container.classList.add('composer-disabled');
@@ -369,7 +397,7 @@ function disableInput() {
     if (!container.querySelector('.composer-overlay')) {
         const overlay = document.createElement('div');
         overlay.className = 'composer-overlay';
-        overlay.textContent = 'Past sessions cannot be continued';
+        overlay.textContent = 'Viewing past session — click ↩ in the sidebar to continue';
         container.appendChild(overlay);
     }
 }
@@ -1101,9 +1129,10 @@ function mount(appEl) {
 
     // ── History sidebar ───────────────────────────────────────────────────
     historyPanel = HistoryPanel({
-        onNewChat:       () => newChat(),
-        onSelectSession: (sid) => { closeHistoryPanel(); loadPastSession(sid); },
-        onToggle:        () => toggleHistoryPanel(),
+        onNewChat:         () => newChat(),
+        onSelectSession:   (sid) => { closeHistoryPanel(); loadPastSession(sid); },
+        onContinueSession: (sid) => continuePastSession(sid),
+        onToggle:          () => toggleHistoryPanel(),
     });
     header.contentEl.appendChild(historyPanel.element);
 

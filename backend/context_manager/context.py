@@ -47,6 +47,19 @@ KEEP_RECENT_MESSAGES = 30
 # Plan auto-injection interval (every N assistant turns)
 PLAN_INJECT_INTERVAL = 40
 
+# Injected at the end of a preloaded context to orient the model for continuation
+CONTEXT_CONTINUATION_MSG = """\
+[CONTEXT CONTINUATION]
+
+You are resuming a previous session. The conversation history above is everything that happened in that session.
+
+When the user sends their next message:
+- If they say "continue" or give no new objective, resume the original goal with a fresh plan that picks up from where you left off.
+- If they provide new or additional context, incorporate it into your approach.
+
+Either way, you MUST call update_plan before taking any desktop actions. The user will review and approve the plan before you proceed.\
+"""
+
 
 class ContextManager:
     """
@@ -333,6 +346,30 @@ class ContextManager:
         self._step_offset.pop(session_id, None)
         self._plan_injected.pop(session_id, None)
         self.action_validator.clear(session_id)
+
+    def preload_from_conversation(self, session_id: str, old_messages: list[dict]) -> None:
+        """
+        Seed a new session's context with user/assistant turns from a previous
+        session's conversation.json, then append a continuation directive so
+        the model knows to re-plan before acting.
+        """
+        history = self._get(session_id)  # bootstraps system prompt
+
+        for msg in old_messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            if role == "user" and content != "<screenshot>":
+                history.append(PreviousMessage(role=MessageRole.user, content=content))
+            elif role == "assistant":
+                history.append(PreviousMessage(role=MessageRole.assistant, content=content))
+            # tool / action / system entries are intentionally skipped
+
+        history.append(PreviousMessage(role=MessageRole.user, content=CONTEXT_CONTINUATION_MSG))
+        # Mark plan as injected — the continuation message above handles replanning
+        self._plan_injected[session_id] = True
+        print(f"[context] preloaded {len(old_messages)} prior messages into {session_id}")
 
     @staticmethod
     def _format_annotations(ann: ScreenAnnotation) -> str:

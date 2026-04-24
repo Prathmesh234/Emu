@@ -97,4 +97,16 @@ async function fetchSessionMessages(sessionId) {
     return data.messages || [];
 }
 
-module.exports = { BACKEND_URL, createSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages };
+async function continueSession(previousSessionId) {
+    const res = await fetch(`${BACKEND_URL}/agent/session/continue`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ previous_session_id: previousSessionId }),
+    });
+    if (!res.ok) throw new Error(`Continue session failed: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    if (!data.session_id) throw new Error('Continue session response missing session_id');
+    return data.session_id;
+}
+
+module.exports = { BACKEND_URL, createSession, continueSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages };

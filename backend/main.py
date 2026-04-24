@@ -28,6 +28,7 @@ from models import (
     AgentResponse,
     ActionCompleteRequest,
     CompactRequest,
+    ContinueSessionRequest,
     StopRequest,
 )
 from context_manager import ContextManager
@@ -610,6 +611,47 @@ async def session_messages(session_id: str):
         return data
     except (json.JSONDecodeError, KeyError):
         return {"messages": []}
+
+
+@app.post("/agent/session/continue")
+async def continue_session(req: ContinueSessionRequest):
+    """
+    Create a new session pre-seeded with history from a previous one, then
+    delete the old session directory.
+    """
+    import re
+    import shutil
+
+    old_id = req.previous_session_id
+    if not re.match(r'^[a-zA-Z0-9_-]+$', old_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid session_id"})
+
+    from workspace import get_sessions_dir
+    old_dir = get_sessions_dir() / old_id
+    conv_path = old_dir / "logs" / "conversation.json"
+
+    if not conv_path.exists():
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    try:
+        with open(conv_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        old_messages = data.get("messages", [])
+    except (json.JSONDecodeError, KeyError):
+        return JSONResponse(status_code=400, content={"detail": "Could not read session"})
+
+    new_id = str(uuid.uuid4())
+    ensure_session_dir(new_id)
+    context_manager.preload_from_conversation(new_id, old_messages)
+
+    try:
+        shutil.rmtree(old_dir)
+        print(f"[session] deleted {old_id} after continuation")
+    except Exception as e:
+        print(f"[session] warning: could not delete {old_id}: {e}")
+
+    print(f"[session] continued {old_id} → {new_id}")
+    return {"session_id": new_id}
 
 
 @app.websocket("/ws/{session_id}")

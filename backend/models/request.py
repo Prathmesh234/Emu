@@ -164,3 +164,8 @@ class StopRequest(BaseModel):
 class CompactRequest(BaseModel):
     """User requests context compaction for a bloated session."""
     session_id: str
+
+
+class ContinueSessionRequest(BaseModel):
+    """User wants to continue a previous session in a new session."""
+    previous_session_id: str

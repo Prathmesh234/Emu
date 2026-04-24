@@ -3,6 +3,7 @@ from .request import (
     AgentRequest,
     ActionCompleteRequest,
     CompactRequest,
+    ContinueSessionRequest,
     MessageRole,
     PreviousMessage,
     ScreenAnnotation,
@@ -27,6 +28,7 @@ __all__ = [
     "ScreenshotRequest",
     "ActionCompleteRequest",
     "CompactRequest",
+    "ContinueSessionRequest",
     "StopRequest",
     # response
     "AgentResponse",
