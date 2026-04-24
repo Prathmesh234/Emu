@@ -31,6 +31,7 @@ const { initWebSocket, setMessageHandler } = require('../services/websocket');
 let chatContainer, chatWrapper, chatInput, header, historyPanel, winHeader;
 let _historyPanelOpen = false;
 let _viewingPastSession = false;
+let _pastSessionId = null;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -66,6 +67,27 @@ function syncGeneratingUI(generating) {
     if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
     // Disable the dangerous mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);
+    // When generation ends, remove any lingering EmuRunner indicators so
+    // they don't keep animating below a finished turn.
+    if (!generating) {
+        const el = store.state.currentAssistantEl;
+        if (el) {
+            el.querySelectorAll('.typing').forEach((t) => t.remove());
+        }
+    }
+}
+
+// Re-attach a fresh EmuRunner ("the bird") at the bottom of the assistant
+// turn so the user always sees the agent is thinking, even between steps.
+// Called after each step/tool_event renders while generation is ongoing.
+// The next step/tool_event removes any existing .typing before appending
+// its card, so the runner naturally moves to the trailing position.
+function ensureTypingIndicator(el) {
+    if (!el) return;
+    if (!store.state.isGenerating) return;
+    if (store.state.isStopped) return;
+    el.querySelectorAll('.typing').forEach((t) => t.remove());
+    el.appendChild(createEmuRunner());
 }
 
 // ── Window helpers ───────────────────────────────────────────────────────
@@ -226,7 +248,11 @@ async function loadPastSession(sessionId, prefetchedMessages = null) {
         if (!messages || messages.length === 0) return;
 
         _viewingPastSession = true;
-        disableInput();
+        _pastSessionId = sessionId || null;
+        // Keep the composer visually identical to a fresh session — typing
+        // and clicking send in a past session transparently continues it
+        // (see sendMessage).
+        enableInput();
 
         chatWrapper.innerHTML = '';
 
@@ -476,9 +502,26 @@ async function stopAgent() {
 }
 
 async function sendMessage() {
-    if (_viewingPastSession) return;
     const text = chatInput.textarea.value.trim();
     if (!text) return;
+
+    // Sending from a past-session view transparently continues that session.
+    // Preserve the typed text, perform the continue flow, then fall through
+    // to the normal send path against the freshly-minted session.
+    if (_viewingPastSession) {
+        const pendingText = text;
+        const oldId = _pastSessionId;
+        chatInput.textarea.value = '';
+        chatInput.sendBtn.disabled = true;
+        if (oldId) {
+            await continuePastSession(oldId);
+        } else {
+            _viewingPastSession = false;
+        }
+        chatInput.textarea.value = pendingText;
+        chatInput.sendBtn.disabled = false;
+        // Fall through with _viewingPastSession now false
+    }
 
     // If currently generating, stop the current task first, then send the new message
     if (store.state.isGenerating) {
@@ -745,6 +788,9 @@ async function handleWsMessage(data) {
                 break;
             }
 
+            // Keep the running-emu indicator visible between steps so the
+            // assistant turn never appears blank while the agent is working.
+            ensureTypingIndicator(state.currentAssistantEl);
             if (data.action) {
                 try {
                     if (data.action.type === 'screenshot') {
@@ -992,6 +1038,9 @@ async function handleWsMessage(data) {
                     }
                 }
             }
+            // Re-show the running indicator when a tool event arrives during
+            // an active generation so the body never goes blank between steps.
+            ensureTypingIndicator(state.currentAssistantEl);
             scrollToBottom();
             break;
         }

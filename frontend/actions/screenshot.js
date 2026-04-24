@@ -17,7 +17,7 @@ let desktopCapturer = null;
 let nativeImageModule = null;
 
 // Cursor overlay config
-const CURSOR_SCALE = 1.2;  // adjust to make cursor bigger/smaller
+const CURSOR_SCALE = 1.0;  // ~regular cursor size, slightly larger for model clarity
 const CURSOR_FILL = { r: 255, g: 255, b: 255 };    // white fill
 const CURSOR_OUTLINE = { r: 255, g: 20, b: 20 };   // bright red outline
 

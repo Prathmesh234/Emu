@@ -326,10 +326,26 @@ NEVER return these as JSON text. They are NOT desktop actions.
                              — Hand a heavy execution task to Hermes Agent
                                (Nous Research) headlessly. RETURNS IMMEDIATELY
                                with a job_id — Hermes runs in the background
-                               and you are NOT blocked. After invoking, you
-                               MUST either call check_hermes(job_id, wait_s=60)
-                               to wait for the result, or continue with other
-                               work and call check_hermes(job_id) later.
+                               and you are NOT blocked.
+
+                               DEFAULT FLOW (fire-and-forget):
+                                 1. Call invoke_hermes with the full goal +
+                                    context.
+                                 2. End the turn with a final_message telling
+                                    the user something like "I've delegated
+                                    this to the Hermes agent — it's running
+                                    in the background. Let me know when
+                                    you'd like me to check in on it." Then
+                                    emit a `done` action.
+                                 3. Do NOT call check_hermes in the same
+                                    turn. Wait for the user to ask for an
+                                    update; only then call check_hermes.
+
+                               Only deviate from this flow if the user has
+                               explicitly said "wait for it" / "don't return
+                               until it's done" — in that case call
+                               check_hermes(job_id, wait_s=60) and loop.
+
                                Use ONLY for tasks far easier in code/shell
                                than in a GUI: building PowerPoint from
                                scratch, complex multi-sheet Excel work,
@@ -354,10 +370,13 @@ NEVER return these as JSON text. They are NOT desktop actions.
   check_hermes(job_id, wait_s?) — Poll a Hermes job. Returns the final
                                output once complete, or a status snapshot
                                (runtime, last-output age, recent stdout) if
-                               still running. Pass wait_s=60 to block briefly
-                               waiting for completion. CALL THIS until the
-                               job is done — invoke_hermes alone does NOT
-                               give you the result.
+                               still running. Call this ONLY when the user
+                               asks for a status update on a delegated
+                               Hermes job (e.g. "check on hermes",
+                               "is it done yet?", "what did hermes find?").
+                               Do NOT poll proactively right after
+                               invoke_hermes — the default flow is to
+                               delegate and yield back to the user.
   cancel_hermes(job_id)      — Abort a running Hermes job (user wants to
                                stop, or job is stuck with no output for
                                >120s).
