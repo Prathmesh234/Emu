@@ -6,9 +6,9 @@
     <key>Label</key>
     <string>com.emu.memory-daemon</string>
 
-    <!-- Every 2 minutes. launchd coalesces missed ticks across sleep. -->
+    <!-- Every 15 minutes. launchd coalesces missed ticks across sleep. -->
     <key>StartInterval</key>
-    <integer>120</integer>
+    <integer>900</integer>
 
     <!-- Wrapper shell sources backend/.env so provider keys reach the daemon
          without baking secrets into this plist. -->

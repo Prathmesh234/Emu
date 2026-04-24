@@ -20,12 +20,12 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import policy, state, tools
+from . import policy, state, tools, cleanup
 from .llm_client import run_agent_loop, TOOLS
 from .prompt import DAEMON_PROMPT
 
-MAX_TURNS = 24
-MAX_TOKENS = 120_000
+MAX_TURNS = 40
+MAX_TOKENS = 300_000
 MAX_CONSECUTIVE_FAILURES = 5
 
 # Rotate log files if they exceed 5 MB
@@ -110,6 +110,12 @@ def main() -> int:
 
 def _run_tick(tick_log: Path) -> int:
     ts_start = datetime.now(timezone.utc)
+
+    # Janitor pass — delete empty/stale session folders and trim daemon logs.
+    # Runs BEFORE the agent loop so each tick sees a tidy workspace, and so
+    # the tick log we're about to append to has already been trimmed.
+    # Safety-hardened: operates only under EMU_ROOT, swallows all errors.
+    cleanup.run_cleanup()
 
     sessions = state.list_all_sessions()
     if not sessions:

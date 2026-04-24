@@ -663,18 +663,12 @@ async function handleWsMessage(data) {
             }
 
             // Window placement per step:
-            //   - Screen-interacting actions (clicks, keystrokes, screenshot):
-            //     move to the side panel so the agent can see the desktop.
-            //   - Non-screen actions (shell_exec, memory_read, wait) and the
-            //     wait-for-model gap between steps: return to the centered
-            //     window so the user can actually read the trace/tool output.
-            const NON_SCREEN_ACTIONS = new Set(['shell_exec', 'memory_read', 'wait']);
+            //   Stay in the side panel for the ENTIRE agent loop so the
+            //   window doesn't flicker between sizes when shell_exec /
+            //   memory_read / wait are interleaved with screen actions.
+            //   Only return to centered once the agent signals `done`.
             if (!data.done && data.action) {
-                if (NON_SCREEN_ACTIONS.has(data.action.type)) {
-                    await moveToCentered();
-                } else {
-                    await moveToSidePanel();
-                }
+                await moveToSidePanel();
             } else if (!data.action) {
                 await moveToCentered();
             }
