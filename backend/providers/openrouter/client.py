@@ -10,6 +10,7 @@ Docs: https://openrouter.ai/docs/quickstart
 Environment:
     OPENROUTER_API_KEY  — required
     OPENROUTER_MODEL    — optional (default: anthropic/claude-sonnet-4)
+    OPENROUTER_REQUEST_TIMEOUT_SECS — optional (default: 60)
 """
 
 import json
@@ -31,9 +32,31 @@ BASE_URL = "https://openrouter.ai/api/v1"
 MAX_TOKENS = 8000
 TEMPERATURE = 0.6
 
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}") from exc
+
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}")
+
+    return value
+
+
+REQUEST_TIMEOUT_SECS = _positive_int_env(
+    "OPENROUTER_REQUEST_TIMEOUT_SECS",
+    _positive_int_env("EMU_MODEL_TIMEOUT_SECS", 60),
+)
+
 SCREENSHOT_PREFIX = "data:image/"
 
-client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
+client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=REQUEST_TIMEOUT_SECS)
 
 
 # -- Public API (matches provider interface) ---------------------------------

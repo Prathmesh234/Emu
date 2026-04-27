@@ -109,6 +109,27 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}") from exc
+
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}")
+
+    return value
+
+
+MODEL_TIMEOUT_SECS = _positive_int_env("EMU_MODEL_TIMEOUT_SECS", 60)
+MAX_TIMEOUT_RETRIES = _positive_int_env("EMU_MODEL_TIMEOUT_RETRIES", 1)
+print(f"[config] Model timeout: {MODEL_TIMEOUT_SECS}s, retries: {MAX_TIMEOUT_RETRIES}")
+
+
 # ── Provider settings config ─────────────────────────────────────────────────
 # Maps each short provider name → the env vars used for its API key and model.
 
@@ -271,6 +292,7 @@ async def agent_step(req: AgentRequest):
     session_id = req.session_id or str(uuid.uuid4())
     has_screenshot = bool(req.base64_screenshot)
     has_text = bool(req.user_message.strip())
+    context_manager.set_agent_mode(session_id, req.agent_mode)
 
     # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
@@ -283,7 +305,7 @@ async def agent_step(req: AgentRequest):
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
     print(f"\n{'=' * 60}")
-    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  chain={len(history)}")
+    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  agent_mode={req.agent_mode}  chain={len(history)}")
     if has_text:
         print(f"  message: {req.user_message[:120]}")
     print(f"{'=' * 60}\n")
@@ -301,8 +323,6 @@ async def agent_step(req: AgentRequest):
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     MAX_TOOL_LOOPS = 10
-    MODEL_TIMEOUT_SECS = 10
-    MAX_TIMEOUT_RETRIES = 3
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
 

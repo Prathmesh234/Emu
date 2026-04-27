@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +113,10 @@ class AgentRequest(BaseModel):
     # Task / step metadata
     task_id:    Optional[str] = Field(default=None, description="ID of the parent task")
     step_index: int           = Field(default=0, ge=0, description="Zero-based step index within the task")
+    agent_mode: Literal["coworker", "remote"] = Field(
+        default="coworker",
+        description="Selected frontend collaboration mode"
+    )
 
     # Screen metadata
     display_scale: float = Field(
@@ -133,6 +137,7 @@ class AgentRequest(BaseModel):
                 ],
                 "task_id": "task-001",
                 "step_index": 0,
+                "agent_mode": "coworker",
                 "display_scale": 1.0
             }
         }

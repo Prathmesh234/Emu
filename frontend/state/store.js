@@ -6,6 +6,13 @@
 let _savedDarkMode = false;
 try { _savedDarkMode = localStorage.getItem('emu-dark-mode') === '1'; } catch(e) {}
 
+const AGENT_MODES = new Set(['coworker', 'remote']);
+let _savedAgentMode = 'coworker';
+try {
+    const saved = localStorage.getItem('emu-agent-mode');
+    if (AGENT_MODES.has(saved)) _savedAgentMode = saved;
+} catch(e) {}
+
 const state = {
     chats: [],
     currentChatId: null,
@@ -16,6 +23,7 @@ const state = {
     ws: null,
     dangerousMode: true,
     darkMode: _savedDarkMode,
+    agentMode: _savedAgentMode,
 
     // Transient references (current render cycle)
     currentAssistantEl: null,
@@ -77,6 +85,14 @@ function setDarkMode(value) {
     try { localStorage.setItem('emu-dark-mode', value ? '1' : '0'); } catch(e) {}
 }
 
+function setAgentMode(value) {
+    if (!AGENT_MODES.has(value)) {
+        throw new Error(`Invalid agent mode: ${value}`);
+    }
+    state.agentMode = value;
+    try { localStorage.setItem('emu-agent-mode', value); } catch(e) {}
+}
+
 function setWebSocket(socket) {
     state.ws = socket;
 }
@@ -115,6 +131,7 @@ module.exports = {
     setSession,
     setDangerousMode,
     setDarkMode,
+    setAgentMode,
     setWebSocket,
     setAssistantEl,
     pushMessage,
