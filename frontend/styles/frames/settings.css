@@ -116,3 +116,73 @@
 }
 
 .settings-row-value.action:hover { color: var(--ink); }
+
+/* ── Model section — form controls ───────────────────────────────────── */
+
+.settings-row-select,
+.settings-row-input {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);
+  color: var(--ink-55);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ink-22);
+  padding: 2px 4px 2px 0;
+  outline: none;
+  min-width: 160px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.settings-row-select { cursor: pointer; }
+
+.settings-row-select:focus,
+.settings-row-input:focus {
+  color: var(--ink);
+  border-bottom-color: var(--ink-55);
+}
+
+.settings-row-input::placeholder {
+  color: var(--ink-30);
+  font-style: italic;
+}
+
+.settings-save-row {
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+
+.settings-save-status {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);
+  color: var(--ink-55);
+  flex: 1;
+}
+
+.settings-save-status.ok  { color: var(--ink-55); }
+.settings-save-status.err { color: rgba(180, 60, 40, 0.75); }
+
+.settings-save-btn {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-sm);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink-22);
+  border-radius: var(--radius);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.settings-save-btn:hover:not(:disabled) {
+  background: var(--ink-08);
+  border-color: var(--ink-55);
+}
+
+.settings-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

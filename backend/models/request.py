@@ -169,3 +169,10 @@ class CompactRequest(BaseModel):
 class ContinueSessionRequest(BaseModel):
     """User wants to continue a previous session in a new session."""
     previous_session_id: str
+
+
+class ProviderSettingsRequest(BaseModel):
+    """Update active provider, model, and API key."""
+    provider: str
+    model: str = ""
+    api_key: str = ""

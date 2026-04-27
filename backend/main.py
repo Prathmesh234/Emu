@@ -29,6 +29,7 @@ from models import (
     ActionCompleteRequest,
     CompactRequest,
     ContinueSessionRequest,
+    ProviderSettingsRequest,
     StopRequest,
 )
 from context_manager import ContextManager
@@ -108,11 +109,136 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
+# ── Provider settings config ─────────────────────────────────────────────────
+# Maps each short provider name → the env vars used for its API key and model.
+
+_PROVIDER_SETTINGS: dict[str, dict] = {
+    "claude":       {"key_env": "ANTHROPIC_API_KEY",  "model_env": "ANTHROPIC_MODEL",    "default_model": "claude-sonnet-4-5"},
+    "openai":       {"key_env": "OPENAI_API_KEY",      "model_env": "OPENAI_MODEL",        "default_model": "gpt-5.4"},
+    "openrouter":   {"key_env": "OPENROUTER_API_KEY",  "model_env": "OPENROUTER_MODEL",    "default_model": "anthropic/claude-sonnet-4"},
+    "gemini":       {"key_env": "GOOGLE_API_KEY",      "model_env": "GEMINI_MODEL",        "default_model": "gemini-3-flash-preview"},
+    "fireworks":    {"key_env": "FIREWORKS_API_KEY",   "model_env": "FIREWORKS_MODEL",     "default_model": "accounts/fireworks/models/llama4-maverick-instruct-basic"},
+    "together_ai":  {"key_env": "TOGETHER_API_KEY",    "model_env": "TOGETHER_MODEL",      "default_model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"},
+    "baseten":      {"key_env": "BASETEN_API_KEY",     "model_env": "BASETEN_MODEL",       "default_model": "moonshotai/Kimi-K2.5"},
+    "h_company":    {"key_env": "H_COMPANY_API_KEY",   "model_env": "H_COMPANY_MODEL",     "default_model": "holo3-35b-a3b"},
+    "modal":        {"key_env": None,                  "model_env": None,                  "default_model": ""},
+}
+
+
+def _update_env_file(updates: dict) -> None:
+    """Write key=value pairs into backend/.env, adding missing keys at the end."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+
+    written: set[str] = set()
+    new_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            new_lines.append(line)
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in updates:
+            new_lines.append(f"{key}={updates[key]}")
+            written.add(key)
+        else:
+            new_lines.append(line)
+
+    for key, value in updates.items():
+        if key not in written:
+            new_lines.append(f"{key}={value}")
+
+    env_path.write_text("\n".join(new_lines) + "\n")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/settings/provider")
+async def get_provider_settings():
+    """Return current provider/model configuration (API key is masked)."""
+    provider = os.environ.get("EMU_PROVIDER", _provider_name)
+    cfg = _PROVIDER_SETTINGS.get(provider, {})
+    key_env = cfg.get("key_env")
+    model_env = cfg.get("model_env")
+
+    api_key = os.environ.get(key_env, "") if key_env else ""
+    model = (
+        os.environ.get(model_env, cfg.get("default_model", ""))
+        if model_env
+        else cfg.get("default_model", "")
+    )
+
+    masked = (
+        ("*" * max(0, len(api_key) - 4) + api_key[-4:]) if len(api_key) > 4 else "*" * len(api_key)
+    )
+
+    return {
+        "provider": provider,
+        "model": model,
+        "api_key_set": bool(api_key),
+        "api_key_preview": masked,
+        "providers": list(_PROVIDER_SETTINGS.keys()),
+        "default_models": {k: v["default_model"] for k, v in _PROVIDER_SETTINGS.items()},
+    }
+
+
+@app.post("/settings/provider")
+async def save_provider_settings(req: ProviderSettingsRequest):
+    """Persist new provider/model/API key to .env and hot-reload the provider."""
+    import importlib
+
+    global call_model, is_ready, ensure_ready, _provider_name, compact_model
+
+    provider = req.provider.strip().lower()
+    if provider not in _PROVIDER_SETTINGS:
+        return JSONResponse(status_code=400, content={"detail": f"Unknown provider: {provider}"})
+
+    cfg = _PROVIDER_SETTINGS[provider]
+    model = req.model.strip() or cfg["default_model"]
+    api_key = req.api_key.strip()
+
+    # Update environment in-process
+    env_updates: dict[str, str] = {"EMU_PROVIDER": provider}
+    os.environ["EMU_PROVIDER"] = provider
+    if cfg["key_env"] and api_key:
+        os.environ[cfg["key_env"]] = api_key
+        env_updates[cfg["key_env"]] = api_key
+    if cfg["model_env"] and model:
+        os.environ[cfg["model_env"]] = model
+        env_updates[cfg["model_env"]] = model
+
+    # Persist to .env
+    _update_env_file(env_updates)
+
+    # Hot-reload provider module so the new env vars take effect
+    try:
+        from providers.registry import _PROVIDER_MAP
+        module_path = _PROVIDER_MAP[provider]
+        mod = importlib.import_module(module_path)
+        importlib.reload(mod)
+
+        try:
+            compact_mod = importlib.import_module(f"{module_path}.client_compact")
+            importlib.reload(compact_mod)
+            compact_model = compact_mod.compact
+        except Exception:
+            pass
+
+        call_model = mod.call_model
+        is_ready = mod.is_ready
+        ensure_ready = mod.ensure_ready
+        _provider_name = provider
+        print(f"[settings] Provider reloaded: {provider}  model={model}")
+    except Exception as e:
+        print(f"[settings] Reload failed: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Provider reload failed: {e}"})
+
+    return {"status": "ok", "provider": provider, "model": model}
 
 
 @app.post("/agent/session")

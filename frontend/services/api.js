@@ -109,4 +109,23 @@ async function continueSession(previousSessionId) {
     return data.session_id;
 }
 
-module.exports = { BACKEND_URL, createSession, continueSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages };
+async function getProviderSettings() {
+    const res = await fetch(`${BACKEND_URL}/settings/provider`, {
+        headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to get provider settings: ${res.status}`);
+    return res.json();
+}
+
+async function saveProviderSettings({ provider, model, apiKey }) {
+    const res = await fetch(`${BACKEND_URL}/settings/provider`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ provider, model, api_key: apiKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Failed to save provider settings: ${res.status}`);
+    return data;
+}
+
+module.exports = { BACKEND_URL, createSession, continueSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages, getProviderSettings, saveProviderSettings };

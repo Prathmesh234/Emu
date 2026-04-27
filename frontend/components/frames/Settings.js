@@ -11,6 +11,7 @@
 // so we can move the controls here and out of the chrome bar later.
 
 const store = require('../../state/store');
+const { getProviderSettings, saveProviderSettings } = require('../../services/api');
 
 function Settings({ onClose }) {
     const overlay = document.createElement('div');
@@ -95,6 +96,88 @@ function Settings({ onClose }) {
     group3.appendChild(themeRow.row);
     body.appendChild(group3);
 
+    // Section: Model
+    body.appendChild(_section('Model'));
+    const group4 = _group();
+
+    const providerRow = _row('Provider', '');
+    const providerSelect = _select([]);
+    providerRow.val.replaceWith(providerSelect);
+    group4.appendChild(providerRow.row);
+
+    const modelRow = _row('Model', '');
+    const modelInput = _input('text', '');
+    modelRow.val.replaceWith(modelInput);
+    group4.appendChild(modelRow.row);
+
+    const keyRow = _row('API Key', '');
+    const keyInput = _input('password', '');
+    keyRow.val.replaceWith(keyInput);
+    group4.appendChild(keyRow.row);
+
+    const saveRow = document.createElement('div');
+    saveRow.className = 'settings-row settings-save-row';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'settings-save-btn';
+    saveBtn.textContent = 'save changes';
+    const saveStatus = document.createElement('span');
+    saveStatus.className = 'settings-save-status';
+    saveRow.appendChild(saveStatus);
+    saveRow.appendChild(saveBtn);
+    group4.appendChild(saveRow);
+
+    body.appendChild(group4);
+
+    // Populate provider select and pre-fill current values
+    let _defaultModels = {};
+    getProviderSettings().then((data) => {
+        _defaultModels = data.default_models || {};
+        const providers = data.providers || [];
+        providers.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            if (p === data.provider) opt.selected = true;
+            providerSelect.appendChild(opt);
+        });
+        modelInput.value = data.model || '';
+        // Don't pre-fill API key — user must re-enter to change it
+        if (data.api_key_set) keyInput.placeholder = data.api_key_preview || '••••••••';
+    }).catch(() => {
+        const opt = document.createElement('option');
+        opt.textContent = 'unavailable';
+        providerSelect.appendChild(opt);
+    });
+
+    providerSelect.addEventListener('change', () => {
+        const selected = providerSelect.value;
+        modelInput.value = _defaultModels[selected] || '';
+        keyInput.value = '';
+        keyInput.placeholder = '';
+        saveStatus.textContent = '';
+    });
+
+    saveBtn.addEventListener('click', async () => {
+        const provider = providerSelect.value;
+        const model = modelInput.value.trim();
+        const apiKey = keyInput.value.trim();
+        saveBtn.disabled = true;
+        saveStatus.textContent = 'saving…';
+        saveStatus.className = 'settings-save-status';
+        try {
+            await saveProviderSettings({ provider, model, apiKey });
+            saveStatus.textContent = 'saved';
+            saveStatus.className = 'settings-save-status ok';
+            keyInput.value = '';
+            if (apiKey) keyInput.placeholder = '••••••••';
+        } catch (err) {
+            saveStatus.textContent = err.message || 'error';
+            saveStatus.className = 'settings-save-status err';
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
+
     // ── Dismiss handlers ──────────────────────────────────────────────────
     function close() {
         overlay.remove();
@@ -142,6 +225,27 @@ function _row(label, value, opts = {}) {
     row.appendChild(v);
 
     return { row, val: v };
+}
+
+function _select(options) {
+    const el = document.createElement('select');
+    el.className = 'settings-row-select';
+    options.forEach((o) => {
+        const opt = document.createElement('option');
+        opt.value = o;
+        opt.textContent = o;
+        el.appendChild(opt);
+    });
+    return el;
+}
+
+function _input(type, placeholder) {
+    const el = document.createElement('input');
+    el.type = type;
+    el.className = 'settings-row-input';
+    el.placeholder = placeholder;
+    el.autocomplete = 'off';
+    return el;
 }
 
 function _displayName() {

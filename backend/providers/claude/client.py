@@ -6,9 +6,11 @@ Desktop actions are returned as JSON text responses.
 
 Environment:
     ANTHROPIC_API_KEY  — required
+    ANTHROPIC_MODEL    — optional (default: claude-sonnet-4-5)
 """
 
 import json
+import os
 import re
 import time
 
@@ -19,7 +21,7 @@ from providers.agent_tools import tools_for_anthropic
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MODEL_NAME = "claude-sonnet-4-5"
+MODEL_NAME = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 MAX_TOKENS = 8000
 THINKING_BUDGET = 5000  # tokens reserved for extended thinking
 
