@@ -108,6 +108,27 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}") from exc
+
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}")
+
+    return value
+
+
+MODEL_TIMEOUT_SECS = _positive_int_env("EMU_MODEL_TIMEOUT_SECS", 60)
+MAX_TIMEOUT_RETRIES = _positive_int_env("EMU_MODEL_TIMEOUT_RETRIES", 1)
+print(f"[config] Model timeout: {MODEL_TIMEOUT_SECS}s, retries: {MAX_TIMEOUT_RETRIES}")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -175,8 +196,6 @@ async def agent_step(req: AgentRequest):
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     MAX_TOOL_LOOPS = 10
-    MODEL_TIMEOUT_SECS = 10
-    MAX_TIMEOUT_RETRIES = 3
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
 

@@ -87,9 +87,14 @@ Optional overrides:
 
 ```bash
 EMU_PROVIDER=claude
+EMU_MODEL_TIMEOUT_SECS=60
+EMU_MODEL_TIMEOUT_RETRIES=1
 USE_OMNI_PARSER=1
 EMU_DEV=1
 ```
+
+For OpenRouter, `OPENROUTER_REQUEST_TIMEOUT_SECS=60` keeps the SDK request
+timeout aligned with Emu's model-call timeout instead of the longer SDK default.
 
 ## Memory daemon setup (macOS)
 
