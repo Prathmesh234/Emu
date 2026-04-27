@@ -63,8 +63,11 @@ function syncGeneratingUI(generating) {
     // above the composer — leave it clean.
     chatInput.setMode(generating ? 'stop' : 'send');
     chatInput.setTooltip('');
-    // Update the window header status pill
-    if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
+    // Update the window header status pill and lock mode during generation.
+    if (winHeader) {
+        winHeader.setStatus(generating ? 'working' : 'ready', generating);
+        winHeader.setModeDisabled(generating);
+    }
     // Disable the dangerous mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);
     // When generation ends, remove any lingering EmuRunner indicators so
@@ -614,6 +617,7 @@ async function respond(chat, base64Screenshot = null) {
             sessionId:        store.state.sessionId,
             userMessage:      base64Screenshot ? '' : lastUserMsg,
             base64Screenshot: base64Screenshot || '',
+            agentMode:        store.state.agentMode,
         });
     } catch (err) {
         contentEl.textContent = `Backend unreachable: ${err.message}`;
@@ -695,6 +699,7 @@ async function continueLoop() {
             sessionId:        store.state.sessionId,
             userMessage:      '',
             base64Screenshot: screenshot.base64,
+            agentMode:        store.state.agentMode,
         });
         console.log('[continueLoop] POST completed');
     } catch (err) {
@@ -921,6 +926,7 @@ async function handleWsMessage(data) {
                             sessionId: store.state.sessionId,
                             userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
                             base64Screenshot: '',
+                            agentMode: store.state.agentMode,
                         });
                     } catch (err) {
                         console.error('[plan_review] auto-accept failed:', err);
@@ -942,6 +948,7 @@ async function handleWsMessage(data) {
                             sessionId: store.state.sessionId,
                             userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
                             base64Screenshot: '',
+                            agentMode: store.state.agentMode,
                         });
                     } catch (err) {
                         console.error('[plan_review] accept failed:', err);

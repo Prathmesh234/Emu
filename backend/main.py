@@ -166,6 +166,7 @@ async def agent_step(req: AgentRequest):
     session_id = req.session_id or str(uuid.uuid4())
     has_screenshot = bool(req.base64_screenshot)
     has_text = bool(req.user_message.strip())
+    context_manager.set_agent_mode(session_id, req.agent_mode)
 
     # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
@@ -178,7 +179,7 @@ async def agent_step(req: AgentRequest):
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
     print(f"\n{'=' * 60}")
-    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  chain={len(history)}")
+    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  agent_mode={req.agent_mode}  chain={len(history)}")
     if has_text:
         print(f"  message: {req.user_message[:120]}")
     print(f"{'=' * 60}\n")

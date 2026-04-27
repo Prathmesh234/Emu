@@ -81,6 +81,7 @@ class ContextManager:
         self._history: dict[str, list[PreviousMessage]] = {}
         self._step_offset: dict[str, int] = {}
         self._plan_injected: dict[str, bool] = {}
+        self._agent_mode: dict[str, str] = {}
         self.action_validator = ActionValidator()
 
     def _get(self, session_id: str) -> list[PreviousMessage]:
@@ -141,6 +142,12 @@ class ContextManager:
                 )
                 self._plan_injected[session_id] = True
                 print(f"[plan] Injected planning directive for session {session_id}")
+
+    def set_agent_mode(self, session_id: str, mode: str) -> None:
+        """Record the current frontend mode for the next model request."""
+        if mode not in ("coworker", "remote"):
+            raise ValueError(f"invalid agent mode: {mode}")
+        self._agent_mode[session_id] = mode
 
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """Append a screenshot as a user message, optionally via OmniParser."""
@@ -338,6 +345,7 @@ class ContextManager:
             base64_screenshot="",
             previous_messages=trimmed,
             step_index=step_index,
+            agent_mode=self._agent_mode.get(session_id, "coworker"),
         )
 
     def clear_session(self, session_id: str) -> None:
@@ -345,6 +353,7 @@ class ContextManager:
         self._history.pop(session_id, None)
         self._step_offset.pop(session_id, None)
         self._plan_injected.pop(session_id, None)
+        self._agent_mode.pop(session_id, None)
         self.action_validator.clear(session_id)
 
     def preload_from_conversation(self, session_id: str, old_messages: list[dict]) -> None:

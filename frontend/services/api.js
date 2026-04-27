@@ -36,7 +36,7 @@ async function createSession() {
     return data.session_id;
 }
 
-async function postStep({ sessionId, userMessage, base64Screenshot }) {
+async function postStep({ sessionId, userMessage, base64Screenshot, agentMode }) {
     return fetch(`${BACKEND_URL}/agent/step`, {
         method: 'POST',
         headers: authHeaders(),
@@ -44,6 +44,7 @@ async function postStep({ sessionId, userMessage, base64Screenshot }) {
             session_id:        sessionId,
             user_message:      userMessage || '',
             base64_screenshot: base64Screenshot || '',
+            agent_mode:        agentMode || 'coworker',
         }),
     });
 }

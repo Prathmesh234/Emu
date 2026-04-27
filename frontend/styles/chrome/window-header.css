@@ -9,9 +9,9 @@
  */
 
 .window-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
   padding: 28px 40px 0;
   flex-shrink: 0;
 }
@@ -21,6 +21,16 @@
   display: flex;
   align-items: baseline;
   gap: 12px;
+  justify-self: start;
+}
+
+/* Center group: mode switch only */
+.window-header-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  justify-self: center;
 }
 
 .window-header-sidebar-btn {
@@ -57,6 +67,82 @@
   line-height: 1;
 }
 
+/* Agent mode toggle: liquid-glass segmented switch centered in the header */
+.window-mode-toggle {
+  position: relative;
+  width: 152px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--ink-14);
+  border-radius: 999px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--paper);
+  box-shadow:
+    inset 0 0 0 1px var(--ink-08),
+    0 6px 18px rgba(34, 30, 22, 0.06);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-app-region: no-drag;
+}
+
+.window-mode-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 999px;
+  background: var(--ink-08);
+  box-shadow:
+    inset 0 0 0 1px var(--ink-08),
+    0 1px 4px rgba(34, 30, 22, 0.06);
+  transition: transform 0.22s var(--ease);
+}
+
+.window-mode-toggle.remote .window-mode-thumb {
+  transform: translateX(100%);
+}
+
+.window-mode-option {
+  position: relative;
+  z-index: 1;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-55);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 0 10px;
+  transition: color 0.16s var(--ease), transform 0.16s var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.window-mode-option.active {
+  color: var(--ink);
+}
+
+.window-mode-option:active {
+  transform: scale(0.98);
+}
+
+.window-mode-option:focus-visible {
+  outline: 1px solid var(--ink-30);
+  outline-offset: -3px;
+}
+
+.window-mode-toggle.disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
 /* Status pill: dot + text */
 .window-header-status {
   font-family: var(--font-serif);
@@ -66,6 +152,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-self: end;
 }
 
 .window-status-dot {
