@@ -1138,11 +1138,12 @@ function mount(appEl) {
     // back to its original hidden state if it is currently open.
     // Exclude the sidebar toggle button itself so the subsequent click
     // doesn't re-open what we just closed.
-    macMain.addEventListener('mousedown', (e) => {
+    const _onMacMainMouseDown = (e) => {
         if (!_historyPanelOpen) return;
         if (e.target.closest && e.target.closest('.window-header-sidebar-btn')) return;
         closeHistoryPanel();
-    }, true);
+    };
+    macMain.addEventListener('mousedown', _onMacMainMouseDown, true);
 
     // Window header: "Emu" mark + sidebar toggle + status pill
     winHeader = WindowHeader({ onToggleSidebar: toggleHistoryPanel });
@@ -1164,8 +1165,9 @@ function mount(appEl) {
     chatInput = Composer(sendMessage, stopAgent);
     macMain.appendChild(chatInput.element);
 
-    // Keyboard shortcuts (unchanged)
-    document.onkeydown = (e) => {
+    // Keyboard shortcuts — use addEventListener so we don't clobber any
+    // other handler that may have set document.onkeydown.
+    const _onChatKeyDown = (e) => {
         if (e.ctrlKey && e.shiftKey && e.key === 'N') {
             e.preventDefault();
             newChat();
@@ -1174,6 +1176,7 @@ function mount(appEl) {
             toggleWindow();
         }
     };
+    document.addEventListener('keydown', _onChatKeyDown);
 
     // Border glow is driven by syncGeneratingUI — starts hidden
     ipcRenderer.send('set-border', false);

@@ -5,6 +5,10 @@ const { authTokenPath } = require('../emu/root');
 
 const BACKEND_URL = 'http://127.0.0.1:8000';
 
+// Default per-request timeout. Long enough for slow LLM steps but bounded
+// so a hung backend doesn't leave fetches pending forever.
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 // Auth token path resolves via EMU_ROOT so it works in both source-checkout
 // and packaged-DMG layouts.
 const TOKEN_PATH = authTokenPath();
@@ -21,11 +25,28 @@ function authHeaders(extra = {}) {
     return { 'Content-Type': 'application/json', 'X-Emu-Token': getToken(), ...extra };
 }
 
+// fetch() wrapper that aborts after `timeoutMs` and surfaces a consistent
+// error message. Uses AbortController so the underlying socket is closed.
+async function fetchWithTimeout(url, opts = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...opts, signal: controller.signal });
+    } catch (err) {
+        if (err && err.name === 'AbortError') {
+            throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function createSession() {
-    const res = await fetch(`${BACKEND_URL}/agent/session`, {
+    const res = await fetchWithTimeout(`${BACKEND_URL}/agent/session`, {
         method: 'POST',
         headers: authHeaders(),
-    });
+    }, 10_000);
     if (!res.ok) {
         throw new Error(`Session creation failed: ${res.status} ${res.statusText}`);
     }
@@ -37,7 +58,8 @@ async function createSession() {
 }
 
 async function postStep({ sessionId, userMessage, base64Screenshot, agentMode }) {
-    return fetch(`${BACKEND_URL}/agent/step`, {
+    // Long timeout: this triggers a model step which can be slow.
+    return fetchWithTimeout(`${BACKEND_URL}/agent/step`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
@@ -46,11 +68,11 @@ async function postStep({ sessionId, userMessage, base64Screenshot, agentMode })
             base64_screenshot: base64Screenshot || '',
             agent_mode:        agentMode || 'coworker',
         }),
-    });
+    }, 120_000);
 }
 
 async function notifyActionComplete({ sessionId, ipcChannel, success, error, output }) {
-    return fetch(`${BACKEND_URL}/action/complete`, {
+    return fetchWithTimeout(`${BACKEND_URL}/action/complete`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
@@ -60,50 +82,61 @@ async function notifyActionComplete({ sessionId, ipcChannel, success, error, out
             error: error || null,
             output: output || null,
         }),
-    });
+    }, 10_000);
 }
 
 async function stopAgent(sessionId) {
-    return fetch(`${BACKEND_URL}/agent/stop`, {
+    return fetchWithTimeout(`${BACKEND_URL}/agent/stop`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ session_id: sessionId }),
-    });
+    }, 5_000);
 }
 
 async function compactContext(sessionId) {
-    const res = await fetch(`${BACKEND_URL}/agent/compact`, {
+    const res = await fetchWithTimeout(`${BACKEND_URL}/agent/compact`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ session_id: sessionId }),
-    });
+    }, 60_000);
+    if (!res.ok) throw new Error(`Compact failed: ${res.status} ${res.statusText}`);
     return res.json();
 }
 
 async function fetchSessionHistory() {
-    const res = await fetch(`${BACKEND_URL}/sessions/history`, {
-        headers: authHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.sessions || [];
+    try {
+        const res = await fetchWithTimeout(`${BACKEND_URL}/sessions/history`, {
+            headers: authHeaders(),
+        }, 10_000);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.sessions || [];
+    } catch (err) {
+        console.warn('[api] fetchSessionHistory failed:', err.message);
+        return [];
+    }
 }
 
 async function fetchSessionMessages(sessionId) {
-    const res = await fetch(`${BACKEND_URL}/sessions/${encodeURIComponent(sessionId)}/messages`, {
-        headers: authHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.messages || [];
+    try {
+        const res = await fetchWithTimeout(`${BACKEND_URL}/sessions/${encodeURIComponent(sessionId)}/messages`, {
+            headers: authHeaders(),
+        }, 10_000);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.messages || [];
+    } catch (err) {
+        console.warn('[api] fetchSessionMessages failed:', err.message);
+        return [];
+    }
 }
 
 async function continueSession(previousSessionId) {
-    const res = await fetch(`${BACKEND_URL}/agent/session/continue`, {
+    const res = await fetchWithTimeout(`${BACKEND_URL}/agent/session/continue`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ previous_session_id: previousSessionId }),
-    });
+    }, 10_000);
     if (!res.ok) throw new Error(`Continue session failed: ${res.status} ${res.statusText}`);
     const data = await res.json();
     if (!data.session_id) throw new Error('Continue session response missing session_id');
@@ -111,19 +144,19 @@ async function continueSession(previousSessionId) {
 }
 
 async function getProviderSettings() {
-    const res = await fetch(`${BACKEND_URL}/settings/provider`, {
+    const res = await fetchWithTimeout(`${BACKEND_URL}/settings/provider`, {
         headers: authHeaders(),
-    });
+    }, 10_000);
     if (!res.ok) throw new Error(`Failed to get provider settings: ${res.status}`);
     return res.json();
 }
 
 async function saveProviderSettings({ provider, model, apiKey }) {
-    const res = await fetch(`${BACKEND_URL}/settings/provider`, {
+    const res = await fetchWithTimeout(`${BACKEND_URL}/settings/provider`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ provider, model, api_key: apiKey }),
-    });
+    }, 10_000);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Failed to save provider settings: ${res.status}`);
     return data;

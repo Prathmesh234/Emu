@@ -150,24 +150,41 @@ async function _fetchContextualSubtitle() {
     //    to accommodate reasoning models (nemotron, o-series, etc.) that
     //    consume tokens on internal reasoning before emitting content.
     const t0 = Date.now();
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://emu.local',
-            'X-Title':      'Emu',
-        },
-        body: JSON.stringify({
-            model,
-            messages: [
-                { role: 'system', content: system },
-                { role: 'user',   content: snippet },
-            ],
-            max_tokens: 400,
-            temperature: 0.85,
-        }),
-    });
+    // 8s timeout — the greeting is purely cosmetic; if OpenRouter is slow
+    // we keep the neutral fallback rather than blocking the splash forever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    let resp;
+    try {
+        resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'HTTP-Referer': 'https://emu.local',
+                'X-Title':      'Emu',
+            },
+            body: JSON.stringify({
+                model,
+                messages: [
+                    { role: 'system', content: system },
+                    { role: 'user',   content: snippet },
+                ],
+                max_tokens: 400,
+                temperature: 0.85,
+            }),
+            signal: controller.signal,
+        });
+    } catch (err) {
+        clearTimeout(timer);
+        if (err && err.name === 'AbortError') {
+            console.warn('[greeting] openrouter timed out after 8s — using fallback');
+        } else {
+            console.warn('[greeting] openrouter fetch failed:', err.message);
+        }
+        return null;
+    }
+    clearTimeout(timer);
     const elapsed = Date.now() - t0;
     console.log('[greeting] openrouter status:', resp.status, `(${elapsed}ms)`);
 
