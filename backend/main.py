@@ -325,6 +325,7 @@ async def agent_step(req: AgentRequest):
     MAX_TOOL_LOOPS = 10
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
+    hermes_started = False
 
     for loop_i in range(MAX_TOOL_LOOPS + 1):
         # Call model (with timeout + retry)
@@ -424,6 +425,27 @@ async def agent_step(req: AgentRequest):
                     plan_content = args.get("content", "")
                     if plan_content:
                         plan_pending_review = plan_content
+
+                # Hermes runs as a background job. Once it is successfully
+                # assigned, yield control back to the user instead of asking
+                # the model to immediately continue/poll in the same turn.
+                if tc.name == "invoke_hermes" and result.startswith("Hermes job started:"):
+                    hermes_started = True
+
+            if hermes_started:
+                response = AgentResponse(
+                    action=Action(type=ActionType.DONE),
+                    done=True,
+                    confidence=1.0,
+                    final_message=(
+                        "Hermes agent has been assigned and is running in the background. "
+                        "Feel free to check in after some time."
+                    ),
+                    reasoning_content=(
+                        "Hermes job started asynchronously; yielding control back to the user."
+                    ),
+                )
+                break
 
             # ── Plan review gate: pause loop and wait for user approval ──────
             if plan_pending_review:
