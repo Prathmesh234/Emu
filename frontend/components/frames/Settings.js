@@ -11,6 +11,7 @@
 // so we can move the controls here and out of the chrome bar later.
 
 const store = require('../../state/store');
+const { ipcRenderer } = require('electron');
 const { getProviderSettings, saveProviderSettings } = require('../../services/api');
 
 function Settings({ onClose }) {
@@ -74,6 +75,24 @@ function Settings({ onClose }) {
     });
     group2.appendChild(dangerRow.row);
     body.appendChild(group2);
+
+    // Section: System checks
+    body.appendChild(_section('System Checks'));
+    const groupChecks = _group();
+
+    const screenCheck = _systemCheckRow('Screen Recording', 'checking…', () => ipcRenderer.invoke('permissions:open', 'screen'));
+    const accessibilityCheck = _systemCheckRow('Accessibility', 'checking…', () => ipcRenderer.invoke('permissions:open', 'accessibility'));
+    const daemonCheck = _systemCheckRow('Memory daemon', 'checking…');
+    groupChecks.appendChild(screenCheck.row);
+    groupChecks.appendChild(accessibilityCheck.row);
+    groupChecks.appendChild(daemonCheck.row);
+
+    const checkActions = _actionRow([
+        { label: 'refresh', onClick: refreshSystemChecks },
+        { label: 'repair daemon', onClick: repairDaemon },
+    ]);
+    groupChecks.appendChild(checkActions.row);
+    body.appendChild(groupChecks);
 
     // Section: Appearance
     body.appendChild(_section('Appearance'));
@@ -178,6 +197,48 @@ function Settings({ onClose }) {
         }
     });
 
+    async function refreshSystemChecks() {
+        checkActions.setDisabled(true);
+        checkActions.status.textContent = 'checking…';
+        checkActions.status.className = 'settings-save-status';
+        try {
+            const [permissions, daemon] = await Promise.all([
+                ipcRenderer.invoke('permissions:status'),
+                ipcRenderer.invoke('daemon:status'),
+            ]);
+            screenCheck.setValue(_permissionLabel(permissions.screenRecording));
+            accessibilityCheck.setValue(_permissionLabel(permissions.accessibility));
+            daemonCheck.setValue(_daemonLabel(daemon));
+            checkActions.status.textContent = 'updated';
+            checkActions.status.className = 'settings-save-status ok';
+        } catch (err) {
+            checkActions.status.textContent = err.message || 'could not check';
+            checkActions.status.className = 'settings-save-status err';
+        } finally {
+            checkActions.setDisabled(false);
+        }
+    }
+
+    async function repairDaemon() {
+        checkActions.setDisabled(true);
+        checkActions.status.textContent = 'repairing…';
+        checkActions.status.className = 'settings-save-status';
+        try {
+            const result = await ipcRenderer.invoke('daemon:repair');
+            if (!result.ok) throw new Error(result.stderr || 'repair failed');
+            checkActions.status.textContent = 'daemon repaired';
+            checkActions.status.className = 'settings-save-status ok';
+            await refreshSystemChecks();
+        } catch (err) {
+            checkActions.status.textContent = err.message || 'repair failed';
+            checkActions.status.className = 'settings-save-status err';
+        } finally {
+            checkActions.setDisabled(false);
+        }
+    }
+
+    refreshSystemChecks();
+
     // ── Dismiss handlers ──────────────────────────────────────────────────
     function close() {
         overlay.remove();
@@ -227,6 +288,41 @@ function _row(label, value, opts = {}) {
     return { row, val: v };
 }
 
+function _systemCheckRow(label, value, onOpen) {
+    const item = _row(label, value, { action: Boolean(onOpen) });
+    if (onOpen) {
+        item.val.title = `Open ${label} settings`;
+        item.val.addEventListener('click', onOpen);
+    }
+    return {
+        row: item.row,
+        setValue(next) { item.val.textContent = next; },
+    };
+}
+
+function _actionRow(actions) {
+    const row = document.createElement('div');
+    row.className = 'settings-row settings-save-row';
+    const status = document.createElement('span');
+    status.className = 'settings-save-status';
+    row.appendChild(status);
+
+    const buttons = actions.map(({ label, onClick }) => {
+        const button = document.createElement('button');
+        button.className = 'settings-save-btn';
+        button.textContent = label;
+        button.addEventListener('click', onClick);
+        row.appendChild(button);
+        return button;
+    });
+
+    return {
+        row,
+        status,
+        setDisabled(disabled) { buttons.forEach((button) => { button.disabled = disabled; }); },
+    };
+}
+
 function _select(options) {
     const el = document.createElement('select');
     el.className = 'settings-row-select';
@@ -252,6 +348,23 @@ function _displayName() {
     const raw = (typeof process !== 'undefined' && process.env && process.env.USER) || '';
     if (!raw) return 'you';
     return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function _permissionLabel(value) {
+    if (value === true || value === 'granted') return 'granted';
+    if (value === 'not-determined') return 'not granted';
+    if (value === 'unsupported') return 'not needed';
+    if (!value || value === 'unknown') return 'unknown';
+    return String(value).replace(/-/g, ' ');
+}
+
+function _daemonLabel(status) {
+    if (!status) return 'unknown';
+    if (status.platform && status.platform !== 'darwin') return 'not needed';
+    if (status.loaded && status.current) return 'loaded';
+    if (status.loaded) return 'needs repair';
+    if (status.plistPresent) return 'installed';
+    return 'not installed';
 }
 
 module.exports = { Settings };

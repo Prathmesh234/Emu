@@ -6,14 +6,12 @@
 // Design change: replaces the old boxy card (screenshot thumbnail, reasoning
 // block, action badge) with a minimal left-bordered italic trace line that
 // shows what the agent is doing. Keeps identical function signatures and all
-// class names (.step-action-status, .step-confirm-btn.allow/deny) so Chat.js
-// querySelector logic needs no changes.
+// class names (.step-action-status) so Chat.js querySelector logic needs no changes.
 //
 // Backend and action dispatch logic: untouched.
 
-const { describeAction, actionIcon } = require('../actions/actionProxy');
+const { describeAction } = require('../actions/actionProxy');
 const { renderMarkdown } = require('./markdown');
-const { ConfirmCard } = require('./conversation/ConfirmCard');
 
 function StepCard(data, stepNum) {
     const wrap = document.createElement('div');
@@ -47,46 +45,11 @@ function StepCard(data, stepNum) {
         actionEl.textContent = describeAction(data.action);
         wrap.appendChild(actionEl);
 
-        // Shell exec: structured details card + Allow / Deny buttons
-        // Design: matches F_Confirm frame — details in a bordered card,
-        // primary filled "Allow" + outlined "Deny".
-        if (data.requires_confirmation && data.action.type === 'shell_exec') {
-            const card = ConfirmCard([
-                ['Action',  'Shell command'],
-                ['Command', data.action.command || ''],
-            ]);
-            // Apply monospace styling to the command row's value
-            const rows = card.element.querySelectorAll('.confirm-card-val');
-            if (rows.length >= 2) rows[1].classList.add('monospace');
-            wrap.appendChild(card.element);
-
-            const row = document.createElement('div');
-            row.className = 'action-row';
-
-            const allowBtn = document.createElement('button');
-            allowBtn.className = 'step-confirm-btn allow';
-            allowBtn.textContent = 'Allow';
-
-            const denyBtn = document.createElement('button');
-            denyBtn.className = 'step-confirm-btn deny';
-            denyBtn.textContent = 'Deny';
-
-            row.appendChild(allowBtn);
-            row.appendChild(denyBtn);
-            wrap.appendChild(row);
-
-            // Hidden status span (shown after user decision)
-            const badge = document.createElement('span');
-            badge.className = 'step-action-status pending trace-status';
-            badge.style.display = 'none';
-            wrap.appendChild(badge);
-        } else {
-            // Status span (updated by executeAction in Chat.js)
-            const badge = document.createElement('span');
-            badge.className = 'step-action-status pending trace-status';
-            badge.textContent = '…';
-            wrap.appendChild(badge);
-        }
+        // Status span (updated by executeAction in Chat.js)
+        const badge = document.createElement('span');
+        badge.className = 'step-action-status pending trace-status';
+        badge.textContent = '…';
+        wrap.appendChild(badge);
     }
 
     // ── Done / final message ─────────────────────────────────────────────

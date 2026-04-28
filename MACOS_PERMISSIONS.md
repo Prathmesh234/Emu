@@ -67,4 +67,4 @@ python3 -m daemon.install_macos uninstall
 - The daemon LaunchAgent must point at a stable app location. Do not install it while Emu is running from `/Volumes` or an App Translocation path.
 - The packaged app should install or repair the LaunchAgent after the app is already in `/Applications`.
 - The daemon only needs file access to `.emu/`; desktop control permissions belong to the Electron app, not the daemon.
-- Current release-readiness item: `frontend/process/daemonInstaller.js` skips daemon auto-install in packaged mode until the packaged daemon/runtime path is wired up.
+- Packaged daemon auto-install is feature-flagged with `PACKAGED_MODE`. The default is `PACKAGED_MODE=0`, so packaged builds skip auto-install until the frozen daemon runtime is included. Set `PACKAGED_MODE=1` to enable packaged LaunchAgent install/repair from the app Resources directory.

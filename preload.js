@@ -32,6 +32,10 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'window:blur',
     'window:minimize',
     'window:maximize',
+    'permissions:status',
+    'permissions:open',
+    'daemon:status',
+    'daemon:repair',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([

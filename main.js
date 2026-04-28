@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } = require('electron');
 const path = require('path');
 const psProcess = require('./frontend/process/psProcess');
 const backendProcess = require('./frontend/process/backendProcess');
@@ -119,6 +119,46 @@ app.whenReady().then(() => {
       screen,
       getMainWindow: () => mainWindow
   });
+
+  ipcMain.handle('permissions:status', async () => {
+    if (process.platform !== 'darwin') {
+      return {
+        platform: process.platform,
+        screenRecording: 'unsupported',
+        accessibility: 'unsupported',
+      };
+    }
+
+    let screenRecording = 'unknown';
+    try {
+      screenRecording = systemPreferences.getMediaAccessStatus('screen');
+    } catch (_) {}
+
+    let accessibility = 'unknown';
+    try {
+      accessibility = systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'denied';
+    } catch (_) {}
+
+    return { platform: process.platform, screenRecording, accessibility };
+  });
+
+  ipcMain.handle('permissions:open', async (_event, pane) => {
+    if (process.platform !== 'darwin') return { success: false, error: 'not macOS' };
+    const urls = {
+      screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    };
+    const url = urls[pane] || urls.screen;
+    try {
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('daemon:status', async () => daemonInstaller.getStatus({ app, emuRoot: EMU_ROOT }));
+  ipcMain.handle('daemon:repair', async () => daemonInstaller.repair({ app, emuRoot: EMU_ROOT }));
 
   psProcess.start();
   // Spawn the backend (dev: backend.sh; packaged: frozen binary).

@@ -801,39 +801,6 @@ async function handleWsMessage(data) {
                     if (data.action.type === 'screenshot') {
                         console.log('[step] model requested screenshot — calling continueLoop');
                         await continueLoop();
-                    } else if (data.requires_confirmation && !store.state.dangerousMode) {
-                        // Shell exec confirmation — wait for user Allow/Deny
-                        console.log('[step] awaiting user confirmation for shell_exec');
-                        const decision = await waitForConfirmation(stepCard.element);
-                        if (decision === 'allow') {
-                            console.log('[step] user allowed shell_exec — executing');
-                            const badge = stepCard.element.querySelector('.step-action-status');
-                            if (badge) { badge.style.display = ''; badge.textContent = ''; }
-                            await executeAction(data.action, stepCard.element);
-                            await sleep(500);
-                            await continueLoop();
-                        } else {
-                            console.log('[step] user denied shell_exec — notifying backend');
-                            const badge = stepCard.element.querySelector('.step-action-status');
-                            if (badge) {
-                                badge.style.display = '';
-                                badge.className = 'step-action-status failed trace-status';
-                                badge.textContent = 'denied';
-                            }
-                            stepCard.element.classList.add('resolved');
-                            // Inject denial into context so the model can adapt
-                            try {
-                                await api.notifyActionComplete({
-                                    sessionId: store.state.sessionId,
-                                    ipcChannel: 'shell:exec',
-                                    success: false,
-                                    error: 'DENIED — user has denied this command. Try a different approach.',
-                                    output: null,
-                                });
-                            } catch (_) {}
-                            await sleep(300);
-                            await continueLoop();
-                        }
                     } else {
                         console.log(`[step] executing action: ${data.action.type}`);
                         await executeAction(data.action, stepCard.element);
@@ -1069,36 +1036,6 @@ async function handleWsMessage(data) {
             syncGeneratingUI(false);
             break;
     }
-}
-
-// ── Shell exec confirmation ──────────────────────────────────────────────
-
-/**
- * Wait for the user to click Allow or Deny on a step card.
- * Returns 'allow' or 'deny'.
- */
-function waitForConfirmation(stepEl) {
-    return new Promise(resolve => {
-        const allowBtn = stepEl.querySelector('.step-confirm-btn.allow');
-        const denyBtn = stepEl.querySelector('.step-confirm-btn.deny');
-        if (!allowBtn || !denyBtn) {
-            // No buttons found — auto-allow (shouldn't happen)
-            resolve('allow');
-            return;
-        }
-        allowBtn.addEventListener('click', () => {
-            allowBtn.disabled = true;
-            denyBtn.disabled = true;
-            allowBtn.classList.add('chosen');
-            resolve('allow');
-        }, { once: true });
-        denyBtn.addEventListener('click', () => {
-            allowBtn.disabled = true;
-            denyBtn.disabled = true;
-            denyBtn.classList.add('chosen');
-            resolve('deny');
-        }, { once: true });
-    });
 }
 
 // ── Action execution ─────────────────────────────────────────────────────
