@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,12 @@ class Action(BaseModel):
     """
 
     type: ActionType = Field(..., description="The kind of action to execute")
+
+    # Coworker mode target (optional, internal use only)
+    coworker_target: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Target app/window for coworker mode execution (internal use)"
+    )
 
     # Click / move / scroll / drag start position
     coordinates: Optional[Coordinates] = Field(
