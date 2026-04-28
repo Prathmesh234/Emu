@@ -11,8 +11,8 @@
  *   inside the .app bundle once PyInstaller packaging lands.
  *
  * The installer itself is idempotent — if the plist is already loaded
- * and current, it's a no-op. We additionally early-out here when the
- * plist file exists so we don't shell out on every launch.
+ * and current, it's a no-op. We still invoke it when a plist exists so
+ * it can repair stale paths after the app/repo moves.
  *
  * Opt-out: EMU_SKIP_DAEMON_INSTALL=1
  */
@@ -39,11 +39,6 @@ function maybeInstall({ app, emuRoot }) {
         console.log('[daemon-install] EMU_SKIP_DAEMON_INSTALL=1 — skipping');
         return;
     }
-    if (fs.existsSync(PLIST_PATH)) {
-        console.log(`[daemon-install] plist already present at ${PLIST_PATH} — skipping`);
-        return;
-    }
-
     // Packaged path deferred until frozen daemon binary is shipped.
     if (app && app.isPackaged) {
         console.log('[daemon-install] packaged mode — auto-install not yet implemented, skipping');
