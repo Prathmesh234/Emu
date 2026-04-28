@@ -3,78 +3,138 @@
 
 const { eventPostToPid, primerClick } = require('./bindings');
 
-/**
- * Dispatch left click via cua-driver
- * @param {number} x - Absolute X coordinate
- * @param {number} y - Absolute Y coordinate
- * @param {number} pid - Target process ID
- * @returns {Promise<Object>}
- */
+function getTimestamp() {
+  return new Date().toISOString();
+}
+
 async function dispatchClick(x, y, pid) {
-  console.log(`[cua-event] click at (${x}, ${y}), pid=${pid}`);
-  
-  // Send primer click first
-  await primerClick(pid);
-  
-  // Send real click
-  return await eventPostToPid(pid, 'left_click', { x, y });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] left_click at (${x}, ${y}), pid=${pid}`);
+
+    if (x < 0 || y < 0) {
+      throw new Error(`Invalid coordinates: (${x}, ${y}). Coordinates must be non-negative.`);
+    }
+
+    console.log(`[cua-shell] ${getTimestamp()} [primer] Sending primer click for pid=${pid}`);
+    await primerClick(pid);
+
+    console.log(`[cua-shell] ${getTimestamp()} [click] Sending real click to (${x}, ${y})`);
+    return await eventPostToPid(pid, 'left_click', { x, y });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchClick failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch right click via cua-driver
- */
 async function dispatchRightClick(x, y, pid) {
-  console.log(`[cua-event] right_click at (${x}, ${y}), pid=${pid}`);
-  return await eventPostToPid(pid, 'right_click', { x, y });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] right_click at (${x}, ${y}), pid=${pid}`);
+
+    if (x < 0 || y < 0) {
+      throw new Error(`Invalid coordinates: (${x}, ${y}). Coordinates must be non-negative.`);
+    }
+
+    return await eventPostToPid(pid, 'right_click', { x, y });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchRightClick failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch double click via cua-driver
- */
 async function dispatchDoubleClick(x, y, pid) {
-  console.log(`[cua-event] double_click at (${x}, ${y}), pid=${pid}`);
-  return await eventPostToPid(pid, 'double_click', { x, y });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] double_click at (${x}, ${y}), pid=${pid}`);
+
+    if (x < 0 || y < 0) {
+      throw new Error(`Invalid coordinates: (${x}, ${y}). Coordinates must be non-negative.`);
+    }
+
+    return await eventPostToPid(pid, 'double_click', { x, y });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchDoubleClick failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch triple click via cua-driver
- */
 async function dispatchTripleClick(x, y, pid) {
-  console.log(`[cua-event] triple_click at (${x}, ${y}), pid=${pid}`);
-  return await eventPostToPid(pid, 'triple_click', { x, y });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] triple_click at (${x}, ${y}), pid=${pid}`);
+
+    if (x < 0 || y < 0) {
+      throw new Error(`Invalid coordinates: (${x}, ${y}). Coordinates must be non-negative.`);
+    }
+
+    return await eventPostToPid(pid, 'triple_click', { x, y });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchTripleClick failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch keyboard event via cua-driver
- */
 async function dispatchKeyboard(key, modifiers, pid) {
-  const modsStr = (modifiers || []).join('+');
-  console.log(`[cua-event] keyboard: ${modsStr}+${key}, pid=${pid}`);
-  return await eventPostToPid(pid, 'key_press', { key, modifiers });
+  try {
+    const modsStr = (modifiers || []).join('+');
+    console.log(`[cua-shell] ${getTimestamp()} [event] keyboard: ${modsStr ? modsStr + '+' : ''}${key}, pid=${pid}`);
+
+    if (!key) {
+      throw new Error('Key cannot be empty');
+    }
+
+    return await eventPostToPid(pid, 'key_press', { key, modifiers });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchKeyboard failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch text input via cua-driver
- */
 async function dispatchTypeText(text, pid) {
-  console.log(`[cua-event] type_text: "${text.substring(0, 50)}", pid=${pid}`);
-  return await eventPostToPid(pid, 'type_text', { text });
+  try {
+    const preview = text.substring(0, 50) + (text.length > 50 ? '...' : '');
+    console.log(`[cua-shell] ${getTimestamp()} [event] type_text: "${preview}", pid=${pid}`);
+
+    if (!text) {
+      throw new Error('Text cannot be empty');
+    }
+
+    return await eventPostToPid(pid, 'type_text', { text });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchTypeText failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch mouse move via cua-driver
- */
 async function dispatchMouseMove(x, y, pid) {
-  console.log(`[cua-event] mouse_move to (${x}, ${y}), pid=${pid}`);
-  return await eventPostToPid(pid, 'mouse_move', { x, y });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] mouse_move to (${x}, ${y}), pid=${pid}`);
+
+    if (x < 0 || y < 0) {
+      throw new Error(`Invalid coordinates: (${x}, ${y}). Coordinates must be non-negative.`);
+    }
+
+    return await eventPostToPid(pid, 'mouse_move', { x, y });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchMouseMove failed: ${err.message}`);
+    throw err;
+  }
 }
 
-/**
- * Dispatch scroll via cua-driver
- */
 async function dispatchScroll(direction, amount, pid) {
-  console.log(`[cua-event] scroll ${direction} ${amount}, pid=${pid}`);
-  return await eventPostToPid(pid, 'scroll', { direction, amount });
+  try {
+    console.log(`[cua-shell] ${getTimestamp()} [event] scroll ${direction} ${amount}, pid=${pid}`);
+
+    if (!direction) {
+      throw new Error('Scroll direction cannot be empty');
+    }
+
+    if (amount === null || amount === undefined || amount <= 0) {
+      throw new Error(`Scroll amount must be positive, got: ${amount}`);
+    }
+
+    return await eventPostToPid(pid, 'scroll', { direction, amount });
+  } catch (err) {
+    console.error(`[cua-shell] ${getTimestamp()} [error] dispatchScroll failed: ${err.message}`);
+    throw err;
+  }
 }
 
 module.exports = {

@@ -8,7 +8,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development electron ."
+    "dev": "NODE_ENV=development electron .",
+    "test:cua": "node frontend/actions-coworker/cua-shell/test.js"
   },
   "dependencies": {
     "electron": "^40.6.1"
