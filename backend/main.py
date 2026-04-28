@@ -27,6 +27,9 @@ from workspace import ensure_session_dir
 from utilities import ConnectionManager, log_entry, log_and_send, ipc_to_action_label, interpret_action_error
 from tools import execute_agent_tool, auto_compact
 
+# ── Coworker mode (background computer-use) ─────────────────────────────────
+from coworker.config import detect_coworker_mode, CoworkerMode
+
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
 from context_manager.context import USE_OMNI_PARSER
@@ -36,6 +39,10 @@ call_model, is_ready, ensure_ready, _provider_name = load_provider()
 compact_model = load_compact_provider()
 
 print(f"[config] OmniParser: {'ENABLED' if USE_OMNI_PARSER else 'DISABLED (direct screenshots)'}")
+
+# ── Coworker mode detection ──────────────────────────────────────────────────
+COWORKER_MODE = detect_coworker_mode()
+print(f"[config] Coworker mode: {COWORKER_MODE.value}")
 
 # ── Per-launch auth token ────────────────────────────────────────────────────
 # Shared with the Electron frontend via .emu/.auth_token file.
