@@ -15,13 +15,15 @@ const { Greeting } = require('../components/conversation/Greeting');
 const { Settings } = require('../components/frames/Settings');
 const { TurnYou }      = require('../components/conversation/TurnYou');
 const { TurnEmu }      = require('../components/conversation/TurnEmu');
+const { renderPastSession } = require('../components/conversation/PastSessionRenderer');
 const { MacWindow }    = require('../components/chrome/MacWindow');
 const { WindowHeader } = require('../components/chrome/WindowHeader');
 const { Composer }     = require('../components/chrome/Composer');
 const { renderMarkdown } = require('../components/markdown');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
-const { dispatchAction } = require('../actions/actionProxy');
+const { executeAction } = require('../actions/executor');
+const { createWindowManager } = require('../services/windowManager');
 const store = require('../state/store');
 const api = require('../services/api');
 const { initWebSocket, setMessageHandler } = require('../services/websocket');
@@ -94,55 +96,15 @@ function ensureTypingIndicator(el) {
 }
 
 // ── Window helpers ───────────────────────────────────────────────────────
-
-async function toggleWindow() {
-    const { state } = store;
-    if (state.isSidePanel) {
-        await ipcRenderer.invoke('window:centered');
-        store.setSidePanel(false);
-        header.setExpandVisible(false);
-        header.setCompact(false);
-    } else {
-        await ipcRenderer.invoke('window:side-panel');
-        store.setSidePanel(true);
-        header.setExpandVisible(true);
-        header.setCompact(true);
-    }
-}
-
-async function moveToSidePanel() {
-    if (!store.state.isSidePanel) {
-        await ipcRenderer.invoke('window:side-panel');
-        store.setSidePanel(true);
-        header.setExpandVisible(true);
-        header.setCompact(true);
-    }
-}
-
-async function moveToCentered() {
-    if (store.state.isSidePanel) {
-        await ipcRenderer.invoke('window:centered');
-        store.setSidePanel(false);
-        header.setExpandVisible(false);
-        header.setCompact(false);
-    }
-}
-
-async function minimizeWindow() {
-    try {
-        await ipcRenderer.invoke('window:minimize');
-    } catch (err) {
-        console.warn('[window] minimize failed:', err.message);
-    }
-}
-
-async function maximizeWindow() {
-    try {
-        await ipcRenderer.invoke('window:maximize');
-    } catch (err) {
-        console.warn('[window] maximize failed:', err.message);
-    }
-}
+// Backed by services/windowManager.js — initialised after `header` is
+// created in mount(). Until then, calls would no-op; nothing in the
+// startup path uses these before mount() runs.
+let _winMgr = null;
+async function toggleWindow()      { if (_winMgr) return _winMgr.toggleWindow(); }
+async function moveToSidePanel()   { if (_winMgr) return _winMgr.moveToSidePanel(); }
+async function moveToCentered()    { if (_winMgr) return _winMgr.moveToCentered(); }
+async function minimizeWindow()    { if (_winMgr) return _winMgr.minimizeWindow(); }
+async function maximizeWindow()    { if (_winMgr) return _winMgr.maximizeWindow(); }
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
@@ -259,129 +221,10 @@ async function loadPastSession(sessionId, prefetchedMessages = null) {
 
         chatWrapper.innerHTML = '';
 
-        // Group consecutive non-user messages into assistant "turns"
-        // so tool/action/done cards appear inside step containers just like live sessions
-        let stepNum = 0;
-        let currentAssistantBubble = null;
-        let currentStepContainer = null;
-
-        // Design change (Phase 4): uses TurnEmu instead of raw .message.assistant divs
-        function ensureAssistantBubble() {
-            if (!currentAssistantBubble) {
-                const turn = TurnEmu('');
-                currentAssistantBubble = turn.element;
-                currentStepContainer  = turn.body;
-                chatWrapper.appendChild(currentAssistantBubble);
-            }
-            return currentStepContainer;
-        }
-
-        function flushAssistantBubble() {
-            currentAssistantBubble = null;
-            currentStepContainer = null;
-        }
-
-        messages.forEach(msg => {
-            const role = msg.role;
-            const content = msg.content || '';
-            const meta = msg.metadata || {};
-
-            // Skip screenshot entries
-            if (content === '<screenshot>') return;
-
-            if (role === 'user') {
-                flushAssistantBubble();
-                addMessage('user', content);
-                return;
-            }
-
-
-            if (role === 'assistant') {
-                // Done message — render as DoneCard or plain text
-                const finalMsg = meta.final_message || content.replace(/^DONE\s*—?\s*/, '');
-                if (finalMsg) {
-                    const container = ensureAssistantBubble();
-                    stepNum++;
-                    const doneCard = StepCard({
-                        action: { type: 'done' },
-                        done: true,
-                        final_message: finalMsg,
-                        confidence: 1.0,
-                    }, stepNum);
-                    container.appendChild(doneCard.element);
-                }
-                flushAssistantBubble();
-                return;
-            }
-
-            if (role === 'tool') {
-                const container = ensureAssistantBubble();
-                stepNum++;
-
-                const toolName = meta.tool_name || '';
-                const toolResult = meta.result || content;
-
-                // Render skill cards for use_skill
-                if (toolName === 'use_skill') {
-                    let skillName = 'Unknown';
-                    try {
-                        const parsed = JSON.parse(meta.args || '{}');
-                        skillName = parsed.skill_name || 'Unknown';
-                    } catch (_) {}
-                    const skillCard = SkillCard(skillName);
-                    container.appendChild(skillCard.element);
-                    return;
-                }
-
-                // Render file cards for write_session_file
-                if (toolName === 'write_session_file') {
-                    let filename = 'file';
-                    try {
-                        const parsed = JSON.parse(meta.args || '{}');
-                        filename = parsed.filename || 'file';
-                    } catch (_) {}
-                    const fileCard = FileCard(filename, 'created', null);
-                    container.appendChild(fileCard.element);
-                    return;
-                }
-
-                // Generic tool trace (replaces the old white step-card DOM).
-                // Renders as a single resolved trace line — no bordered card,
-                // no completion badge. Matches the Finished-frame aesthetic.
-                const toolWrap = document.createElement('div');
-                toolWrap.className = 'trace resolved';
-                toolWrap.textContent = `used ${toolName || 'tool'}`;
-                container.appendChild(toolWrap);
-                return;
-            }
-
-            if (role === 'action') {
-                const container = ensureAssistantBubble();
-                stepNum++;
-
-                const actionType = meta.action_type || content.split(/\s+/)[0] || 'unknown';
-                const confidence = meta.confidence != null ? meta.confidence : null;
-                const reasoning = meta.reasoning || '';
-                const actionPayload = meta.action || { type: actionType };
-
-                const stepCard = StepCard({
-                    action: actionPayload,
-                    done: false,
-                    confidence: confidence,
-                    reasoning_content: reasoning,
-                }, stepNum);
-
-                // Past sessions are fully resolved: hide the blinking caret
-                // and drop the pending "…" badge. The trace text alone
-                // communicates what the agent did.
-                stepCard.element.classList.add('resolved');
-                const badge = stepCard.element.querySelector('.step-action-status');
-                if (badge) badge.remove();
-
-                container.appendChild(stepCard.element);
-                return;
-            }
-        });
+        // Delegate the (purely-presentational) rendering of past messages
+        // to PastSessionRenderer so this module stays focused on live
+        // session state. Behavior is byte-for-byte identical.
+        renderPastSession(chatWrapper, messages, addMessage);
 
         scrollToBottom();
     } catch (err) {
@@ -1039,36 +882,8 @@ async function handleWsMessage(data) {
 }
 
 // ── Action execution ─────────────────────────────────────────────────────
-
-async function executeAction(action, stepEl) {
-    console.log(`[executeAction] dispatching ${action.type}`);
-    const result = await dispatchAction(action);
-    console.log(`[executeAction] result:`, result);
-
-    // Mark trace as resolved (hides the blinking caret).
-    // Success case: remove the badge entirely for a clean prose-style trace.
-    // Failure case: show a quiet "failed" note so the user can see what broke.
-    stepEl.classList.add('resolved');
-    const badge = stepEl.querySelector('.step-action-status');
-    if (badge) {
-        if (result.success) {
-            badge.remove();
-        } else {
-            badge.className = 'step-action-status failed trace-status';
-            badge.textContent = 'failed';
-        }
-    }
-
-    try {
-        await api.notifyActionComplete({
-            sessionId: store.state.sessionId,
-            ipcChannel: result.ipc || action.type,
-            success: result.success,
-            error: result.error,
-            output: result.output || null,
-        });
-    } catch (_) { /* non-critical */ }
-}
+// `executeAction` lives in actions/executor.js — imported at the top.
+// The page calls it directly inside the WS step-handler.
 
 // ── Session bootstrap ────────────────────────────────────────────────────
 
@@ -1116,6 +931,10 @@ function mount(appEl) {
     });
 
     appEl.appendChild(header.chromeEl);
+
+    // Window manager depends on `header` — wire it up immediately so
+    // the toggle/move/min/max wrappers above start delegating.
+    _winMgr = createWindowManager(header);
 
     // ── mac-content (sidebar + main, flex row) ────────────────────────────
     appEl.appendChild(header.contentEl);
