@@ -506,6 +506,45 @@ AGENT_TOOLS_OPENAI = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "raise_app",
+            "description": (
+                "Bring a named macOS application to the foreground (raise its "
+                "window, give it focus, switch Spaces if needed) via osascript "
+                "`tell application \"X\" to activate`.\n\n"
+                "ALWAYS call this BEFORE any desktop interaction with a target "
+                "application — clicks, typing, scrolling, screenshots intended "
+                "for that app, drags, key_press shortcuts. Skipping this step "
+                "when the app is in the background causes actions to land on "
+                "the wrong window (often Emu itself) and fail silently.\n\n"
+                "Calling raise_app on an already-focused app is a cheap no-op. "
+                "When in doubt, raise.\n\n"
+                "Pass the EXACT macOS application name as it appears in the "
+                "Dock or Applications folder, e.g. 'Google Chrome', 'Finder', "
+                "'Visual Studio Code', 'Safari', 'Microsoft Excel'. If the app "
+                "is not running, `activate` will launch it.\n\n"
+                "Limitations: cannot raise the login window or pick a specific "
+                "window by title (raises the most recently used window of the "
+                "app). Citrix Viewer is known not to accept clicks even after "
+                "being raised."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name": {
+                        "type": "string",
+                        "description": (
+                            "Exact macOS application name, e.g. 'Google Chrome', "
+                            "'Finder', 'Visual Studio Code'."
+                        ),
+                    },
+                },
+                "required": ["app_name"],
+            },
+        },
+    },
 ]
 
 

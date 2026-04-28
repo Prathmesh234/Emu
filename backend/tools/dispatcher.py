@@ -6,6 +6,7 @@ from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory, handle_create_skill
 from .compaction import handle_compact_context
 from .shell import handle_shell_exec
+from .raise_app import handle_raise_app
 from .hermes import (
     handle_invoke_hermes,
     handle_check_hermes,
@@ -137,6 +138,17 @@ async def execute_agent_tool(
         })
         return result
 
+    elif name == "raise_app":
+        app_name = args.get("app_name", "")
+        result = handle_raise_app(app_name)
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "raise_app",
+            "app_name": app_name,
+            "result": result[:200],
+        })
+        return result
+
     else:
         args_str = json.dumps(args, ensure_ascii=False)
 
@@ -163,6 +175,6 @@ async def execute_agent_tool(
             f"Function tools are ONLY: update_plan, read_plan, write_session_file, "
             f"read_session_file, list_session_files, read_memory, use_skill, "
             f"create_skill, compact_context, invoke_hermes, check_hermes, "
-            f"cancel_hermes, list_hermes_jobs."
+            f"cancel_hermes, list_hermes_jobs, raise_app."
         )
 

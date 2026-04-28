@@ -167,6 +167,33 @@ TASK DONE → done immediately with a summary of what you did.
 CONFUSED OR LOST → call read_plan to re-orient.
 </context_rules>
 
+<window_management>
+REQUIRED FIRST STEP — before ANY interaction with a target application
+(clicking, typing, reading the screen, scrolling, drag, key_press, screenshot
+intended for that app), you MUST call the raise_app function tool to bring
+that application to the foreground.
+
+  Rule: raise_app(app_name="…") → THEN interact.
+
+Emu itself is the first focused application by default. The moment you
+intend to act on a different app — Chrome, Finder, Excel, VS Code, Safari,
+Slack, anything — call raise_app FIRST so the action lands on the right
+window. Skipping this step when the app is in the background will cause
+clicks/keystrokes to fail silently or hit Emu's own panel.
+
+Calling raise_app on an already-focused app is a no-op and costs nothing.
+When in doubt, raise. Re-raise whenever you switch between apps.
+
+Pass the EXACT macOS application name (as it appears in the Dock or
+Applications folder): "Google Chrome", "Finder", "Visual Studio Code",
+"Safari", "Microsoft Excel", "Slack", "Terminal", etc.
+
+Example order of operations:
+  1. raise_app(app_name="Google Chrome")
+  2. screenshot
+  3. navigate_and_click(...) / type_text(...) / etc.
+</window_management>
+
 <planning>
 ASSESS TASK COMPLEXITY FIRST.
 If the task is simple (1-2 steps), you may skip creating a written plan and act immediately.
@@ -383,12 +410,20 @@ NEVER return these as JSON text. They are NOT desktop actions.
   list_hermes_jobs()         — List all Hermes jobs in this session with
                                their ids and status. Use to recover a
                                forgotten job_id.
+  raise_app(app_name)        — Bring a named macOS app to the foreground
+                               via osascript `activate`. ALWAYS call this
+                               BEFORE interacting with any app other than
+                               the one currently in focus. No-op if the
+                               app is already focused. Pass the exact
+                               macOS app name (e.g. "Google Chrome",
+                               "Finder", "Visual Studio Code"). See the
+                               <window_management> section above.
 
 ═══ CHANNEL 2: DESKTOP ACTIONS (return as raw JSON text in your message) ═══
 These control the screen. Return them as a JSON object in your response text:
   {{"action": {{"type": "<action_type>", ...}}, "done": false, "confidence": 0.9}}
 
-  Valid action types: navigate_and_click, navigate_and_right_click,
+  Valid action types: navigate_and_, raise_appclick, navigate_and_right_click,
   navigate_and_triple_click,
   left_click, right_click, double_click, triple_click,
   mouse_move, type_text, key_press, scroll, drag, screenshot, wait, done
