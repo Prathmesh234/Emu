@@ -1,13 +1,87 @@
 // SkyLight bindings wrapper for coworker mode
-// Communicates with macOS daemon to invoke SkyLight framework APIs
+// Communicates with macOS daemon via Unix socket to invoke SkyLight framework APIs
 
-const { ipcRenderer } = require('electron');
+const net = require('net');
+const path = require('path');
 
 class SkyLightError extends Error {
   constructor(message) {
     super(message);
     this.name = 'SkyLightError';
   }
+}
+
+const SOCKET_PATH = '/tmp/skylight-daemon.sock';
+const RPC_TIMEOUT = 5000;
+const MAX_RETRIES = 3;
+
+/**
+ * Send an RPC request to the daemon over Unix socket with retry logic.
+ * @param {Object} request - JSON-RPC request {method, pid, eventType?, params?}
+ * @returns {Promise<Object>} RPC response
+ */
+async function sendRPC(request) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await sendRPCOnce(request);
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        throw err;
+      }
+      console.warn(`[skylight-bindings] RPC attempt ${attempt} failed: ${err.message}, retrying...`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+
+/**
+ * Send a single RPC request with timeout.
+ * @param {Object} request - JSON-RPC request
+ * @returns {Promise<Object>} RPC response
+ */
+function sendRPCOnce(request) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ path: SOCKET_PATH }, () => {
+      socket.write(JSON.stringify(request));
+    });
+
+    const timeoutId = setTimeout(() => {
+      socket.destroy();
+      reject(new SkyLightError(`RPC timeout after ${RPC_TIMEOUT}ms`));
+    }, RPC_TIMEOUT);
+
+    let responseBuffer = '';
+
+    socket.on('data', (data) => {
+      clearTimeout(timeoutId);
+      responseBuffer += data.toString();
+      
+      try {
+        const response = JSON.parse(responseBuffer);
+        socket.end();
+        
+        if (response.success === false) {
+          reject(new SkyLightError(response.error || 'Unknown RPC error'));
+        } else {
+          resolve(response);
+        }
+      } catch (e) {
+        // JSON not complete yet, wait for more data
+      }
+    });
+
+    socket.on('error', (err) => {
+      clearTimeout(timeoutId);
+      reject(new SkyLightError(`Socket error: ${err.message}`));
+    });
+
+    socket.on('end', () => {
+      clearTimeout(timeoutId);
+      if (!responseBuffer) {
+        reject(new SkyLightError('Socket closed without response'));
+      }
+    });
+  });
 }
 
 /**
@@ -19,16 +93,17 @@ class SkyLightError extends Error {
  * @param {number} pid - Process ID
  * @param {string} eventType - "click", "keyboard", "mouse_move"
  * @param {Object} params - Event parameters
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} {success, result?, error?}
  */
 async function eventPostToPid(pid, eventType, params) {
-  try {
-    console.log(`[skylight-bindings] eventPostToPid: pid=${pid}, event=${eventType}`);
-    // TODO: Implement via IPC to daemon that loads SkyLight
-    return { success: true, event: eventType };
-  } catch (err) {
-    throw new SkyLightError(`Failed to post event: ${err.message}`);
-  }
+  console.log(`[skylight-bindings] eventPostToPid: pid=${pid}, event=${eventType}`);
+  
+  return sendRPC({
+    method: 'eventPostToPid',
+    pid,
+    eventType,
+    params: params || {}
+  });
 }
 
 /**
@@ -38,16 +113,15 @@ async function eventPostToPid(pid, eventType, params) {
  * without calling SLPSSetFrontProcessWithOptions.
  *
  * @param {number} pid - Process ID to activate
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} {success, result?, error?}
  */
 async function activateWithoutRaise(pid) {
-  try {
-    console.log(`[skylight-bindings] activateWithoutRaise: pid=${pid}`);
-    // TODO: Implement via IPC
-    return { success: true, activated: true };
-  } catch (err) {
-    throw new SkyLightError(`Failed to activate: ${err.message}`);
-  }
+  console.log(`[skylight-bindings] activateWithoutRaise: pid=${pid}`);
+  
+  return sendRPC({
+    method: 'activateWithoutRaise',
+    pid
+  });
 }
 
 /**
@@ -57,16 +131,15 @@ async function activateWithoutRaise(pid) {
  * as remote-aware so Blink doesn't short-circuit when occluded.
  *
  * @param {number} pid - Process ID
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} {success, result?, error?}
  */
 async function keepAXTreeAlive(pid) {
-  try {
-    console.log(`[skylight-bindings] keepAXTreeAlive: pid=${pid}`);
-    // TODO: Implement via IPC
-    return { success: true, observer_set: true };
-  } catch (err) {
-    throw new SkyLightError(`Failed to set observer: ${err.message}`);
-  }
+  console.log(`[skylight-bindings] keepAXTreeAlive: pid=${pid}`);
+  
+  return sendRPC({
+    method: 'keepAXTreeAlive',
+    pid
+  });
 }
 
 /**
@@ -76,16 +149,15 @@ async function keepAXTreeAlive(pid) {
  * is treated as "trusted continuation".
  *
  * @param {number} pid - Process ID
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} {success, result?, error?}
  */
 async function primerClick(pid) {
-  try {
-    console.log(`[skylight-bindings] primerClick: pid=${pid} at (-1, -1)`);
-    // TODO: Implement via IPC
-    return { success: true, primed: true };
-  } catch (err) {
-    throw new SkyLightError(`Primer click failed: ${err.message}`);
-  }
+  console.log(`[skylight-bindings] primerClick: pid=${pid} at (-1, -1)`);
+  
+  return sendRPC({
+    method: 'primerClick',
+    pid
+  });
 }
 
 module.exports = {

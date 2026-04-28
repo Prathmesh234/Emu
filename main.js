@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
 const psProcess = require('./frontend/process/psProcess');
 const { initEmu } = require('./frontend/emu');
 const pkg = require('./package.json');
@@ -8,6 +10,82 @@ const BACKEND_URL = 'http://127.0.0.1:8000';
 
 let mainWindow;
 let borderWindow;
+
+// ── SkyLight Daemon Management ─────────────────────────────────────────────
+const DAEMON_SOCKET_PATH = '/tmp/skylight-daemon.sock';
+const DAEMON_BINARY_PATH = path.join(__dirname, 'daemon', 'skylight-daemon', 'build', 'skylight-daemon');
+
+let daemonProcess = null;
+
+function isSkylightDaemonRunning() {
+  return fs.existsSync(DAEMON_SOCKET_PATH);
+}
+
+async function startSkylightDaemon() {
+  if (isSkylightDaemonRunning()) {
+    console.log('[main] SkyLight daemon is already running');
+    return true;
+  }
+
+  if (!fs.existsSync(DAEMON_BINARY_PATH)) {
+    console.warn('[main] SkyLight daemon binary not found, skipping daemon startup');
+    return false;
+  }
+
+  try {
+    console.log('[main] Starting SkyLight daemon...');
+    daemonProcess = spawn(DAEMON_BINARY_PATH, [], {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    daemonProcess.stdout.on('data', (data) => {
+      console.log(`[daemon] ${data.toString().trim()}`);
+    });
+
+    daemonProcess.stderr.on('data', (data) => {
+      console.error(`[daemon] ${data.toString().trim()}`);
+    });
+
+    daemonProcess.on('error', (err) => {
+      console.error('[main] Failed to start daemon:', err.message);
+    });
+
+    // Wait for socket to appear (up to 2 seconds)
+    for (let i = 0; i < 20; i++) {
+      if (isSkylightDaemonRunning()) {
+        console.log('[main] ✓ SkyLight daemon is running');
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    console.warn('[main] SkyLight daemon socket did not appear');
+    return false;
+  } catch (err) {
+    console.error('[main] Error starting SkyLight daemon:', err.message);
+    return false;
+  }
+}
+
+async function stopSkylightDaemon() {
+  if (daemonProcess && !daemonProcess.killed) {
+    console.log('[main] Stopping SkyLight daemon...');
+    daemonProcess.kill('SIGTERM');
+
+    // Wait for process to exit (up to 2 seconds)
+    for (let i = 0; i < 20; i++) {
+      if (daemonProcess.killed || daemonProcess.exitCode !== null) {
+        console.log('[main] ✓ SkyLight daemon stopped');
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    console.warn('[main] Forcing daemon termination');
+    daemonProcess.kill('SIGKILL');
+  }
+}
 
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -40,9 +118,12 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Bootstrap .emu/ folder (idempotent — safe on every launch)
   initEmu(pkg.version);
+
+  // Start SkyLight daemon for coworker mode
+  await startSkylightDaemon();
 
   // Set up IPC for the desktop border
   // Border is shown only while the agent is executing.
@@ -110,8 +191,11 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   // Close WebSocket first to prevent reconnect loop, then kill PowerShell
   try { require('./frontend/services/websocket').closeWebSocket(); } catch (_) {}
   psProcess.stop();
+  
+  // Stop SkyLight daemon gracefully
+  await stopSkylightDaemon();
 });

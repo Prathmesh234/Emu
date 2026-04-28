@@ -8,7 +8,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development electron ."
+    "dev": "NODE_ENV=development electron .",
+    "build:skylight-daemon": "swiftc -o daemon/skylight-daemon/build/skylight-daemon daemon/skylight-daemon/main.swift && chmod 755 daemon/skylight-daemon/build/skylight-daemon"
   },
   "dependencies": {
     "electron": "^40.6.1"
