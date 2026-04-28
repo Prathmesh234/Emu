@@ -25,6 +25,8 @@ Then grant permissions:
 - Accessibility
 - Screen Recording
 
+For the packaged `.dmg` app flow and exact System Settings paths, see `MACOS_PERMISSIONS.md`.
+
 ## Quick start
 
 Open two terminals at repo root.
@@ -97,6 +99,8 @@ For OpenRouter, `OPENROUTER_REQUEST_TIMEOUT_SECS=60` keeps the SDK request
 timeout aligned with Emu's model-call timeout instead of the longer SDK default.
 
 ## Memory daemon setup (macOS)
+
+The daemon runs as a per-user LaunchAgent and does not need sudo, Screen Recording, Accessibility, or Full Disk Access. The desktop app itself needs Screen Recording and Accessibility for screenshots and control.
 
 If you skipped the backend prompt or want manual control:
 

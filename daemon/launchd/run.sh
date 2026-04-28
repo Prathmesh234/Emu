@@ -8,7 +8,7 @@
 # a single tick that exits.
 #
 # This file is invoked by ~/Library/LaunchAgents/com.emu.memory-daemon.plist
-# every 120 seconds. WorkingDirectory is set to the repo root by the plist.
+# every 15 minutes. WorkingDirectory is set to the repo root by the plist.
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -u

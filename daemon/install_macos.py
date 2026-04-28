@@ -3,7 +3,7 @@ install_macos.py — User-space launchd installer for the Emu Memory Daemon.
 
 Why: without OS scheduling the daemon only ticks while the backend is alive.
 With this installed, macOS's launchd fires `daemon/launchd/run.sh` every
-120s regardless of whether `backend.sh` is running.
+15 minutes regardless of whether `backend.sh` is running.
 
 Subcommands:
   install         — render plist, write to ~/Library/LaunchAgents, bootstrap it
@@ -178,7 +178,7 @@ def install() -> int:
 
     _marker_path().parent.mkdir(parents=True, exist_ok=True)
     _marker_path().write_text("installed\n", encoding="utf-8")
-    print(f"[install_macos] loaded as {LABEL} — first tick within 2 minutes")
+    print(f"[install_macos] loaded as {LABEL} — first tick within 15 minutes")
     print(f"[install_macos] logs: {_emu_root()}/global/daemon/logs/")
     return 0
 
@@ -302,7 +302,7 @@ def prompt_install() -> int:
     print(bar)
     print("  Emu Memory Daemon")
     print(bar)
-    print("  Run a small background process every 2 minutes that")
+    print("  Run a small background process every 15 minutes that")
     print("  consolidates your session memory into MEMORY.md and")
     print("  daily logs. It keeps running even when the backend is")
     print("  shut down (via macOS launchd, no sudo required).")

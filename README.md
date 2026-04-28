@@ -16,7 +16,7 @@ Emu is a desktop automation agent that combines screen understanding, LLM planni
 ### 1. Memory daemon
 
 - Daemon runs out-of-process on macOS via launchd.
-- Tick interval is 120 seconds (see `daemon/launchd/com.emu.memory-daemon.plist.template`).
+- Tick interval is 15 minutes (see `daemon/launchd/com.emu.memory-daemon.plist.template`).
 - Command entrypoint is `daemon/launchd/run.sh`.
 - Installer CLI: `python3 -m daemon.install_macos <command>`.
 
@@ -144,6 +144,7 @@ Fix:
 
 - Grant Accessibility and Screen Recording permissions.
 - Restart app after granting permissions.
+- For the packaged `.dmg` flow, see `MACOS_PERMISSIONS.md`.
 
 ### Modal deployment fails
 
@@ -188,3 +189,4 @@ Fix:
 - `daemon/DESIGN.md`
 - `HARNESS_IMPROVEMENTS.md`
 - `FRONTEND_REDESIGN.md`
+- `MACOS_PERMISSIONS.md`

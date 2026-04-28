@@ -87,7 +87,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 # ── Memory daemon ───────────────────────────────────────────────────────────
 # The memory daemon is driven by macOS launchd (see daemon/launchd/ and
 # daemon/install_macos.py), NOT by this process. That way it keeps ticking
-# every 2 minutes even when uvicorn is shut down. The backend shares the
+# on its launchd interval even when uvicorn is shut down. The backend shares the
 # same .emu/ directory with the daemon — no IPC between them.
 
 
@@ -431,6 +431,7 @@ async def agent_step(req: AgentRequest):
                 # the model to immediately continue/poll in the same turn.
                 if tc.name == "invoke_hermes" and result.startswith("Hermes job started:"):
                     hermes_started = True
+                    break
 
             if hermes_started:
                 response = AgentResponse(

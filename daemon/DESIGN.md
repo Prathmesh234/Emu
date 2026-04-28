@@ -2,7 +2,7 @@
 
 > Status: implemented and running in production code. This document remains
 > design-oriented, but the core system is now live: a launchd-driven background
-> daemon that runs `python -m daemon.run` at fixed intervals (currently 120s in
+> daemon that runs `python -m daemon.run` at fixed intervals (currently 15 minutes in
 > the launchd template) and curates `.emu/` memory files using strict path
 > policy constraints.
 >
@@ -17,7 +17,7 @@
 
 ## 1. Purpose
 
-Run the **Emu Memory Daemon** unattended on the user's Mac. Every 2 minutes it
+Run the **Emu Memory Daemon** unattended on the user's Mac. Every 15 minutes it
 wakes, scans `.emu/sessions/`, and curates the workspace memory files
 (`AGENTS.md`, `MEMORY.md`, daily logs, etc.) per the rules in
 `backend/prompts/daemon.md`.
@@ -157,7 +157,7 @@ the Emu app at install time.
     <key>Label</key>
     <string>com.emu.memory-daemon</string>
 
-    <!-- Every 2 minutes. launchd coalesces missed ticks across sleep. -->
+    <!-- Every 15 minutes. launchd coalesces missed ticks across sleep. -->
     <key>StartInterval</key>
     <integer>120</integer>
 
@@ -609,7 +609,7 @@ The app re-runs `installMemoryDaemon` to refresh the plist (paths inside the
 `launchctl unload && load` cleanly hot-swaps.
 
 The user sees a single checkbox in preferences: **"Run memory daemon in
-background every 2 minutes."** That toggle calls install/uninstall above.
+background every 15 minutes."** That toggle calls install/uninstall above.
 
 ---
 
