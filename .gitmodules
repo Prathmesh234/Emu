@@ -1,0 +1,3 @@
+[submodule "emu-driver"]
+	path = frontend/coworker-mode/emu-driver
+	url = https://github.com/Prathmesh234/emu-driver.git
