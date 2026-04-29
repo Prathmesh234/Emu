@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } = requir
 const path = require('path');
 const psProcess = require('./frontend/process/psProcess');
 const backendProcess = require('./frontend/process/backendProcess');
+const emuCuaDriverProcess = require('./frontend/process/EmuCuaDriverProcess');
 const daemonInstaller = require('./frontend/process/daemonInstaller');
 const { resolveEmuRoot } = require('./frontend/emu/root');
 const { initEmu } = require('./frontend/emu');
@@ -120,6 +121,12 @@ app.whenReady().then(() => {
       getMainWindow: () => mainWindow
   });
 
+  // Register emu-cua-driver IPC handlers (co-worker mode commands)
+  require('./frontend/cua-driver-commands').registerAll(ipcMain, {
+      callTool: emuCuaDriverProcess.callTool,
+      getMainWindow: () => mainWindow,
+  });
+
   ipcMain.handle('permissions:status', async () => {
     if (process.platform !== 'darwin') {
       return {
@@ -166,6 +173,8 @@ app.whenReady().then(() => {
   // it for every HTTP/WS call. See frontend/services/api.js.
   backendProcess.start({ app, emuRoot: EMU_ROOT });
   daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
+  // emu-cua-driver is lazy-started on first co-worker action (not here)
+  // but IPC handlers are registered up front for immediate availability.
   createWindow();
 
   app.on('activate', () => {
@@ -186,4 +195,5 @@ app.on('will-quit', () => {
   try { require('./frontend/services/websocket').closeWebSocket(); } catch (_) {}
   psProcess.stop();
   backendProcess.stop();
+  emuCuaDriverProcess.stop();
 });
