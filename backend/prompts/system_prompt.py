@@ -436,7 +436,7 @@ NEVER return these as JSON text. They are NOT desktop actions.
 These control the screen. Return them as a JSON object in your response text:
   {{"action": {{"type": "<action_type>", ...}}, "done": false, "confidence": 0.9}}
 
-  Valid action types: navigate_and_, raise_appclick, navigate_and_right_click,
+  Valid action types: navigate_and_click, navigate_and_right_click,
   navigate_and_triple_click,
   left_click, right_click, double_click, triple_click,
   mouse_move, type_text, key_press, scroll, drag, screenshot, wait, done
