@@ -236,10 +236,24 @@ async def save_provider_settings(req: ProviderSettingsRequest):
     # Persist to .env
     _update_env_file(env_updates)
 
-    # Hot-reload provider module so the new env vars take effect
+    # Hot-reload provider module so the new env vars take effect.
+    # We must reload the underlying client module(s) too — most providers
+    # capture env vars (model name, base URL, etc.) into module-level
+    # constants at import time. Reloading only the package __init__ keeps
+    # the cached client module with stale values.
     try:
         from providers.registry import _PROVIDER_MAP
         module_path = _PROVIDER_MAP[provider]
+
+        # Reload any already-loaded submodules of this provider package so
+        # module-level constants like MODEL_NAME re-read os.environ.
+        import sys
+        for sub_name in [m for m in list(sys.modules) if m == module_path or m.startswith(module_path + ".")]:
+            try:
+                importlib.reload(sys.modules[sub_name])
+            except Exception:
+                pass
+
         mod = importlib.import_module(module_path)
         importlib.reload(mod)
 

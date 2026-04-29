@@ -50,7 +50,7 @@ def handle_raise_app(app_name: str) -> str:
         return f"ERROR: raise_app failed to launch osascript: {e}"
 
     if proc.returncode == 0:
-        return f"Raised: {name}"
+        return f"{name} is raised - continue"
 
     err = (proc.stderr or "").strip() or "(no stderr)"
     return (

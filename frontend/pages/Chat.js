@@ -636,9 +636,10 @@ async function handleWsMessage(data) {
                 break;
             }
 
-            // Keep the running-emu indicator visible between steps so the
-            // assistant turn never appears blank while the agent is working.
-            ensureTypingIndicator(state.currentAssistantEl);
+            // Don't re-attach the running emu between steps — it looked goofy
+            // when actions were flowing fast (screenshot → click → screenshot).
+            // The initial runner before step 1 stays; subsequent steps just
+            // animate one after another for a clean flow.
             if (data.action) {
                 try {
                     if (data.action.type === 'screenshot') {
@@ -855,9 +856,9 @@ async function handleWsMessage(data) {
                     }
                 }
             }
-            // Re-show the running indicator when a tool event arrives during
-            // an active generation so the body never goes blank between steps.
-            ensureTypingIndicator(state.currentAssistantEl);
+            // Don't re-show the running emu between tool events either —
+            // the trace lines (file_written / skill_used / hermes traces)
+            // are enough visual feedback. Keeps the action flow clean.
             scrollToBottom();
             break;
         }

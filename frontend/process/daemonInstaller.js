@@ -83,17 +83,23 @@ function _runInstallerCommand({ app, emuRoot, command }) {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
+        // Echo the child's output to the parent terminal only for commands
+        // the human likely wants to see (install/repair). `status` is polled
+        // by the Settings panel every time it opens — echoing its verbose
+        // `launchctl print` + last-3-ticks output spams the backend log.
+        const echo = command !== 'status';
+
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (d) => {
             const text = d.toString();
             stdout += text;
-            process.stdout.write(`[daemon-install] ${text}`);
+            if (echo) process.stdout.write(`[daemon-install] ${text}`);
         });
         child.stderr.on('data', (d) => {
             const text = d.toString();
             stderr += text;
-            process.stderr.write(`[daemon-install] ${text}`);
+            if (echo) process.stderr.write(`[daemon-install] ${text}`);
         });
         child.on('error', (err) => {
             resolve({ ok: false, skipped: false, stdout, stderr: stderr || err.message });

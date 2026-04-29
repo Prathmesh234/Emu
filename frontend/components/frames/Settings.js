@@ -47,7 +47,7 @@ function Settings({ onClose }) {
     // Section: Account
     body.appendChild(_section('Account'));
     const group1 = _group();
-    group1.appendChild(_row('User', _displayName()));
+    group1.appendChild(_row('User', _displayName()).row);
     body.appendChild(group1);
 
     // Section: Behavior
