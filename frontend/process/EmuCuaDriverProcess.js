@@ -1,4 +1,4 @@
-// frontend/process/cuaDriverProcess.js
+// frontend/process/EmuCuaDriverProcess.js
 //
 // Lifecycle for the emu-cua-driver MCP stdio child process.
 // (Our fork of cua-driver, customized for Emu)

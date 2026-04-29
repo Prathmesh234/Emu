@@ -153,26 +153,27 @@ The Emu memory daemon is unchanged by this spec — it keeps running on its 120-
 
 ---
 
-## 4. cua-driver — what it is and how it runs
+## 4. emu-cua-driver — what it is and how it runs
 
 ### 4.1 The binary
 
-cua-driver ships as `CuaDriver.app` containing a single binary at `Contents/MacOS/cua-driver`. The official installer:
+emu-cua-driver ships as `EmuCuaDriver.app` containing a single binary at `Contents/MacOS/emu-cua-driver`. The fork is installed from:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
+# From the forked repo at frontend/coworker-mode/emu-driver/
+npm run build    # generates EmuCuaDriver.app
 ```
 
-…installs `/Applications/CuaDriver.app` and symlinks `~/.local/bin/cua-driver`.
+…installs `/Applications/EmuCuaDriver.app` and symlinks `~/.local/bin/emu-cua-driver`.
 
-### 4.2 Subcommands we care about (from `Sources/CuaDriverCLI/CuaDriverCommand.swift`)
+### 4.2 Subcommands we care about (from `Sources/EmuCuaDriverCLI/EmuCuaDriverCommand.swift`)
 
 ```
-cua-driver mcp                   # MCP stdio server — persistent, what Emu spawns
-cua-driver call <tool> <json>    # one-shot; auto-forwards to running daemon
-cua-driver list-tools            # tool catalog
-cua-driver serve                 # background daemon w/ Unix socket (optional)
-cua-driver check_permissions     # verify AX + Screen Recording grants
+emu-cua-driver mcp                   # MCP stdio server — persistent, what Emu spawns
+emu-cua-driver call <tool> <json>    # one-shot; auto-forwards to running daemon
+emu-cua-driver list-tools            # tool catalog
+emu-cua-driver serve                 # background daemon w/ Unix socket (optional)
+emu-cua-driver check_permissions     # verify AX + Screen Recording grants
 ```
 
 ### 4.3 Tools the co-worker mode uses
@@ -252,14 +253,14 @@ function _resolveBackendCommand(app) {
 }
 ```
 
-### 5.2 New file: `frontend/process/cuaDriverProcess.js`
+### 5.2 New file: `frontend/process/EmuCuaDriverProcess.js`
 
-Owns the cua-driver subprocess — start, stop, MCP request/response over stdio, restart on crash. Started from `main.js` next to `backendProcess.start(...)`.
+Owns the emu-cua-driver subprocess — start, stop, MCP request/response over stdio, restart on crash. Started from `main.js` next to `backendProcess.start(...)`.
 
 ```js
-// frontend/process/cuaDriverProcess.js
+// frontend/process/EmuCuaDriverProcess.js
 //
-// Lifecycle for the cua-driver MCP stdio child process.
+// Lifecycle for the emu-cua-driver MCP stdio child process.
 // Started in co-worker mode only (lazy: spawned on first co-worker step
 // in a session, kept alive until the app quits).
 
@@ -275,12 +276,12 @@ let _stdoutBuf = '';
 
 function _resolveBinary(app) {
     if (app && app.isPackaged) {
-        const p = path.join(process.resourcesPath, 'cua-driver', 'cua-driver');
+        const p = path.join(process.resourcesPath, 'emu-cua-driver', 'emu-cua-driver');
         if (fs.existsSync(p)) return p;
     }
-    const local = path.join(os.homedir(), '.local', 'bin', 'cua-driver');
+    const local = path.join(os.homedir(), '.local', 'bin', 'emu-cua-driver');
     if (fs.existsSync(local)) return local;
-    const appBin = '/Applications/CuaDriver.app/Contents/MacOS/cua-driver';
+    const appBin = '/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver';
     if (fs.existsSync(appBin)) return appBin;
     return null;
 }
@@ -289,11 +290,11 @@ function start({ app }) {
     if (_child) return true;
     const bin = _resolveBinary(app);
     if (!bin) {
-        console.warn('[cua-driver] binary not found — co-worker mode unavailable');
+        console.warn('[emu-cua-driver] binary not found — co-worker mode unavailable');
         return false;
     }
 
-    console.log(`[cua-driver] spawning ${bin} mcp`);
+    console.log(`[emu-cua-driver] spawning ${bin} mcp`);
     _child = spawn(bin, ['mcp'], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     _child.stdout.setEncoding('utf8');
@@ -310,21 +311,21 @@ function start({ app }) {
                 if (pending) {
                     _pending.delete(msg.id);
                     clearTimeout(pending.timeout);
-                    if (msg.error) pending.reject(new Error(msg.error.message || 'cua-driver error'));
+                    if (msg.error) pending.reject(new Error(msg.error.message || 'emu-cua-driver error'));
                     else           pending.resolve(msg.result);
                 }
             } catch (err) {
-                console.warn('[cua-driver] non-JSON stdout line:', line);
+                console.warn('[emu-cua-driver] non-JSON stdout line:', line);
             }
         }
     });
-    _child.stderr.on('data', (d) => process.stderr.write(`[cua-driver] ${d}`));
+    _child.stderr.on('data', (d) => process.stderr.write(`[emu-cua-driver] ${d}`));
     _child.on('exit', (code, signal) => {
-        console.warn(`[cua-driver] exited code=${code} signal=${signal}`);
+        console.warn(`[emu-cua-driver] exited code=${code} signal=${signal}`);
         _child = null;
         for (const { reject, timeout } of _pending.values()) {
             clearTimeout(timeout);
-            reject(new Error('cua-driver exited'));
+            reject(new Error('emu-cua-driver exited'));
         }
         _pending.clear();
     });
@@ -339,7 +340,7 @@ function start({ app }) {
             capabilities: {},
             clientInfo: { name: 'emu', version: require('../../package.json').version },
         },
-    }).catch((err) => console.warn('[cua-driver] initialize failed:', err.message));
+    }).catch((err) => console.warn('[emu-cua-driver] initialize failed:', err.message));
 
     return true;
 }
@@ -352,11 +353,11 @@ function stop() {
 
 function _send(msg, timeoutMs = 15_000) {
     return new Promise((resolve, reject) => {
-        if (!_child) return reject(new Error('cua-driver not running'));
+        if (!_child) return reject(new Error('emu-cua-driver not running'));
         const id = msg.id;
         const timeout = setTimeout(() => {
             _pending.delete(id);
-            reject(new Error(`cua-driver request ${msg.method} timed out`));
+            reject(new Error(`emu-cua-driver request ${msg.method} timed out`));
         }, timeoutMs);
         _pending.set(id, { resolve, reject, timeout });
         _child.stdin.write(JSON.stringify(msg) + '\n');
@@ -365,7 +366,7 @@ function _send(msg, timeoutMs = 15_000) {
 
 async function callTool(name, args) {
     if (!_child) start({ app: require('electron').app });
-    if (!_child) throw new Error('cua-driver unavailable');
+    if (!_child) throw new Error('emu-cua-driver unavailable');
     return _send({
         jsonrpc: '2.0',
         id: _nextId++,
@@ -383,20 +384,20 @@ Add to the `app.whenReady().then(...)` block in `main.js`, alongside `backendPro
 
 ```js
 // main.js — additions inside app.whenReady()
-const cuaDriverProcess = require('./frontend/process/cuaDriverProcess');
+const emuCuaDriverProcess = require('./frontend/process/EmuCuaDriverProcess');
 // (lazy — don't start until first co-worker step). But register IPC up front:
 require('./frontend/cua-driver-commands').registerAll(ipcMain, {
-    callTool: cuaDriverProcess.callTool,
+    callTool: emuCuaDriverProcess.callTool,
     getMainWindow: () => mainWindow,
 });
 ```
 
 And in `app.on('will-quit', ...)`:
 ```js
-cuaDriverProcess.stop();
+emuCuaDriverProcess.stop();
 ```
 
-The cua-driver child is **lazy-started** the first time a co-worker action is dispatched (via `cuaDriverProcess.callTool` calling `start()` if not already running). This means a user who only runs in remote mode never spawns it.
+The emu-cua-driver child is **lazy-started** the first time a co-worker action is dispatched (via `emuCuaDriverProcess.callTool` calling `start()` if not already running). This means a user who only runs in remote mode never spawns it.
 
 ---
 
@@ -450,7 +451,7 @@ async function executeAction(action, stepEl) {
 
 ### 6.3 `frontend/cua-driver-commands/actionProxy.js` (sibling of `frontend/actions/actionProxy.js`)
 
-Same shape: `ACTION_MAP` keyed on backend `ActionType` strings, each entry's `dispatch()` calls into `cuaDriverProcess.callTool(...)` via IPC.
+Same shape: `ACTION_MAP` keyed on backend `ActionType` strings, each entry's `dispatch()` calls into `emuCuaDriverProcess.callTool(...)` via IPC.
 
 ```js
 // frontend/cua-driver-commands/actionProxy.js
@@ -458,39 +459,39 @@ const { ipcRenderer } = require('electron');
 
 const ACTION_MAP = {
     screenshot: {
-        label: 'Screenshot', icon: '📸', ipc: 'cua:screenshot',
-        dispatch: async (a) => ipcRenderer.invoke('cua:screenshot', { window_id: a.window_id }),
+        label: 'Screenshot', icon: '📸', ipc: 'emu-cua:screenshot',
+        dispatch: async (a) => ipcRenderer.invoke('emu-cua:screenshot', { window_id: a.window_id }),
         describe: () => 'Capture window screenshot',
     },
     left_click: {
-        label: 'Left Click', icon: '🖱️', ipc: 'cua:click',
-        dispatch: async (a) => ipcRenderer.invoke('cua:click', _clickArgs(a)),
+        label: 'Left Click', icon: '🖱️', ipc: 'emu-cua:click',
+        dispatch: async (a) => ipcRenderer.invoke('emu-cua:click', _clickArgs(a)),
         describe: (a) => a.element_index != null
             ? `Left click on element [${a.element_index}]`
             : `Left click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
     },
     right_click: {
-        label: 'Right Click', icon: '🖱️', ipc: 'cua:right-click',
-        dispatch: async (a) => ipcRenderer.invoke('cua:right-click', _clickArgs(a)),
+        label: 'Right Click', icon: '🖱️', ipc: 'emu-cua:right-click',
+        dispatch: async (a) => ipcRenderer.invoke('emu-cua:right-click', _clickArgs(a)),
         describe: () => 'Right click',
     },
     double_click: {
-        label: 'Double Click', icon: '🖱️', ipc: 'cua:double-click',
-        dispatch: async (a) => ipcRenderer.invoke('cua:double-click', _clickArgs(a)),
+        label: 'Double Click', icon: '🖱️', ipc: 'emu-cua:double-click',
+        dispatch: async (a) => ipcRenderer.invoke('emu-cua:double-click', _clickArgs(a)),
         describe: () => 'Double click',
     },
     // navigate_and_click → just left_click (no cursor move in co-worker mode)
     navigate_and_click: {
-        label: 'Click', icon: '🖱️', ipc: 'cua:click',
-        dispatch: async (a) => ipcRenderer.invoke('cua:click', _clickArgs(a)),
+        label: 'Click', icon: '🖱️', ipc: 'emu-cua:click',
+        dispatch: async (a) => ipcRenderer.invoke('emu-cua:click', _clickArgs(a)),
         describe: (a) => a.element_index != null
             ? `Click element [${a.element_index}]`
             : `Click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
     },
     navigate_and_right_click: { /* same pattern */ },
     scroll: {
-        label: 'Scroll', icon: '📜', ipc: 'cua:scroll',
-        dispatch: (a) => ipcRenderer.invoke('cua:scroll', {
+        label: 'Scroll', icon: '📜', ipc: 'emu-cua:scroll',
+        dispatch: (a) => ipcRenderer.invoke('emu-cua:scroll', {
             pid: a.pid,
             direction: a.direction,
             amount: a.amount || 3,
@@ -501,8 +502,8 @@ const ACTION_MAP = {
     },
     horizontal_scroll: { /* same with direction left/right */ },
     type_text: {
-        label: 'Type', icon: '⌨️', ipc: 'cua:type',
-        dispatch: (a) => ipcRenderer.invoke('cua:type', {
+        label: 'Type', icon: '⌨️', ipc: 'emu-cua:type',
+        dispatch: (a) => ipcRenderer.invoke('emu-cua:type', {
             pid: a.pid,
             text: a.text,
             element_index: a.element_index,
@@ -510,8 +511,8 @@ const ACTION_MAP = {
         describe: (a) => `Type "${a.text}"`,
     },
     key_press: {
-        label: 'Key Press', icon: '⌨️', ipc: 'cua:hotkey',
-        dispatch: (a) => ipcRenderer.invoke('cua:hotkey', {
+        label: 'Key Press', icon: '⌨️', ipc: 'emu-cua:hotkey',
+        dispatch: (a) => ipcRenderer.invoke('emu-cua:hotkey', {
             pid: a.pid,
             keys: [...(a.modifiers || []), a.key],
         }),
@@ -557,7 +558,7 @@ module.exports = { ACTION_MAP, dispatchAction };
 ```js
 // frontend/cua-driver-commands/index.js
 //
-// Registers IPC handlers that thin-wrap cuaDriverProcess.callTool().
+// Registers IPC handlers that thin-wrap emuCuaDriverProcess.callTool().
 // Each handler: parse args, call MCP tool, map result.
 
 function registerAll(ipcMain, deps) {
@@ -572,16 +573,16 @@ function registerAll(ipcMain, deps) {
         }
     };
 
-    ipcMain.handle('cua:screenshot',   wrap('screenshot'));
-    ipcMain.handle('cua:click',        wrap('click'));
-    ipcMain.handle('cua:right-click',  wrap('right_click'));
-    ipcMain.handle('cua:double-click', wrap('double_click'));
-    ipcMain.handle('cua:scroll',       wrap('scroll'));
-    ipcMain.handle('cua:type',         wrap('type_text'));
-    ipcMain.handle('cua:hotkey',       wrap('hotkey'));
-    ipcMain.handle('cua:list-apps',    wrap('list_apps'));
-    ipcMain.handle('cua:launch-app',   wrap('launch_app'));
-    ipcMain.handle('cua:get-window-state', wrap('get_window_state'));
+    ipcMain.handle('emu-cua:screenshot',   wrap('screenshot'));
+    ipcMain.handle('emu-cua:click',        wrap('click'));
+    ipcMain.handle('emu-cua:right-click',  wrap('right_click'));
+    ipcMain.handle('emu-cua:double-click', wrap('double_click'));
+    ipcMain.handle('emu-cua:scroll',       wrap('scroll'));
+    ipcMain.handle('emu-cua:type',         wrap('type_text'));
+    ipcMain.handle('emu-cua:hotkey',       wrap('hotkey'));
+    ipcMain.handle('emu-cua:list-apps',    wrap('list_apps'));
+    ipcMain.handle('emu-cua:launch-app',   wrap('launch_app'));
+    ipcMain.handle('emu-cua:get-window-state', wrap('get_window_state'));
 }
 
 function _summarize(result) {
@@ -597,7 +598,7 @@ module.exports = { registerAll };
 
 ### 6.5 Screenshot path divergence
 
-In **remote** mode, screenshots come from Electron's `desktopCapturer` (`frontend/actions/screenshot.js`). In **co-worker** mode they come from `cua:screenshot` (cua-driver), which captures **only the target window**, occluded-safe, no user-cursor pollution.
+In **remote** mode, screenshots come from Electron's `desktopCapturer` (`frontend/actions/screenshot.js`). In **co-worker** mode they come from `emu-cua:screenshot` (emu-cua-driver), which captures **only the target window**, occluded-safe, no user-cursor pollution.
 
 The renderer's screenshot caller must branch on mode the same way `executor.js` does. Cleanest spot: wherever the renderer currently calls `captureScreenshot()` to build the `base64_screenshot` payload for `postStep()`. Add a thin wrapper:
 
@@ -609,7 +610,7 @@ const { ipcRenderer } = require('electron');
 
 async function captureForStep(sessionTarget /* { pid, window_id } | null */) {
     if (store.state.agentMode === 'coworker' && sessionTarget?.window_id) {
-        const r = await ipcRenderer.invoke('cua:screenshot', {
+        const r = await ipcRenderer.invoke('emu-cua:screenshot', {
             window_id: sessionTarget.window_id,
             return_image: true,
         });
@@ -620,7 +621,7 @@ async function captureForStep(sessionTarget /* { pid, window_id } | null */) {
 module.exports = { captureForStep };
 ```
 
-`cua:screenshot` IPC handler (`cua-driver-commands/index.js`) needs an extra branch when `return_image: true` to extract the image content block from the MCP result and base64-encode it. cua-driver's MCP `screenshot` tool returns the PNG as an image content block:
+`emu-cua:screenshot` IPC handler (`cua-driver-commands/index.js`) needs an extra branch when `return_image: true` to extract the image content block from the MCP result and base64-encode it. emu-cua-driver's MCP `screenshot` tool returns the PNG as an image content block:
 ```js
 const imgBlock = result.content.find(c => c.type === 'image');
 return { success: true, base64: imgBlock?.data, output: _summarize(result) };
@@ -630,18 +631,18 @@ return { success: true, base64: imgBlock?.data, output: _summarize(result) };
 
 ## 7. Backend changes
 
-### 7.1 New file: `backend/prompts/coworker_system_prompt.py`
+### 7.1 New file: `backend/prompts/emu_coworker_system_prompt.py`
 
 Skeleton:
 
 ```py
 """
-backend/prompts/coworker_system_prompt.py
+backend/prompts/emu_coworker_system_prompt.py
 
 System prompt for co-worker mode. Differs from the default prompt in:
 
   - Tool surface: model addresses windows by (pid, window_id) and AX nodes
-    by element_index (from cua-driver's screenshot/get_window_state SOM
+    by element_index (from emu-cua-driver's screenshot/get_window_state SOM
     output) instead of normalized [0,1] pixel coordinates.
   - No cursor semantics: there is no shared cursor; "navigate then click"
     becomes a single click.
@@ -654,20 +655,20 @@ System prompt for co-worker mode. Differs from the default prompt in:
 
 from datetime import datetime
 
-def build_coworker_system_prompt(
+def build_emu_coworker_system_prompt(
     workspace_context: str = "",
     session_id: str = "",
     device_details: dict | None = None,
 ) -> str:
     today = datetime.now().strftime("%A, %B %d, %Y")
     now = datetime.now().strftime("%H:%M")
-    return _COWORKER_BASE.format(
+    return _EMU_COWORKER_BASE.format(
         today=today, now=now, session_id=session_id,
         workspace_context=workspace_context,
         device_block=_format_device(device_details),
     )
 
-_COWORKER_BASE = """\
+_EMU_COWORKER_BASE = """\
 You are Emu in CO-WORKER mode. The user is working alongside you in a
 DIFFERENT window. Your actions must NOT move their cursor, raise the
 target window to the foreground, or steal keyboard focus.
@@ -728,8 +729,8 @@ def build_system_prompt(
     if hermes_setup_mode:
         # ... unchanged
     if agent_mode == "coworker":
-        from .coworker_system_prompt import build_coworker_system_prompt
-        return build_coworker_system_prompt(
+        from .emu_coworker_system_prompt import build_emu_coworker_system_prompt
+        return build_emu_coworker_system_prompt(
             workspace_context=workspace_context,
             session_id=session_id,
             device_details=device_details,
@@ -783,11 +784,11 @@ def handle_raise_app(app_name: str, agent_mode: str = "remote") -> str:
         return f"{app_name} is raised - continue"
 
     # Co-worker mode: also resolve {pid, window_id} via NSRunningApplication
-    # + AX. Cheapest path: shell out to cua-driver `call list_apps`, then
+    # + AX. Cheapest path: shell out to emu-cua-driver `call list_apps`, then
     # filter by name. Match name case-insensitively.
     try:
         import shutil
-        bin = shutil.which("cua-driver") or "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+        bin = shutil.which("emu-cua-driver") or "/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver"
         out = subprocess.run([bin, "call", "list_apps", "--compact"],
                              capture_output=True, text=True, timeout=5)
         apps = json.loads(out.stdout)  # exact shape: see ListAppsTool
@@ -816,7 +817,7 @@ Add a new tool `list_running_apps`:
 import subprocess, shutil, json
 
 def handle_list_running_apps() -> str:
-    bin = shutil.which("cua-driver") or "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+    bin = shutil.which("emu-cua-driver") or "/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver"
     out = subprocess.run([bin, "call", "list_apps", "--compact"],
                          capture_output=True, text=True, timeout=5)
     if out.returncode != 0:
@@ -876,37 +877,38 @@ python3 -m daemon.install_macos run-now
 python3 -m daemon.install_macos uninstall
 ```
 
-### 10.2 cua-driver MCP child process (new)
+### 10.2 emu-cua-driver MCP child process (new)
 
 **Not a launchd daemon.** Owned by Electron main, lifecycle = app lifecycle. Lazy-started on first co-worker action; killed on `app.will-quit`.
 
-**Dev one-time setup** (the developer installs cua-driver on their machine; Emu picks it up):
+**Dev one-time setup** (the developer installs emu-cua-driver on their machine; Emu picks it up):
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
-cua-driver check_permissions    # grant Accessibility + Screen Recording when prompted
+# From frontend/coworker-mode/emu-driver/
+npm run build    # generates EmuCuaDriver.app in /Applications/
+emu-cua-driver check_permissions    # grant Accessibility + Screen Recording when prompted
 ```
 
 **Verify it works standalone:**
 ```bash
-cua-driver list-tools
-cua-driver call list_apps
+emu-cua-driver list-tools
+emu-cua-driver call list_apps
 ```
 
 **Inside Emu (dev run):**
 ```bash
-npm run dev    # spawns Electron → Emu starts backend → on first co-worker step, spawns cua-driver mcp
+npm run dev    # spawns Electron → Emu starts backend → on first co-worker step, spawns emu-cua-driver mcp
 ```
 
 **Manual smoke test of the MCP child the way Emu spawns it:**
 ```bash
-cua-driver mcp
+emu-cua-driver mcp
 # then on stdin paste a tools/call JSON-RPC envelope:
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_apps","arguments":{}}}
 ```
 
-### 10.3 Optional: `cua-driver serve` background daemon
+### 10.3 Optional: `emu-cua-driver serve` background daemon
 
-cua-driver has a **separate** `serve` mode (not what we use). It runs as a background daemon with a Unix socket so multiple short-lived `cua-driver call` invocations share AppStateRegistry across runs. **We don't need this** — Emu owns a long-lived `cua-driver mcp` child, so element_index state is already coherent within our process. Document for awareness only.
+emu-cua-driver has a **separate** `serve` mode (not what we use). It runs as a background daemon with a Unix socket so multiple short-lived `emu-cua-driver call` invocations share AppStateRegistry across runs. **We don't need this** — Emu owns a long-lived `emu-cua-driver mcp` child, so element_index state is already coherent within our process. Document for awareness only.
 
 ---
 
@@ -957,13 +959,13 @@ To eliminate ambiguity: every one of these stays byte-identical between modes.
 - `backend/models/response.py` — add optional `pid`/`window_id`/`element_index` action fields.
 
 **New files:**
-- `frontend/process/cuaDriverProcess.js`
+- `frontend/process/EmuCuaDriverProcess.js`
 - `frontend/cua-driver-commands/index.js`
 - `frontend/cua-driver-commands/actionProxy.js`
 - `frontend/services/captureForStep.js`
-- `backend/prompts/coworker_system_prompt.py`
+- `backend/prompts/emu_coworker_system_prompt.py`
 - `backend/tools/list_running_apps.py`
-- (packaging) `Resources/cua-driver/cua-driver` binary + (post-v1) `cua-driver.entitlements`
+- (packaging) `Resources/emu-cua-driver/emu-cua-driver` binary + (post-v1) `emu-cua-driver.entitlements`
 
 ---
 
@@ -971,26 +973,26 @@ To eliminate ambiguity: every one of these stays byte-identical between modes.
 
 | Failure | Behavior |
 |---|---|
-| cua-driver binary missing on dev machine | `cuaDriverProcess.start()` returns false; co-worker actions fail with `"cua-driver unavailable"`. Surface a one-time toast: "Install cua-driver: `/bin/bash -c "$(curl …/install.sh)"`". Mode stays selectable so the user can run `check_permissions` and retry. |
-| cua-driver child crashes mid-step | `_child.on('exit')` clears `_pending` with reject. The step's IPC returns `{success:false, error:'cua-driver exited'}`. Trace card shows `failed`. Next call lazy-restarts the process. |
+| emu-cua-driver binary missing on dev machine | `emuCuaDriverProcess.start()` returns false; co-worker actions fail with `"emu-cua-driver unavailable"`. Surface a one-time toast: "Install emu-cua-driver: build from `frontend/coworker-mode/emu-driver`". Mode stays selectable so the user can run `check_permissions` and retry. |
+| emu-cua-driver child crashes mid-step | `_child.on('exit')` clears `_pending` with reject. The step's IPC returns `{success:false, error:'emu-cua-driver exited'}`. Trace card shows `failed`. Next call lazy-restarts the process. |
 | AX permission denied at runtime | `tools/call` returns `isError:true` with text "Accessibility not granted". IPC handler returns `{success:false, error}`. Trace shows `failed`. User opens existing permissions UI and grants; next step succeeds without restart. |
-| Element_index stale after layout change | cua-driver returns an error indicating index miss. Model retries with a fresh `screenshot` / `get_window_state` snapshot. Same retry loop today's prompt already encodes for misses. |
-| Chromium right-click on web content | cua-driver coerces to left-click silently (documented limitation). Co-worker prompt explicitly tells the model to use AX-indexed right-click on addressable elements only. |
+| Element_index stale after layout change | emu-cua-driver returns an error indicating index miss. Model retries with a fresh `screenshot` / `get_window_state` snapshot. Same retry loop today's prompt already encodes for misses. |
+| Chromium right-click on web content | emu-cua-driver coerces to left-click silently (documented limitation). Co-worker prompt explicitly tells the model to use AX-indexed right-click on addressable elements only. |
 | Canvas-app click (Blender/games) | Pixel fallback. Co-worker prompt directs the model to the `{pid, window_id, x, y}` shape for these apps and warns: this **does** require brief frontmost activation. |
 
 ---
 
 ## 14. Implementation order (suggested)
 
-1. **Bring up cua-driver locally** — install, run `check_permissions`, run `cua-driver mcp` and exchange a `tools/call list_apps` over stdin.
-2. **`cuaDriverProcess.js`** — get the spawn + JSON-RPC pump green with a unit-style test.
+1. **Bring up emu-cua-driver locally** — build from fork, run `check_permissions`, run `emu-cua-driver mcp` and exchange a `tools/call list_apps` over stdin.
+2. **`EmuCuaDriverProcess.js`** — get the spawn + JSON-RPC pump green with a unit-style test.
 3. **`cua-driver-commands/index.js` + `actionProxy.js`** — wire the IPC handlers, smoke-test each one with a hand-crafted action object.
 4. **`executor.js` branch** + `captureForStep.js`. Now the frontend can run co-worker actions end-to-end if the model emits the right shapes.
-5. **`coworker_system_prompt.py`** + `build_system_prompt(agent_mode=…)` plumbing. Now the backend produces co-worker shaped actions.
+5. **`emu_coworker_system_prompt.py`** + `build_system_prompt(agent_mode=…)` plumbing. Now the backend produces co-worker shaped actions.
 6. **`raise_app` JSON return** + `list_running_apps` tool.
 7. **`response.py` action shape extension** for `pid`/`window_id`/`element_index`.
 8. **End-to-end test:** "Open Chrome and search for ICML 2026" with the user typing in another window. Verify cursor doesn't move and Chrome doesn't raise.
-9. **Packaging:** add `extraResources` for the cua-driver binary in `electron-builder` config; verify packaged app spawns the bundled binary.
+9. **Packaging:** add `extraResources` for the emu-cua-driver binary in `electron-builder` config; verify packaged app spawns the bundled binary.
 10. **(Deferred to public release)** Notarization + entitlements for the embedded binary.
 
 ---

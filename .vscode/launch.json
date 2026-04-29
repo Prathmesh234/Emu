@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Emu}/frontend/coworker-mode/emu-driver",
+            "name": "Debug cua-driver (frontend/coworker-mode/emu-driver)",
+            "target": "cua-driver",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug cua-driver (frontend/coworker-mode/emu-driver)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Emu}/frontend/coworker-mode/emu-driver",
+            "name": "Release cua-driver (frontend/coworker-mode/emu-driver)",
+            "target": "cua-driver",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release cua-driver (frontend/coworker-mode/emu-driver)"
+        }
+    ]
+}
