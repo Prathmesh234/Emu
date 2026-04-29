@@ -1,6 +1,7 @@
 // frontend/process/cuaDriverProcess.js
 //
-// Lifecycle for the cua-driver MCP stdio child process.
+// Lifecycle for the emu-cua-driver MCP stdio child process.
+// (Our fork of cua-driver, customized for Emu)
 // Spawned lazily on first co-worker action, killed on app quit.
 // Handles JSON-RPC 2.0 request/response matching over stdio.
 
@@ -19,18 +20,18 @@ let _stdoutBuf = '';
 // ============================================================================
 
 function _resolveBinary(app) {
-  // Priority 1: Bundled inside app
+  // Priority 1: Bundled inside app (emu-cua-driver fork)
   if (app && app.isPackaged) {
-    const bundled = path.join(process.resourcesPath, 'cua-driver', 'cua-driver');
+    const bundled = path.join(process.resourcesPath, 'emu-cua-driver', 'emu-cua-driver');
     if (fs.existsSync(bundled)) return bundled;
   }
 
   // Priority 2: ~/.local/bin (from curl install)
-  const local = path.join(os.homedir(), '.local', 'bin', 'cua-driver');
+  const local = path.join(os.homedir(), '.local', 'bin', 'emu-cua-driver');
   if (fs.existsSync(local)) return local;
 
-  // Priority 3: /Applications/CuaDriver.app
-  const app_bin = '/Applications/CuaDriver.app/Contents/MacOS/cua-driver';
+  // Priority 3: /Applications/EmuCuaDriver.app (unlikely, but check)
+  const app_bin = '/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver';
   if (fs.existsSync(app_bin)) return app_bin;
 
   return null;
@@ -45,11 +46,11 @@ function start({ app }) {
 
   const bin = _resolveBinary(app);
   if (!bin) {
-    console.warn('[cua-driver] binary not found');
+    console.warn('[emu-cua-driver] binary not found');
     return false;
   }
 
-  console.log(`[cua-driver] spawning: ${bin} mcp`);
+  console.log(`[emu-cua-driver] spawning: ${bin} mcp`);
   _child = spawn(bin, ['mcp'], { stdio: ['pipe', 'pipe', 'pipe'] });
 
   _child.stdout.setEncoding('utf8');
@@ -59,13 +60,13 @@ function start({ app }) {
   });
 
   _child.stderr.on('data', (chunk) => {
-    console.error(`[cua-driver stderr] ${chunk}`);
+    console.error(`[emu-cua-driver stderr] ${chunk}`);
   });
 
   _child.on('exit', (code) => {
-    console.log(`[cua-driver] exited with code ${code}`);
+    console.log(`[emu-cua-driver] exited with code ${code}`);
     _child = null;
-    _clearPending('cua-driver exited');
+    _clearPending('emu-cua-driver exited');
   });
 
   return true;
@@ -73,11 +74,11 @@ function start({ app }) {
 
 function stop() {
   if (_child) {
-    console.log('[cua-driver] stopping');
+    console.log('[emu-cua-driver] stopping');
     _child.kill();
     _child = null;
   }
-  _clearPending('cua-driver stopped');
+  _clearPending('emu-cua-driver stopped');
 }
 
 // ============================================================================
@@ -87,7 +88,7 @@ function stop() {
 function callTool(toolName, args = {}) {
   return new Promise((resolve, reject) => {
     if (!_child) {
-      return reject(new Error('cua-driver not running'));
+      return reject(new Error('emu-cua-driver not running'));
     }
 
     const id = _nextId++;
@@ -103,7 +104,7 @@ function callTool(toolName, args = {}) {
 
     const timeout = setTimeout(() => {
       _pending.delete(id);
-      reject(new Error(`cua-driver timeout (15s): ${toolName}`));
+      reject(new Error(`emu-cua-driver timeout (15s): ${toolName}`));
     }, 15000);
 
     _pending.set(id, { resolve, reject, timeout });
@@ -150,7 +151,7 @@ function _processStdout() {
         }
       }
     } catch (err) {
-      console.error(`[cua-driver] parse error: ${err.message}`);
+      console.error(`[emu-cua-driver] parse error: ${err.message}`);
     }
   }
 }
