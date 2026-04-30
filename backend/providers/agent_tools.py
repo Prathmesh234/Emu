@@ -528,7 +528,13 @@ AGENT_TOOLS_OPENAI = [
                 "Limitations: cannot raise the login window or pick a specific "
                 "window by title (raises the most recently used window of the "
                 "app). Citrix Viewer is known not to accept clicks even after "
-                "being raised."
+                "being raised.\n\n"
+                "In coworker mode this routes to the emu-cua-driver's hidden "
+                "`launch_app` instead of `osascript activate` — it returns "
+                "`{pid, bundle_id, name, windows: […]}` JSON without raising "
+                "a window or stealing focus, satisfying the no-foreground "
+                "contract. Use the returned `pid` and `windows[0].window_id` "
+                "as the target for subsequent `cua_*` calls."
             ),
             "parameters": {
                 "type": "object",

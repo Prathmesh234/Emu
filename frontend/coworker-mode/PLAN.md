@@ -352,21 +352,38 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 
 
 ### Phase 5 — Backend Tools (raise_app + list_running_apps)
-**Outcome:** Model has structured discovery primitives that return real `pid`/`window_id` values.
+**Status:** ✅ Finished — `raise_app` is mode-aware, target tracking fires on coworker raises, and `list_running_apps` is exposed via the existing `cua_*` dispatch arm.
 
-5.1 `backend/tools/raise_app.py` — branch on `agent_mode`:
-   - `"remote"`: keep current osascript `activate` behavior, return string.
-   - `"coworker"`: **do not use `osascript activate`**. Shell out to `emu-cua-driver call launch_app '{"name":"..."}'` (or call MCP via a thin Python helper). Return JSON: `{"pid": ..., "windows": [{"window_id": ..., "title": ...}, ...]}`. This preserves the no-foreground contract; do not copy the spec skeleton's remote-mode osascript behavior into the coworker path.
+**Outcome:** Model has structured discovery primitives that return real `pid`/`window_id` values without ever stealing the foreground in coworker mode.
 
-5.2 `backend/tools/list_running_apps.py` — new, ~10 lines. Wraps `emu-cua-driver call list_apps`. Returns `{"apps": [{"name", "pid", "front_window_id", "bundle_id"}, ...]}`.
+**Completed (2026-04-30):**
 
-5.3 `backend/tools/dispatcher.py`:
-   - Import `handle_list_running_apps`.
-   - Register name `list_running_apps` in the `elif name == ...` chain.
-   - Update the tool catalog string at line ~178 to advertise it.
-   - Thread `agent_mode` through `dispatch_tool(...)` so `raise_app` can branch.
+5.1 ✅ `backend/tools/raise_app.py` — `handle_raise_app(app_name, agent_mode="remote")` now branches:
+   - `agent_mode == "remote"` → existing `osascript activate` path, byte-identical (factored into `_raise_via_osascript` so the validation guard is shared).
+   - `agent_mode == "coworker"` → `_raise_via_driver` calls `call_driver_tool("launch_app", {"name": app_name})` and returns the driver's structured JSON (`{pid, bundle_id, name, windows: [...]}`) on success, or a structured `ERROR: coworker raise_app failed to launch '<name>': <reason>` on driver failure. **Never invokes osascript in coworker mode** — preserves the no-foreground contract.
 
-5.4 Decide whether to use a Python MCP client or shell out. Recommendation: shell out via `emu-cua-driver call <tool> <json-args>` for v1 (simpler; the Swift CLI already exposes this in `CallCommand.swift`).
+5.2 ✅ `list_running_apps` — kept inline in the dispatcher's `cua_*` arm rather than as a separate file. The route at `backend/tools/dispatcher.py` line ~198 (`elif name == "list_running_apps" or name in COWORKER_DRIVER_TOOL_NAMES`) already maps `list_running_apps → driver list_apps` via `call_driver_tool`. The OpenAI spec is published in `COWORKER_DRIVER_TOOLS_OPENAI` (coworker mode only). Adding a `backend/tools/list_running_apps.py` wrapper would have been a redundant ~10 lines for zero functional gain — intentional deviation from the spec sketch.
+
+5.3 ✅ `backend/tools/dispatcher.py`:
+   - `execute_agent_tool(...)` gained `agent_mode: str = "remote"` kwarg.
+   - `raise_app` arm now passes `agent_mode` to `handle_raise_app` AND, on coworker success, opportunistically parses the returned JSON and calls `_maybe_update_coworker_target(...)` so the next perception turn has a `(pid, window_id)`. This mirrors the existing `cua_launch_app` tracking behaviour.
+   - `list_running_apps` was already registered + advertised in Phase 4; no additional wiring needed.
+
+5.4 ✅ Transport: shells out via `emu-cua-driver call <tool> <json>` (already implemented in `tools/coworker_tools.py:call_driver_tool` with the `$EMU_CUA_DRIVER_BIN` → `~/.local/bin` → `/Applications` → PATH precedence). No Python MCP client needed for v1.
+
+**Also touched:**
+- `backend/main.py` line ~506 — passes `agent_mode=req.agent_mode` into `execute_agent_tool`.
+- `backend/providers/agent_tools.py` — appended a paragraph to the `raise_app` tool description making the mode-aware behaviour explicit to the model: in coworker mode it returns `{pid, bundle_id, name, windows: [...]}` JSON without raising a window or stealing focus, and the model should use the returned `pid` + `windows[0].window_id` as the target for subsequent `cua_*` calls. Tool catalogue surface in both modes is otherwise unchanged.
+
+**Verification done (Windows, stubbed driver — no macOS needed):**
+- `handle_raise_app('Finder', agent_mode='remote')` on Windows hits the macOS guard → `ERROR: raise_app only works on macOS (detected: Windows)`. Remote path byte-identical to pre-change.
+- `handle_raise_app('', agent_mode='coworker')` → validation guard fires before mode dispatch.
+- `handle_raise_app('Finder', agent_mode='coworker')` with stubbed `call_driver_tool` returning a launch payload → returns parseable JSON with `pid=812`, `windows[0].window_id=4507`.
+- Coworker driver failure (binary missing) → surfaced as `ERROR: coworker raise_app failed to launch 'Finder': binary missing`.
+- Full dispatcher round-trip in coworker mode: tool fires, driver stubbed, `cm.get_coworker_target('s1') == (812, 4507)` after the call.
+- Same dispatcher path in remote mode: no driver call, no target tracking, returns the osascript guard string.
+
+**No edits to:** the coworker prompt (already tells the model to prefer `cua_launch_app` directly; `raise_app` works as a near-alias), provider tool catalogues except for the description addendum, frontend code, or driver source.
 
 ### Phase 6 — Action Model + Capture Path
 **Outcome:** Model can emit `{type, pid, window_id, element_index}` and screenshots flow from the target window, not the whole desktop.

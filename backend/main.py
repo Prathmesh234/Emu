@@ -505,6 +505,7 @@ async def agent_step(req: AgentRequest):
 
                 result = await execute_agent_tool(
                     session_id, tc.name, args, manager, context_manager, compact_model,
+                    agent_mode=req.agent_mode,
                 )
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")

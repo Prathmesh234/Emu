@@ -64,8 +64,14 @@ async def execute_agent_tool(
     manager: ConnectionManager,
     context_manager: ContextManager,
     compact_model,
+    agent_mode: str = "remote",
 ) -> str:
-    """Execute an agent tool by name and return the result string."""
+    """Execute an agent tool by name and return the result string.
+
+    ``agent_mode`` is passed through to mode-aware handlers (currently
+    only ``raise_app``, which uses the driver's hidden ``launch_app``
+    in coworker mode — see PLAN §5.1).
+    """
     if name == "update_plan":
         plan_content = args.get("content", "")
         return handle_update_plan(session_id, plan_content)
@@ -182,7 +188,17 @@ async def execute_agent_tool(
 
     elif name == "raise_app":
         app_name = args.get("app_name", "")
-        result = handle_raise_app(app_name)
+        result = handle_raise_app(app_name, agent_mode=agent_mode)
+        # In coworker mode the driver returns structured JSON — mine it for
+        # (pid, window_id) so the next perception turn has a target.
+        if agent_mode == "coworker" and not result.startswith("ERROR"):
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError:
+                parsed = None
+            _maybe_update_coworker_target(
+                context_manager, session_id, "cua_launch_app", args, parsed
+            )
         await manager.send(session_id, {
             "type": "tool_event",
             "event": "raise_app",
