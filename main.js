@@ -121,9 +121,14 @@ app.whenReady().then(() => {
       getMainWindow: () => mainWindow
   });
 
+  emuCuaDriverProcess.configure({ app });
+  ipcMain.handle('emu-cua:ensure-started', async () => (
+    emuCuaDriverProcess.ensureStarted({ app })
+  ));
+
   // Register emu-cua-driver IPC handlers (co-worker mode commands)
   require('./frontend/cua-driver-commands').registerAll(ipcMain, {
-      callTool: emuCuaDriverProcess.callTool,
+      callTool: (toolName, args) => emuCuaDriverProcess.callTool(toolName, args, { app }),
       getMainWindow: () => mainWindow,
   });
 

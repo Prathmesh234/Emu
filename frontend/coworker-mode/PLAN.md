@@ -77,7 +77,7 @@ This is the canonical implementation roadmap. It supersedes the loose checklists
 The plan is split into **8 phases**. Phases 1–3 are blockers (binary + branding + lazy start). Phases 4–6 light up the model surface. Phase 7 is QA. Phase 8 is packaging/release.
 
 ### Phase 1 — Build & Brand the Binary
-**Status:** ✅ Complete.
+**Status:** ✅ Finished.
 
 **Outcome:** `~/.local/bin/emu-cua-driver` exists after `scripts/install-local.sh`, runs like the upstream `cua-driver` command, and advertises Emu runtime branding.
 
@@ -122,6 +122,7 @@ The plan is split into **8 phases**. Phases 1–3 are blockers (binary + brandin
 - `swift test` is blocked by the local Swift toolchain failing before tests run with `no such module 'XCTest'`; product/app builds and CLI/MCP smoke checks are green.
 
 ### Phase 2 — Lazy Start Lifecycle
+**Status:** ✅ Finished.
 **Outcome:** First coworker action spawns the child; quit kills it cleanly.
 
 2.1 `EmuCuaDriverProcess.callTool` — auto-start on first call if `_child` is null. Pass `app` reference (capture once at registration in `main.js`).

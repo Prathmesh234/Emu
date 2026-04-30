@@ -36,6 +36,17 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'permissions:open',
     'daemon:status',
     'daemon:repair',
+    'emu-cua:ensure-started',
+    'emu-cua:screenshot',
+    'emu-cua:click',
+    'emu-cua:right-click',
+    'emu-cua:double-click',
+    'emu-cua:scroll',
+    'emu-cua:type',
+    'emu-cua:hotkey',
+    'emu-cua:list-apps',
+    'emu-cua:launch-app',
+    'emu-cua:get-window-state',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([
