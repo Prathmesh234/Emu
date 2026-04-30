@@ -548,28 +548,56 @@ AGENT_TOOLS_OPENAI = [
 ]
 
 
+# ── Mode-aware catalogue ──────────────────────────────────────────────────────
+#
+# Coworker mode (per PLAN §4.5) publishes the local-driver `cua_*` toolset
+# alongside the always-on agent tools. Remote / default modes only see the
+# always-on set. Providers should call ``get_agent_tools_openai(agent_mode)``
+# (or the format-specific helpers below) at request time, not at import time.
+
+def _coworker_extra_tools() -> list[dict]:
+    # Imported lazily so this module stays importable even if the coworker
+    # module ever grows optional deps.
+    from tools.coworker_tools import COWORKER_DRIVER_TOOLS_OPENAI
+    return COWORKER_DRIVER_TOOLS_OPENAI
+
+
+def get_agent_tools_openai(agent_mode: str | None = "remote") -> list[dict]:
+    """Return the OpenAI-format tool catalogue for the given agent mode."""
+    if agent_mode == "coworker":
+        return AGENT_TOOLS_OPENAI + _coworker_extra_tools()
+    return AGENT_TOOLS_OPENAI
+
+
+def get_agent_tool_names(agent_mode: str | None = "remote") -> set[str]:
+    """Return the set of tool names exposed in the given agent mode."""
+    if agent_mode == "coworker":
+        return AGENT_TOOL_NAMES | {t["function"]["name"] for t in _coworker_extra_tools()}
+    return AGENT_TOOL_NAMES
+
+
 # ── Anthropic format (used by Claude provider) ────────────────────────────────
 
-def tools_for_anthropic() -> list[dict]:
-    """Convert to Anthropic tool format."""
+def tools_for_anthropic(agent_mode: str | None = "remote") -> list[dict]:
+    """Convert to Anthropic tool format for the given agent mode."""
     return [
         {
             "name": t["function"]["name"],
             "description": t["function"]["description"],
             "input_schema": t["function"]["parameters"],
         }
-        for t in AGENT_TOOLS_OPENAI
+        for t in get_agent_tools_openai(agent_mode)
     ]
 
 
 # ── Google Gemini format ──────────────────────────────────────────────────────
 
-def tools_for_gemini():
-    """Convert to google-genai types. Import here to avoid hard dep."""
+def tools_for_gemini(agent_mode: str | None = "remote"):
+    """Convert to google-genai types for the given agent mode. Import here to avoid hard dep."""
     from google.genai import types
 
     declarations = []
-    for t in AGENT_TOOLS_OPENAI:
+    for t in get_agent_tools_openai(agent_mode):
         fn = t["function"]
         params = fn["parameters"]
         props = params.get("properties", {})

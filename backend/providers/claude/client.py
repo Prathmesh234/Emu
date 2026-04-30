@@ -28,7 +28,6 @@ THINKING_BUDGET = 5000  # tokens reserved for extended thinking
 SCREENSHOT_PREFIX = "data:image/"
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-ANTHROPIC_TOOLS = tools_for_anthropic()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -41,7 +40,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
         system=system_blocks,
-        tools=ANTHROPIC_TOOLS,
+        tools=tools_for_anthropic(agent_req.agent_mode),
         thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
         messages=messages,
     )

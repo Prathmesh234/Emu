@@ -21,7 +21,7 @@ import boto3
 from openai import OpenAI
 
 from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
-from providers.agent_tools import AGENT_TOOLS_OPENAI
+from providers.agent_tools import get_agent_tools_openai
 
 # -- Configuration -----------------------------------------------------------
 
@@ -62,7 +62,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
 
     bedrock = _get_client()
 
-    tool_config = _build_tool_config()
+    tool_config = _build_tool_config(agent_req.agent_mode)
 
     kwargs = {
         "modelId": MODEL_NAME,
@@ -97,10 +97,10 @@ def ensure_ready(**kwargs) -> None:
 
 # -- Tool config builder (Bedrock native format) ----------------------------
 
-def _build_tool_config() -> dict:
-    """Convert AGENT_TOOLS_OPENAI to Bedrock toolConfig format."""
+def _build_tool_config(agent_mode: str | None = "remote") -> dict:
+    """Convert mode-aware OpenAI tool catalogue to Bedrock toolConfig format."""
     tools = []
-    for tool in AGENT_TOOLS_OPENAI:
+    for tool in get_agent_tools_openai(agent_mode):
         func = tool["function"]
         spec = {
             "name": func["name"],

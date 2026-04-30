@@ -19,7 +19,7 @@ import time
 from openai import OpenAI
 
 from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
-from providers.agent_tools import AGENT_TOOLS_OPENAI
+from providers.agent_tools import get_agent_tools_openai
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -30,16 +30,18 @@ SCREENSHOT_PREFIX = "data:image/"
 
 client = OpenAI()  # reads OPENAI_API_KEY from env
 
-# Convert OpenAI Chat Completions tool format to Responses API format
-RESPONSE_API_TOOLS = [
-    {
-        "type": "function",
-        "name": t["function"]["name"],
-        "description": t["function"]["description"],
-        "parameters": t["function"]["parameters"],
-    }
-    for t in AGENT_TOOLS_OPENAI
-]
+
+def _response_api_tools(agent_mode: str | None) -> list[dict]:
+    """Convert OpenAI Chat Completions tool format to Responses API format for the given agent mode."""
+    return [
+        {
+            "type": "function",
+            "name": t["function"]["name"],
+            "description": t["function"]["description"],
+            "parameters": t["function"]["parameters"],
+        }
+        for t in get_agent_tools_openai(agent_mode)
+    ]
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -52,7 +54,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         model=MODEL_NAME,
         instructions=instructions,
         input=input_messages,
-        tools=RESPONSE_API_TOOLS,
+        tools=_response_api_tools(agent_req.agent_mode),
         max_output_tokens=MAX_TOKENS,
     )
     elapsed_ms = int((time.time() - start) * 1000)

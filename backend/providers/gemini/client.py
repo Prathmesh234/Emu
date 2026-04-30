@@ -32,7 +32,6 @@ MAX_TOKENS = 8000
 SCREENSHOT_PREFIX = "data:image/"
 
 client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
-GEMINI_TOOLS = tools_for_gemini()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -47,7 +46,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             max_output_tokens=MAX_TOKENS,
-            tools=GEMINI_TOOLS,
+            tools=tools_for_gemini(agent_req.agent_mode),
         ),
     )
     elapsed_ms = int((time.time() - start) * 1000)

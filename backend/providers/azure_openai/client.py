@@ -21,7 +21,7 @@ import time
 from openai import AzureOpenAI
 
 from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
-from providers.agent_tools import AGENT_TOOLS_OPENAI
+from providers.agent_tools import get_agent_tools_openai
 
 # -- Configuration -----------------------------------------------------------
 
@@ -63,7 +63,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        tools=AGENT_TOOLS_OPENAI,
+        tools=get_agent_tools_openai(agent_req.agent_mode),
         messages=[{"role": "system", "content": system_prompt}] + messages,
     )
     elapsed_ms = int((time.time() - start) * 1000)

@@ -7,12 +7,54 @@ from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, ha
 from .compaction import handle_compact_context
 from .shell import handle_shell_exec
 from .raise_app import handle_raise_app
+from .coworker_tools import (
+    COWORKER_DRIVER_TOOL_NAMES,
+    call_driver_tool,
+    format_driver_result_for_model,
+)
 from .hermes import (
     handle_invoke_hermes,
     handle_check_hermes,
     handle_cancel_hermes,
     handle_list_hermes_jobs,
 )
+
+
+def _maybe_update_coworker_target(
+    context_manager: ContextManager,
+    session_id: str,
+    tool_name: str,
+    args: dict,
+    parsed_result: object,
+) -> None:
+    """
+    Track the active (pid, window_id) so per-turn AX perception (PLAN §4.6)
+    has something to fetch. Best-effort — never raises.
+    """
+    try:
+        # Explicit (pid, window_id) on any cua_* tool call wins.
+        pid_arg = args.get("pid")
+        wid_arg = args.get("window_id")
+        if pid_arg is not None and wid_arg is not None:
+            context_manager.set_coworker_target(session_id, pid_arg, wid_arg)
+            return
+
+        # cua_launch_app returns a freshly created window. Result shape from
+        # the driver is implementation-defined; probe the common keys.
+        if tool_name == "cua_launch_app" and isinstance(parsed_result, dict):
+            pid = parsed_result.get("pid")
+            wins = parsed_result.get("windows") or []
+            wid = None
+            if isinstance(wins, list) and wins:
+                first = wins[0] if isinstance(wins[0], dict) else None
+                if first:
+                    wid = first.get("window_id") or first.get("id")
+            wid = wid or parsed_result.get("front_window_id") or parsed_result.get("window_id")
+            if pid is not None and wid is not None:
+                context_manager.set_coworker_target(session_id, pid, wid)
+    except Exception:
+        # Tracking is opportunistic; never let it break tool dispatch.
+        pass
 
 
 async def execute_agent_tool(
@@ -149,6 +191,25 @@ async def execute_agent_tool(
         })
         return result
 
+    # ── Coworker-mode driver tools (PLAN §4.5) ────────────────────────────
+    # Forward every cua_* call to the local emu-cua-driver Swift CLI. Also
+    # accept the friendlier alias ``list_running_apps`` which maps onto the
+    # driver's ``list_apps`` tool.
+    elif name == "list_running_apps" or name in COWORKER_DRIVER_TOOL_NAMES:
+        driver_tool = "list_apps" if name == "list_running_apps" else name[len("cua_"):]
+        result = call_driver_tool(driver_tool, args)
+        _maybe_update_coworker_target(
+            context_manager, session_id, name, args, result.get("json")
+        )
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "cua_driver_call",
+            "tool": name,
+            "ok": bool(result.get("ok")),
+            "args": json.dumps(args, ensure_ascii=False)[:300],
+        })
+        return format_driver_result_for_model(name, result)
+
     else:
         args_str = json.dumps(args, ensure_ascii=False)
 
@@ -175,6 +236,7 @@ async def execute_agent_tool(
             f"Function tools are ONLY: update_plan, read_plan, write_session_file, "
             f"read_session_file, list_session_files, read_memory, use_skill, "
             f"create_skill, compact_context, invoke_hermes, check_hermes, "
-            f"cancel_hermes, list_hermes_jobs, raise_app."
+            f"cancel_hermes, list_hermes_jobs, raise_app, list_running_apps, "
+            f"and (coworker mode only) cua_* driver tools."
         )
 

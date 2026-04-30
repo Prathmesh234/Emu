@@ -109,6 +109,80 @@ manager = ConnectionManager()
 context_manager = ContextManager()
 
 
+def _inject_coworker_perception(session_id: str) -> None:
+    """
+    Coworker-mode per-turn AX-tree + window screenshot injection (PLAN §4.6).
+
+    If the session has a known active (pid, window_id), shell out to the
+    local emu-cua-driver to capture the current AX tree + window image and
+    append both as a synthetic user-side ``coworker_perception`` block. The
+    model can then reason against fresh state without having to call
+    ``cua_get_window_state`` itself every turn.
+
+    Best-effort: any failure (driver missing, target stale, etc.) is logged
+    and silently dropped so the request still proceeds.
+    """
+    target = context_manager.get_coworker_target(session_id)
+    if not target:
+        return
+
+    pid, window_id = target
+    try:
+        from tools.coworker_tools import call_driver_tool
+        result = call_driver_tool(
+            "get_window_state", {"pid": pid, "window_id": window_id}
+        )
+    except Exception as exc:
+        print(f"[coworker-perception] driver call raised: {exc}")
+        return
+
+    if not result.get("ok"):
+        print(f"[coworker-perception] driver returned error: {result.get('error')}")
+        # Stale target — drop it so we don't keep retrying every step.
+        context_manager.clear_coworker_target(session_id)
+        return
+
+    parsed = result.get("json")
+    tree_md = ""
+    screenshot_b64 = None
+    if isinstance(parsed, dict):
+        tree_md = (
+            parsed.get("tree_markdown")
+            or parsed.get("markdown")
+            or parsed.get("tree")
+            or ""
+        )
+        # The CLI splices the MCP image content block into structuredContent
+        # under `screenshot_png_b64` (see CallCommand.mergeImageContentIntoJSON).
+        # Other keys are tolerated as defensive fallbacks for daemon/raw paths.
+        screenshot_b64 = (
+            parsed.get("screenshot_png_b64")
+            or parsed.get("screenshot_base64")
+            or parsed.get("screenshot")
+            or parsed.get("image")
+        )
+    if not tree_md:
+        # Fallback to raw output if the JSON shape didn't match.
+        tree_md = (result.get("output") or "")[:6000]
+
+    # Cap to keep context manageable.
+    if len(tree_md) > 6000:
+        tree_md = tree_md[:6000] + "\n... [truncated]"
+
+    header = (
+        f"[coworker_perception] target pid={pid} window_id={window_id} "
+        f"capture_mode=window_state"
+    )
+    body = f"{header}\n\n```ax-tree\n{tree_md}\n```"
+    context_manager.add_user_message(session_id, body)
+
+    if screenshot_b64:
+        try:
+            context_manager.add_screenshot_turn(session_id, screenshot_b64)
+        except Exception as exc:
+            print(f"[coworker-perception] screenshot inject failed: {exc}")
+
+
 def _positive_int_env(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":
@@ -315,6 +389,13 @@ async def agent_step(req: AgentRequest):
     if has_text:
         context_manager.add_user_message(session_id, req.user_message)
         await log_and_send(session_id, f"[user] {req.user_message}", manager)
+
+    # ── 1b. Coworker-mode per-turn AX perception (PLAN §4.6) ─────────────────
+    # If we know the active (pid, window_id), refresh the AX tree + window
+    # screenshot via the local driver and inject as a user-side perception
+    # block before the model is called. Best-effort — silent skip on failure.
+    if req.agent_mode == "coworker":
+        _inject_coworker_perception(session_id)
 
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])

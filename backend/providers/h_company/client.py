@@ -17,7 +17,7 @@ import time
 from openai import OpenAI
 
 from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
-from providers.agent_tools import AGENT_TOOLS_OPENAI
+from providers.agent_tools import get_agent_tools_openai
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
 
     # Send tools if backend supports them
     if _tools_supported:
-        kwargs["tools"] = AGENT_TOOLS_OPENAI
+        kwargs["tools"] = get_agent_tools_openai(agent_req.agent_mode)
 
     start = time.time()
     try:

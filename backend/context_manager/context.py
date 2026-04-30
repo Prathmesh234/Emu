@@ -82,6 +82,9 @@ class ContextManager:
         self._step_offset: dict[str, int] = {}
         self._plan_injected: dict[str, bool] = {}
         self._agent_mode: dict[str, str] = {}
+        # Per-session active (pid, window_id) tracked for coworker-mode
+        # per-turn AX perception injection (see PLAN §4.6).
+        self._coworker_target: dict[str, tuple[int, int]] = {}
         self.action_validator = ActionValidator()
 
     def _get(self, session_id: str) -> list[PreviousMessage]:
@@ -155,6 +158,20 @@ class ContextManager:
         if mode not in ("coworker", "remote"):
             raise ValueError(f"invalid agent mode: {mode}")
         self._agent_mode[session_id] = mode
+
+    def set_coworker_target(self, session_id: str, pid: int, window_id: int) -> None:
+        """Record the active (pid, window_id) for coworker-mode per-turn perception."""
+        try:
+            self._coworker_target[session_id] = (int(pid), int(window_id))
+        except (TypeError, ValueError):
+            return
+
+    def get_coworker_target(self, session_id: str) -> tuple[int, int] | None:
+        """Return the active (pid, window_id) tuple, or None if unknown."""
+        return self._coworker_target.get(session_id)
+
+    def clear_coworker_target(self, session_id: str) -> None:
+        self._coworker_target.pop(session_id, None)
 
     def add_screenshot_turn(self, session_id: str, base64_screenshot: str) -> None:
         """Append a screenshot as a user message, optionally via OmniParser."""
@@ -361,6 +378,7 @@ class ContextManager:
         self._step_offset.pop(session_id, None)
         self._plan_injected.pop(session_id, None)
         self._agent_mode.pop(session_id, None)
+        self._coworker_target.pop(session_id, None)
         self.action_validator.clear(session_id)
 
     def preload_from_conversation(self, session_id: str, old_messages: list[dict]) -> None:
