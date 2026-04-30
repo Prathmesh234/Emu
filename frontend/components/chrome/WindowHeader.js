@@ -14,37 +14,8 @@
 //   'stopped'  → dot dim, text "stopped"
 
 const store = require('../../state/store');
-const { ipcRenderer } = require('electron');
 
 const AGENT_MODES = ['coworker', 'remote'];
-let _coworkerStartPromise = null;
-
-function _preflightCoworkerMode() {
-    if (_coworkerStartPromise) return _coworkerStartPromise;
-
-    _coworkerStartPromise = ipcRenderer.invoke('emu-cua:ensure-started')
-        .then(async (result) => {
-            const missing = result?.permissions?.missing || [];
-            if (missing.includes('accessibility')) {
-                await ipcRenderer.invoke('permissions:open', 'accessibility');
-            } else if (missing.includes('screen')) {
-                await ipcRenderer.invoke('permissions:open', 'screen');
-            }
-            if (!result?.success) {
-                console.warn('[emu-cua-driver] coworker preflight failed:', result.error);
-            }
-            return result;
-        })
-        .catch((err) => {
-            console.warn('[emu-cua-driver] coworker preflight failed:', err.message);
-            return { success: false, error: err.message };
-        })
-        .finally(() => {
-            _coworkerStartPromise = null;
-        });
-
-    return _coworkerStartPromise;
-}
 
 function _modeOption(mode) {
     const btn = document.createElement('button');
@@ -98,7 +69,6 @@ function _createModeToggle() {
         buttons[mode].addEventListener('click', () => {
             if (store.state.isGenerating) return;
             store.setAgentMode(mode);
-            if (mode === 'coworker') _preflightCoworkerMode();
             sync();
         });
     });

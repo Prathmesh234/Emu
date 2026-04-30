@@ -137,31 +137,173 @@ The plan is split into **8 phases**. Phases 1–3 are blockers (binary + brandin
 2.7 Verify `app.will-quit` `.stop()` actually fires before Electron exits.
 
 ### Phase 3 — Mode Toggle Integration (Mostly Existing)
+**Status:** ✅ Finished.
 **Outcome:** Existing mode toggle remains unchanged visually, but coworker startup and backend state are reliable.
 
-3.1 Keep `frontend/state/store.js` as-is unless bugs are found: it already has `agentMode`, defaults to `"coworker"`, persists `emu-agent-mode`, and validates allowed values.
-3.2 Keep `frontend/components/chrome/WindowHeader.js` as-is unless bugs are found: the spec explicitly says the existing toggle should not be redesigned and should lock while generating.
-3.3 Keep `frontend/services/api.js#postStep()` sending `agent_mode`.
-3.4 On switching to coworker, optionally call `emu-cua:ensure-started` so missing-binary/permission errors surface before a model step.
-3.5 Do **not** add extra trace tags, overlay UI, menu-bar pills, or global hotkeys. The functional spec says the chat UI, side-panel trace cards, border window, Stop button, and session/WebSocket plumbing stay identical between modes.
+3.1 `frontend/state/store.js` kept as-is: `agentMode` defaults to `"coworker"`, persists to `emu-agent-mode`, validates allowed values via `AGENT_MODES`.
+3.2 `frontend/components/chrome/WindowHeader.js` kept as-is visually: the radiogroup toggle locks via `setModeDisabled(true)` during generation (driven from `Chat.syncGeneratingUI`).
+3.3 `frontend/services/api.js#postStep()` kept sending `agent_mode` in the `/agent/step` body.
+3.4 Eager startup in `main.js` (mode-independent): right after registering the `emu-cua:ensure-started` IPC handler, the main process calls `emuCuaDriverProcess.ensureStarted({ app })` fire-and-forget. This pays the spawn + MCP `initialize` + `check_permissions` cost once at app launch regardless of whether the persisted/active mode is `coworker` or `remote`, so the first coworker action never blocks on cold start. Failures (missing binary, denied AX/Screen Recording) are logged on the main process and surface naturally via the existing per-action error path. The `emu-cua:ensure-started` IPC channel remains registered for explicit re-checks but is no longer invoked from the renderer at toggle time or on `Chat.mount`. The toggle button is a pure state mutation (no IPC, no permission UI side-effects), keeping the click instantaneous.
+3.5 No new UI added: no trace tags, overlay, menu-bar pills, or hotkeys. Failure paths log to console only, matching the spec freeze on non-toggle UI.
 
 ### Phase 4 — Backend Prompt Plumbing
-**Outcome:** Model receives a coworker-specific system prompt with the correct tool surface and invariants.
+**Status:** 🚧 In progress — prompt + dispatcher branch landed. Tool catalogue and per-turn perception wiring deferred.
 
-4.1 `backend/prompts/emu_coworker_system_prompt.py` — new file, ~50 lines. Must include:
-   - The no-foreground contract.
-   - The snapshot invariant (`get_window_state` before/after).
-   - Element-index lifecycle.
-   - Tool catalog: `launch_app`, `list_apps`, `list_windows`, `get_window_state`, `screenshot`, `click`, `type_text`, `press_key`, `hotkey`, `scroll`, `set_value`, plus the action-side `raise_app` and `list_running_apps`.
-   - Required action fields: `pid`, `window_id`, `element_index` (or pixel fallback).
+**Completed (2026-04-29):**
+- ✅ 4.1 New file `backend/prompts/coworker_system_prompt.py` — standalone, no imports from `system_prompt.py`. Renders ~22.6 KB. Sections in order: `<identity>` → `<output_protocol>` → `<actions>` → `<perception>` → `<addressing>` → `<example>` → `<planning>` → `<anti_loop>` → `<error_handling>` → `<debugging>` → `<skills_system>` → `<tools>` → `<device>` → `<session>` → workspace_context appended.
+- ✅ 4.2 `<perception>` block — header line + screenshot + `tree_markdown` + element_count + AX/screenshot source-of-truth contract + index lifecycle + first-turn fallback. Capture-mode discussion intentionally collapsed to `som` only per user direction.
+- ✅ 4.3 `<example>` — Finder "Open Recent" walk-through, element-indexed click + re-snapshot + pixel fallback variant + final `done` action.
+- ✅ `<actions>` (separate section) — explicit `done` JSON shape with three use cases: TASK COMPLETE, CLARIFICATION NEEDED, STUCK / CANNOT PROCEED. All three use the same `done` envelope (`{"action":{"type":"done"},"done":true,"final_message":"..."}`). This is the only action JSON in coworker mode.
+- ✅ `<debugging>` block — covers `cua_check_permissions`, `cua_get_config`, `cua_get_screen_size`, `cua_get_cursor_position`, `cua_get_agent_cursor_state`, `cua_set_agent_cursor_enabled`, `cua_set_agent_cursor_motion`, with diagnose-once discipline.
+- ✅ 4.4 `<tools>` — single channel, two groups. **Group A (control plane):** `update_plan`, `read_plan`, `write_session_file`, `read_session_file`, `list_session_files`, `use_skill`, `create_skill`, `read_memory`, `compact_context`, `shell_exec`, `raise_app`, `list_running_apps`, `invoke_hermes`, `check_hermes`, `cancel_hermes`, `list_hermes_jobs`. **Group B (`cua_*` driver tools):** `cua_list_apps`, `cua_list_windows`, `cua_launch_app`, `cua_screenshot`, `cua_get_window_state`, `cua_click`, `cua_right_click`, `cua_double_click`, `cua_scroll`, `cua_page`, `cua_type_text`, `cua_set_value`, `cua_press_key`, `cua_hotkey`, `cua_move_cursor`, `cua_drag`, `cua_wait`, plus all six diagnostics. NO cliclick fallback — emu-driver covers triple-click (via `click_count=3`), mouse-move, drag, get-cursor-position, single key press natively. NO `finish_task` tool — completion uses the `done` action JSON instead.
+- ✅ 4.5 (system-prompt branch only) — Caller-side branch in `backend/context_manager/context.py` at BOTH call sites: `_get` (line ~96) and `reset_with_summary` (line ~517). When `self._agent_mode.get(session_id) == "coworker"`, calls `build_coworker_system_prompt`; otherwise unchanged. `system_prompt.py` byte-identical (regression-tested via SHA256).
+- ✅ 4.7 `backend/prompts/__init__.py` — re-exports `build_coworker_system_prompt`.
 
-4.2 `backend/prompts/system_prompt.py` — add `agent_mode: Literal["coworker","remote"] = "remote"` parameter to `build_system_prompt()`. When `"coworker"`, delegate to `build_emu_coworker_system_prompt()` (similar to existing `bootstrap_mode` / `hermes_setup_mode` pattern at lines 41–53).
+**Verification done:**
+- All 14 required prompt sections + every documented tool name present in rendered prompt.
+- No `<channels>`, `<window_management>`, `OmniParser`, `capture_mode=vision/ax`, cliclick mentions, or `finish_task` mentions leaked in.
+- Workspace context, session id, device info round-trip correctly.
+- Remote prompt SHA256 unchanged → `system_prompt.py` truly zero-diff.
+- `py_compile` clean on `prompts/coworker_system_prompt.py`, `prompts/__init__.py`, `context_manager/context.py`.
 
-4.3 `backend/context_manager/context.py` — at every `build_system_prompt(...)` call site (grep for them), thread `agent_mode=self._agent_mode.get(session_id, "coworker")`.
+**Files touched:**
+- `backend/prompts/coworker_system_prompt.py` (new, 591 lines)
+- `backend/prompts/__init__.py` (re-export added)
+- `backend/context_manager/context.py` (2 call sites branched + import line updated)
 
-4.4 `backend/prompts/__init__.py` — confirm no import changes are required. If any tests/import paths expect prompt builders to be re-exported, add the new builder there.
+**Deferred — pick up here next session:**
+- ⏭️ 4.5 (rest) — Tool catalogue branch. The function-tool list published to the LLM must include `cua_*` tools ONLY in coworker mode, exclude them in remote mode. Add a coworker-only spec list (likely in a new `backend/tools/coworker_tools.py` plus a hook in `backend/tools/dispatcher.py` that branches on `agent_mode`). Each `cua_*` entry needs an OpenAI-style function spec (name, description, parameters JSON-schema).
+- ⏭️ 4.5 (rest) — Tool dispatch branch. Each `cua_*` call in the dispatcher's `elif name == ...` chain forwards to the corresponding `emu-cua-driver` MCP tool by shelling out (`emu-cua-driver call <tool> <json-args>`) or via a thin Python MCP client. Errors surfaced as `tool_error`, not raised. **Note**: there is intentional name overlap to resolve — control-plane already has `raise_app` and `list_running_apps`; driver namespace adds `cua_launch_app`, `cua_list_apps`. Decide whether `raise_app` internally calls `cua_launch_app` (Phase 5 already plans this), or whether both are exposed and the prompt directs the model. Current prompt mentions both — works either way.
+- ⏭️ 4.6 Per-turn AX tree wiring — when `agent_mode == "coworker"`, agent loop calls `cua_get_window_state(pid, window_id)` at top of each turn for the active target, places `tree_markdown` + image + header into the user message as a `coworker_perception` block. Skip on first turn when `pid`/`window_id` unknown. Lives in `backend/main.py` step handler around line ~309–325.
+- ⏭️ 4.8 Sanity tests — covered in original spec (unit tests, tool-catalog drift checks, regression diff, integration test with stubbed driver). Not started.
 
-4.5 Sanity test: snapshot the rendered prompt for both modes; diff should only differ in the mode-specific block.
+**Architecture pivot — coworker is single-channel, tools-only.**
+Unlike remote mode (which has TWO output channels — function-calls for control-plane and JSON-action text for desktop control), coworker mode has ONE: the function-calling API. *Every* control-plane primitive (plan, memory, sessions, hermes, shell) AND *every* driver action (click, type, scroll, screenshot, snapshot, launch, hotkey) is registered as a function tool. The model's plain-text output is reserved exclusively for final user-facing messages — never for action JSON. There is no `<channels>` section, no `<output_format>` JSON shape, no parsing of model text into actions. This makes the loop simpler, cheaper to validate, and impossible to misroute.
+
+4.1 New file `backend/prompts/coworker_system_prompt.py` — fully self-contained, does not import from `system_prompt.py`. Voice, structure, tag style, and section ordering mirror the remote prompt as closely as possible (same `<tag>` blocks, same imperative tone, same level of specificity); only the coworker-specific facts differ. Exposes:
+   ```python
+   def build_coworker_system_prompt(
+       workspace_context: str = "",
+       session_id: str = "",
+       device_details: dict | None = None,
+   ) -> str: ...
+   ```
+   Sections (composed in this order, with fresh coworker-tailored copy that mirrors the remote prompt's voice):
+   - `<identity>` — same Emu character/voice as remote, restated locally; explicit "coworker mode — never steal foreground" rule.
+   - `<output_protocol>` — single-channel rule: every action is a function-tool call; plain text is reserved for the final user-facing message; emit `finish_task(message)` (or natural completion) when done. Forbids `open -a`, `osascript activate`, `cliclick` on the agent path, and any `CGEventPost` route.
+   - `<perception>` — see 4.2 for the exact contents.
+   - `<addressing>` — every interactive driver tool MUST carry `pid` and `window_id`; clicks/typing/scrolling carry either `element_index` (preferred — resolves on the driver to the cached AXUIElement) or pixel `(x, y)` as a fallback. Element-index is per-`(pid, window_id)` and per-snapshot; reusing across turns is undefined.
+   - `<example>` — see 4.3 for the worked walkthrough.
+   - `<planning>` — same plan-first discipline and `update_plan` cadence as remote, restated locally.
+   - `<anti_loop>` — same repeat-action heuristics and escape paths, restated locally.
+   - `<error_handling>` — same backoff, retry budget, escalation rules, restated locally; plus coworker-specific entries: missing AX/Screen Recording grant → surface to the user via the permissions widget; `pid`/`window_id` no longer valid (window closed, app quit) → re-discover via `list_apps`/`list_windows` rather than retry blindly; sparse Chromium AX tree → retry `get_window_state` once.
+   - `<skills_system>` — same skill discovery and load-on-demand contract, restated locally.
+   - `<debugging>` — coworker-only block. When something feels off (clicks miss, tree empty, app unresponsive, cursor invisible), the model should reach for the diagnostic tools BEFORE blindly retrying: `cua_check_permissions` (verifies AX + Screen Recording grants), `cua_get_config` (current driver capture/cursor settings), `cua_get_agent_cursor_state` (is the agent cursor visible? where is it?), `cua_get_cursor_position` (real cursor location), `cua_set_agent_cursor_enabled`/`cua_set_agent_cursor_motion` (toggle the agent cursor overlay so the user can see what the model is doing). Use these to disambiguate "permission denied" vs "stale window" vs "wrong target" without breaking the no-foreground contract. Keep it lightweight — call once, read the result, decide.
+   - `<tools>` — single combined catalogue (no Channel-1/Channel-2 split). See 4.4.
+   - `<device>` — device info template, filled per-call from `device_details` (same shape as remote: `os_name`, `arch`, `screen_width`, `screen_height`, `scale_factor`).
+   - Session block — date/time/session_id/project_root/emu_dir, same shape as remote's `_SESSION_BLOCK`.
+   - `workspace_context` — AGENTS.md plug-in, appended verbatim if non-empty (same convention as remote).
+
+   Note: "restated locally" means we copy the topic/intent into fresh coworker-aware copy, not import strings from `system_prompt.py`. `system_prompt.py` stays untouched.
+
+4.2 `<perception>` block must spell out, concretely, what the model receives every turn so it can rely on it without guessing:
+   - One vision content block: a PNG screenshot of **only the target window** (cropped to its on-screen bounds, including the titlebar). Not the desktop, not other windows.
+   - One fenced Markdown text block (`tree_markdown`) labelled with `pid` and `window_id`, containing a hierarchical render of the window's accessibility tree. Every actionable node is tagged `[element_index N]`. Containers without an action role are not tagged but are kept for structure.
+   - A short header line: `Target: <app_name> pid=<pid> window_id=<wid> capture_mode=<som|vision|ax>`.
+   - An `element_count` integer (advisory) so the model can sanity-check.
+   - Source of truth contract: the AX tree is authoritative for element identity; the screenshot is authoritative for visual disambiguation when several elements share the same role/title. When they disagree (rare), prefer the AX tree.
+   - First turn / unknown target: if no `pid`/`window_id` is set yet (no `raise_app`/`launch_app` has succeeded), the perception block is omitted and only the desktop image (if any) is sent. The model must call discovery tools (`list_apps`, `list_running_apps`, `raise_app`, `launch_app`) before any element-indexed action.
+   - Index lifecycle: `[element_index N]` is valid only against the most recent `get_window_state` snapshot for that exact `(pid, window_id)`. The next snapshot replaces the index map. Reusing an old index is undefined behaviour.
+   - Capture-mode notes: `som` ships both AX tree + screenshot (default); `vision` ships screenshot only (no element_index — pair with pixel `(x,y)`); `ax` ships AX tree only (no screenshot).
+
+4.3 `<example>` block — concrete worked walkthrough showing the model how to choose. Tools-only flavour:
+   - Scenario: user asked "open the Recent files menu in Finder".
+   - Step 1: Receive perception. Header reads `Target: Finder pid=812 window_id=4507 capture_mode=som`. The screenshot shows a Finder window. The AX tree contains lines such as:
+     ```
+     - AXMenuBar
+       - AXMenuBarItem "File" [element_index 14]
+         - AXMenu
+           - AXMenuItem "New Folder" [element_index 15]
+           - AXMenuItem "Open Recent" [element_index 23]
+     ```
+   - Step 2: Decide. The user wants the "Open Recent" submenu under File. The desired state is the submenu visible, which requires clicking File first to expose the menu, then clicking Open Recent.
+   - Step 3: Call the tool `cua_left_click(pid=812, window_id=4507, element_index=14)`. **Do not** include `x,y` when an element_index is available. **Do not** emit JSON in plain text — call the function tool directly.
+   - Step 4: Wait for the next perception turn. The new AX tree will contain the now-expanded menu with fresh indices (the previous index 14 is no longer valid for the menu state). Re-locate `Open Recent` in the new tree before clicking, calling `cua_get_window_state(pid=812, window_id=4507)` first if you need a fresh snapshot.
+   - Step 5: Pixel fallback. If perception arrives with `capture_mode=vision` (no AX tree), or the desired element is not tagged (e.g., a custom canvas), call `cua_left_click(pid=812, window_id=4507, x=120, y=40)`. Always pair pixel coordinates with `pid`+`window_id`.
+   - Step 6: When the task is complete, call `finish_task(message="Opened the Recent files menu in Finder.")` (or, if no `finish_task` tool exists yet in the runtime, end the turn with a plain-text final message and no tool call).
+
+4.4 `<tools>` — single combined catalogue, no channel split. Two groups inside the same section:
+
+   Group A — **Control-plane tools** (mirrors the remote `<agent_tools>` minus the channel-2 warnings). Enumerate every tool registered in `backend/tools/dispatcher.py`. At time of writing: `update_plan`, `read_plan`, `use_skill`, `create_skill`, `read_memory`, `write_session_file`, `read_session_file`, `list_session_files`, `compact_context`, `invoke_hermes`, `check_hermes`, `cancel_hermes`, `list_hermes_jobs`, `shell_exec`, `raise_app`, plus the new `list_running_apps` added in Phase 5. The implementor MUST grep `backend/tools/dispatcher.py` for the live `elif name == "..."` chain at implementation time and reconcile any additions/deletions before merging. Each entry gets the same one-line description and argument shape as the remote prompt's `<agent_tools>` section.
+
+   Group B — **Driver tools** (NEW — these replace what was Channel 2 in remote mode). Coworker mode exposes the driver as first-class function tools, namespaced `cua_*` to avoid collision and to make routing trivial. Enumerated set, with one-line description + argument shape:
+   - `cua_screenshot(pid, window_id)` — capture target window.
+   - `cua_get_window_state(pid, window_id, query?)` — snapshot AX tree + image, mints a fresh `element_index` map. Optional `query` is a substring filter.
+   - `cua_list_apps()` — discovery; returns regular running apps with pid/bundle_id/front window_id.
+   - `cua_list_windows(pid)` — windows owned by pid, with window_id/title/bounds.
+   - `cua_launch_app(name? | bundle_id?, urls?)` — no-foreground-steal launcher; returns pid + window list.
+   - `cua_click(pid, window_id, element_index? | x?, y?, button?, click_count?)` — element-indexed or pixel. `button` ∈ `left`/`right` (default `left`); `click_count` ∈ `1`/`2`/`3` for single/double/triple-click (pixel path only — element-indexed clicks are always single via the AX `AXPress` action). The driver also exposes dedicated `right_click`/`double_click` tools; the prompt should pick one canonical surface and stick to it.
+   - `cua_scroll(pid, window_id, direction, amount, element_index?)` — directions: up/down/left/right.
+   - `cua_page(pid, window_id, direction, element_index?)` — page-sized scroll (PageUp / PageDown / Home / End semantics) for long-list / document navigation.
+   - `cua_type_text(pid, window_id, text, element_index?)` — types into focused or specified field.
+   - `cua_hotkey(pid, window_id, keys)` — modifier+key list, e.g. `["cmd","shift","p"]`.
+   - `cua_press_key(pid, window_id, key)` — single key press (no modifiers required); for plain Return/Tab/Escape/etc.
+   - `cua_set_value(pid, window_id, element_index, value)` — direct AX value write (instant text-field fill). Faster and more reliable than `cua_type_text` for forms when the field is AX-tagged; falls back to `cua_type_text` for unsupported widgets.
+   - `cua_move_cursor(pid, window_id, x?, y?, dx?, dy?)` — absolute or relative cursor move; safe in coworker (driver routes via the no-foreground SkyLight path).
+   - `cua_drag(pid, window_id, from_x, from_y, to_x, to_y)` — press-and-drag.
+   - `cua_get_cursor_position()` — returns current cursor x/y.
+   - `cua_get_screen_size()` — display pixel dimensions; useful when planning pixel-fallback clicks against `vision` capture mode.
+   - `cua_wait(ms)` — non-blocking pause for UI to settle.
+
+   Diagnostic / debugging tools (see `<debugging>` section):
+   - `cua_check_permissions()` — returns `{accessibility, screen_recording}` grant booleans plus a human-readable hint. Call this on any TCC-shaped failure.
+   - `cua_get_config()` — returns the driver's current capture mode, cursor mode, and feature flags. Useful to confirm `som`/`vision`/`ax` posture before blaming a missing tree.
+   - `cua_get_agent_cursor_state()` — `{enabled, x, y, motion}` for the agent-cursor overlay.
+   - `cua_set_agent_cursor_enabled(enabled)` — toggle the visible agent cursor overlay (off by default; turn on for transparency when the user is watching).
+   - `cua_set_agent_cursor_motion(motion)` — `instant` | `smooth`; controls whether the overlay tweens between positions.
+
+   - `finish_task(message)` (optional, recommended) — explicit completion signal carrying the user-facing summary. If not registered in the runtime, the model ends the turn with plain text and no tool call.
+
+   The driver tool surface is the source-of-truth list from `frontend/coworker-mode/emu-driver/Sources/CuaDriverServer/Tools/` (and the IPC wrappers in `frontend/cua-driver-commands/index.js`). The `<tools>` section MUST be reconciled against that directory at implementation time.
+
+   **No cliclick fallback needed.** The emu-driver / MCP covers every action coworker mode requires natively, all on the no-foreground SkyLight path:
+   - triple-click → `cua_click(..., click_count=3)` (pixel path).
+   - mouse_move / relative_mouse_move → `cua_move_cursor`.
+   - drag / relative_drag → `cua_drag`.
+   - get_mouse_position → `cua_get_cursor_position`.
+   - single key press → `cua_press_key`.
+   The prompt should state the rule in one line: "Every interactive primitive is a `cua_*` tool — never shell out to `cliclick`, `osascript activate`, or `open -a` from the agent path."
+
+4.5 Dispatcher / runtime wiring — minimal change to existing code path:
+   - **System prompt branch.** At the single call site that builds the system prompt for an agent step (in `backend/context_manager/context.py`), wrap with a branch:
+     ```python
+     if agent_mode == "coworker":
+         from backend.prompts.coworker_system_prompt import build_coworker_system_prompt
+         prompt = build_coworker_system_prompt(workspace_context=..., session_id=..., device_details=...)
+     else:
+         prompt = build_system_prompt(...)  # untouched
+     ```
+     Do NOT add an `agent_mode` parameter to `build_system_prompt`. Branching happens in the caller, keeping `system_prompt.py` zero-diff.
+   - **Tool catalogue branch.** The function-tool catalogue published to the LLM must include the `cua_*` driver tools (and `cua_cliclick`, and `finish_task`) ONLY when `agent_mode == "coworker"`. In remote mode they are absent. Concretely: add a coworker-only tool spec list in `backend/tools/dispatcher.py` (or a sibling `backend/tools/coworker_tools.py`), and merge it into the catalogue when assembling the request.
+   - **Tool dispatch branch.** Each `cua_*` call in the dispatcher's `elif name == ...` chain forwards to the corresponding `emu-cua-driver` MCP tool by shelling out (`emu-cua-driver call <tool> <json-args>`) or via a thin Python MCP client. Errors are surfaced as `tool_error` payloads, not raised, so the model can recover.
+   - **Action JSON parsing.** In coworker mode, the response parser MUST NOT attempt to parse driver actions out of model plain text — the only actions are tool calls. Plain text is treated as the final user-facing message (or an interim narration if no tool call was made). This is the simplification the architecture earns.
+
+4.6 Per-turn AX tree wiring — required for `<perception>` to be true:
+   - When `agent_mode == "coworker"`, the agent loop must call the driver's `get_window_state(pid, window_id)` at the top of each turn for the active target window, then place the returned `tree_markdown` and image content block into the user-message content alongside the screenshot.
+   - Mechanically: extend the per-step request handler in `backend/main.py` (or the equivalent step assembler) to emit a `coworker_perception` block containing `{tree_markdown, element_count, screenshot_image_block, window_id, pid, capture_mode}` before the user message. Image goes in as a vision content block; tree goes in as a fenced Markdown text block.
+   - If `pid`/`window_id` is unknown on the first turn (no `raise_app`/`launch_app` yet), skip the snapshot and let the model call discovery tools first. Document this fallback in `<perception>`.
+
+4.7 `backend/prompts/__init__.py` — re-export `build_coworker_system_prompt` for symmetry with `build_system_prompt`. `system_prompt.py` exports stay as-is.
+
+4.8 Sanity tests:
+   - Unit: `build_coworker_system_prompt(workspace_context="…AGENTS.md…", session_id="s1", device_details={...})` returns a string that contains `<identity>`, `<output_protocol>`, `<perception>`, `<addressing>`, `<example>`, `<tools>`, the AGENTS.md content, the session id, and the device info. Verify it does NOT mention `<channels>`, `<output_format>` JSON, the remote-only `<window_management>`, or omniparser/desktop-screenshot vision blocks.
+   - Tool-catalog drift (control plane): assert that the names enumerated under Group A are a superset/match of the live `elif name == ...` chain in `backend/tools/dispatcher.py`.
+   - Tool-catalog drift (driver): assert that the `cua_*` tool names enumerated under Group B match the IPC-wrapped tool names in `frontend/cua-driver-commands/index.js` (modulo the `cua_` prefix).
+   - Regression: rendering the remote prompt before and after this phase produces byte-identical output (proves `system_prompt.py` is untouched).
+   - Integration: with a stubbed driver returning a known `tree_markdown`, verify the per-turn user message contains both the image block and the AX tree text in coworker mode, and only the image in remote mode. Verify the tool catalogue passed to the LLM in coworker mode includes `cua_*` tools and excludes them in remote mode.
+
+
+
 
 ### Phase 5 — Backend Tools (raise_app + list_running_apps)
 **Outcome:** Model has structured discovery primitives that return real `pid`/`window_id` values.
@@ -229,7 +371,56 @@ Validate that at least one of `(element_index, coordinates)` is present for clic
 
 7.6 Full functional-spec regression after smoke: run through `frontend/coworker-driver/TESTS.md` and document the result matrix in that file (or a dedicated test-results section), including the 13 natural-language app tests and the failure-mode probes.
 
-### Phase 8 — Packaging & Release
+### Phase 8 — User Experience Refinement
+**Status:** 🔲 Not started.
+**Outcome:** When `emu-cua-driver` reports a missing TCC permission, the user sees an in-app permission widget that opens the exact System Settings pane on click — they never have to navigate Settings manually.
+
+8.1 New component `frontend/components/chrome/PermissionsCard.js`
+- Centered modal-style card (Emu Design System v1: serif title, soft border, dark-mode aware), sized comfortably for two permission rows. Reuses existing tokens from `style.css` (no new color or spacing primitives).
+- Structure (DOM only — visual treatment must read like the rest of Emu, not the reference screenshot):
+  - Header: small Emu wordmark/glyph, title `"Enable Emu Coworker Mode"`, subtitle `"Emu needs these permissions to control apps on your Mac. Permissions are only used while Coworker mode is running."`
+  - One row per missing permission, each row shows:
+    - Left: SF-symbol-style glyph (inline SVG, accessibility figure for AX, camera/screen glyph for Screen Recording).
+    - Center: row title + one-line description.
+      - Accessibility → `"Allows Emu to read app interfaces and dispatch input."`
+      - Screen Recording → `"Lets Emu see the target window between actions."`
+    - Right: primary `Allow` button.
+- Buttons must use the existing primary-button style (matches Composer send button), not a custom blue.
+- Card has a subtle backdrop overlay (semi-opaque) but is **non-blocking**: clicking outside dismisses (rechecking happens via the existing per-action error path; the user can also re-summon it by retrying).
+- Public API: `PermissionsCard({ missing, onAllow, onDismiss })` returns `{ element, update(missing), close() }` so the same node can re-render after a permission flips.
+
+8.2 Trigger surface — main process drives, renderer just renders
+- Add IPC channel `emu-cua:permissions-required` (one-way, main → renderer) carrying `{ missing: ['accessibility'|'screen', ...] }`.
+- In `main.js`, after the eager `emuCuaDriverProcess.ensureStarted({ app })` resolves and at every subsequent `callTool` failure that returns `permissionsRequired: true`, emit this channel to all renderer windows so the widget appears as soon as Emu knows.
+- Add to `preload.js` `ALLOWED_RECEIVE_CHANNELS` (introduce the receive allowlist if not present) and expose `electronAPI.on('emu-cua:permissions-required', cb)`.
+
+8.3 Renderer wiring
+- `pages/Chat.js` subscribes once at `mount()`. When a payload arrives, it calls `PermissionsCard.show(missing)` (lazy-instantiated) and replaces it with `update()` if already open.
+- `Allow` click → `ipcRenderer.invoke('permissions:open', kind)` where `kind` is `'accessibility'` or `'screen'`. The existing handler (`main.js:175`) already maps to the precise pane URL:
+  - Accessibility: `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`
+  - Screen Recording: `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture`
+- After a successful click, the row enters a "Waiting for permission…" state with a small spinner. The widget polls via a new IPC `emu-cua:recheck-permissions` (calls `emuCuaDriverProcess._checkPermissions()` indirectly through a public wrapper) every ~2 s while focused; when granted, the row collapses and the card auto-dismisses when no rows remain.
+
+8.4 Public wrapper on `EmuCuaDriverProcess`
+- Export `recheckPermissions()` that calls the existing internal `_checkPermissions()` only if the child is up; otherwise re-runs `ensureStarted()`. This keeps the polling loop in 8.3 simple and avoids exposing private symbols.
+
+8.5 Visual reference vs Emu identity
+- The reference screenshot is a layout cue only. Final widget must use Emu's serif/italic title style, Emu's button radius and surface tints, and Emu's dark-mode palette so it reads as part of the app, not as a system-style alert. Do **not** copy gradient app icons, blue accent buttons, or chrome from the reference.
+
+8.6 Accessibility & keyboard
+- Tab order: first row `Allow` → second row `Allow` → close (Esc).
+- `role="dialog"` with `aria-labelledby` pointing at the title; `aria-modal="false"` because the card is dismissable and non-blocking.
+- Each row title/description is announced as a single landmark (`role="group"` with `aria-labelledby`).
+
+8.7 Test matrix (manual, before release)
+- Cold start with both permissions missing → card appears within ~1 s of app launch, two rows visible.
+- Click Allow on Accessibility → System Settings opens directly on Privacy → Accessibility pane.
+- Grant Accessibility, return to Emu → Accessibility row disappears within ~2 s; Screen Recording row remains.
+- Grant Screen Recording → card auto-closes.
+- Toggle to remote mode while card is open → card stays open (permissions are still useful for the next coworker session); pressing Esc dismisses.
+- Crash the driver mid-session, then run a coworker action while AX is denied → card re-appears, action fails with the existing error path.
+
+### Phase 9 — Packaging & Release
 **Outcome:** A built Emu DMG includes `emu-cua-driver`; first-run users can use coworker mode without separate installs.
 
 8.1 `electron-builder` config — add `extraResources`:

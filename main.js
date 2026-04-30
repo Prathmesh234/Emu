@@ -126,6 +126,29 @@ app.whenReady().then(() => {
     emuCuaDriverProcess.ensureStarted({ app })
   ));
 
+  // Eagerly spawn the emu-cua-driver MCP child as soon as Electron is
+  // ready, regardless of the persisted agent mode. This pays the
+  // ~spawn + initialize + check_permissions cost once at app start so
+  // the first coworker action never blocks on it. Fire-and-forget:
+  // failures (missing binary, denied AX) are logged here and surface
+  // naturally on the first coworker action via the normal error path.
+  emuCuaDriverProcess.ensureStarted({ app })
+    .then((result) => {
+      if (result?.success) {
+        const missing = result?.permissions?.missing || [];
+        if (missing.length) {
+          console.warn(`[emu-cua-driver] startup ok, missing permissions: ${missing.join(', ')}`);
+        } else {
+          console.log(`[emu-cua-driver] startup ok (pid=${result.pid})`);
+        }
+      } else {
+        console.warn(`[emu-cua-driver] startup deferred: ${result?.error || 'unknown'}`);
+      }
+    })
+    .catch((err) => {
+      console.warn(`[emu-cua-driver] startup error: ${err?.message || err}`);
+    });
+
   // Register emu-cua-driver IPC handlers (co-worker mode commands)
   require('./frontend/cua-driver-commands').registerAll(ipcMain, {
       callTool: (toolName, args) => emuCuaDriverProcess.callTool(toolName, args, { app }),

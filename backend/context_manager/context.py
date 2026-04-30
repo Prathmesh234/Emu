@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
-from prompts import build_system_prompt
+from prompts import build_system_prompt, build_coworker_system_prompt
 from prompts.plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
 from context_manager.action_validator import ActionValidator
@@ -93,15 +93,22 @@ class ContextManager:
             bootstrap_content = read_bootstrap() if bootstrap_mode else ""
             hermes_setup_mode = (not bootstrap_mode) and is_hermes_setup_needed()
             device_info = get_device_details()
-            system_prompt = build_system_prompt(
-                workspace_ctx,
-                session_id=session_id,
-                bootstrap_mode=bootstrap_mode,
-                bootstrap_content=bootstrap_content,
-                device_details=device_info,
-                use_omni_parser=USE_OMNI_PARSER,
-                hermes_setup_mode=hermes_setup_mode,
-            )
+            if self._agent_mode.get(session_id) == "coworker":
+                system_prompt = build_coworker_system_prompt(
+                    workspace_context=workspace_ctx,
+                    session_id=session_id,
+                    device_details=device_info,
+                )
+            else:
+                system_prompt = build_system_prompt(
+                    workspace_ctx,
+                    session_id=session_id,
+                    bootstrap_mode=bootstrap_mode,
+                    bootstrap_content=bootstrap_content,
+                    device_details=device_info,
+                    use_omni_parser=USE_OMNI_PARSER,
+                    hermes_setup_mode=hermes_setup_mode,
+                )
             self._history[session_id] = [
                 PreviousMessage(role=MessageRole.system, content=system_prompt.strip())
             ]
@@ -509,19 +516,26 @@ class ContextManager:
         Result: system prompt + summary directive + recent tail.
         """
         from workspace import build_workspace_context, get_device_details
-        from prompts import build_system_prompt
+        from prompts import build_system_prompt, build_coworker_system_prompt
         from prompts.compact_prompt import CONTINUATION_DIRECTIVE
 
         workspace_ctx = build_workspace_context()
         device_info = get_device_details()
-        system_prompt = build_system_prompt(
-            workspace_ctx,
-            session_id=session_id,
-            bootstrap_mode=False,
-            bootstrap_content="",
-            device_details=device_info,
-            use_omni_parser=USE_OMNI_PARSER,
-        )
+        if self._agent_mode.get(session_id) == "coworker":
+            system_prompt = build_coworker_system_prompt(
+                workspace_context=workspace_ctx,
+                session_id=session_id,
+                device_details=device_info,
+            )
+        else:
+            system_prompt = build_system_prompt(
+                workspace_ctx,
+                session_id=session_id,
+                bootstrap_mode=False,
+                bootstrap_content="",
+                device_details=device_info,
+                use_omni_parser=USE_OMNI_PARSER,
+            )
 
         old_history = self._history.get(session_id, [])
 
