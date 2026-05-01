@@ -23,6 +23,7 @@ const { renderMarkdown } = require('../components/markdown');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
 const { executeAction } = require('../actions/executor');
+const { captureForStep } = require('../services/captureForStep');
 const { createWindowManager } = require('../services/windowManager');
 const store = require('../state/store');
 const api = require('../services/api');
@@ -488,7 +489,7 @@ async function continueLoop() {
 
     console.log('[continueLoop] capturing screenshot...');
     showStatus('Capturing screen...');
-    const screenshot = await captureScreenshot();
+    const screenshot = await captureForStep();
     removeStatus();
 
     if (!screenshot.success) {
@@ -579,6 +580,14 @@ async function handleWsMessage(data) {
             // Track chain length for auto-compact
             if (data.chain_length != null) {
                 store.state.lastChainLength = data.chain_length;
+            }
+
+            // PLAN §6.5: persist coworker (pid, window_id) so captureForStep
+            // can pull the target-window screenshot on the next turn. Backend
+            // sends this key in coworker mode (null when no target yet);
+            // sets to null to clear, omits in remote mode.
+            if ('coworker_target' in data) {
+                store.setCoworkerTarget(data.coworker_target);
             }
 
             // Window placement per step:

@@ -686,7 +686,7 @@ async def agent_step(req: AgentRequest):
 
     needs_confirm = False
 
-    await manager.send(session_id, {
+    step_payload = {
         "type":                 "step",
         "reasoning":            response_json,
         "reasoning_content":    response.reasoning_content or "",
@@ -697,7 +697,21 @@ async def agent_step(req: AgentRequest):
         "requires_confirmation": needs_confirm,
         "chain_length":         context_manager.chain_length(session_id),
         "needs_compaction":     needs_compact,
-    })
+    }
+
+    # Coworker capture path (PLAN §6.5): expose the active (pid, window_id)
+    # so the renderer's captureForStep can pull a target-window screenshot
+    # via emu-cua-driver instead of desktopCapturer on the next loop turn.
+    # Always include the key in coworker mode (None clears a stale target).
+    if req.agent_mode == "coworker":
+        target = context_manager.get_coworker_target(session_id)
+        if target:
+            pid, window_id = target
+            step_payload["coworker_target"] = {"pid": pid, "window_id": window_id}
+        else:
+            step_payload["coworker_target"] = None
+
+    await manager.send(session_id, step_payload)
 
     # Run auto-compact if needed
     if needs_compact and not response.done:

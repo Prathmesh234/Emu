@@ -385,31 +385,33 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 
 **No edits to:** the coworker prompt (already tells the model to prefer `cua_launch_app` directly; `raise_app` works as a near-alias), provider tool catalogues except for the description addendum, frontend code, or driver source.
 
-### Phase 6 — Action Model + Capture Path
-**Outcome:** Model can emit `{type, pid, window_id, element_index}` and screenshots flow from the target window, not the whole desktop.
+### Phase 6 — Capture Path (Action-model fields obsolete)
+**Status:** ✅ Finished (2026-04-30) — coworker capture flows through emu-cua-driver target-window screenshots; remote path unchanged.
+**Outcome:** Per-step screenshots in coworker mode flow from the target window via `emu-cua:screenshot`, not the whole desktop. Frontend knows the active `(pid, window_id)` because the backend surfaces it on `/agent/step`.
 
-6.1 `backend/models/actions.py` — extend `Action`:
-```python
-pid: Optional[int] = Field(default=None, description="Target process ID (coworker mode)")
-window_id: Optional[int] = Field(default=None, description="Target window ID (coworker mode)")
-element_index: Optional[int] = Field(default=None, description="AX element index from last get_window_state (coworker mode)")
-```
-Validate that at least one of `(element_index, coordinates)` is present for click-family actions when `agent_mode == "coworker"` (cross-validator on the response, not the action itself, since Action doesn't know mode).
+**Architectural note (post-Phase-4 pivot):** Coworker mode is single-channel — every interactive primitive is a function-tool call dispatched server-side via `call_driver_tool`. Real desktop actions (`cua_click`, `cua_type_text`, …) never travel through the renderer's `cua-driver-commands/actionProxy.js`; only `screenshot`/`wait`/`done` ever reach it. That makes the original §6.1 (extending `Action` with `pid`/`window_id`/`element_index`) **dead weight** and we are skipping it. The model addresses targets via tool-call arguments parsed by `coworker_tools.COWORKER_DRIVER_TOOLS_OPENAI`.
 
-6.2 `frontend/services/captureForStep.js` — new, ~25 lines. Single function `captureForStep({pid, windowId})`:
-   - If `store.state.agentMode === 'coworker'` and `pid && windowId`, invoke `emu-cua:screenshot` and return base64.
-   - Else fall through to the existing `desktopCapturer` path.
+6.1 ~~`Action` field extension~~ — **SKIPPED.** Single-channel design means `pid`/`window_id`/`element_index` belong on tool-call args, not the Action model. No pydantic root validator needed.
 
-6.3 Wire `captureForStep` into the per-step screenshot site (currently in `pages/Chat.js` or wherever `frontend/actions/screenshot.js` is invoked between steps).
+6.2 `frontend/services/captureForStep.js` — new, ~30 lines. Single function `captureForStep()`:
+   - If `store.state.agentMode === 'coworker'` and `store.state.coworkerTarget` has `pid && window_id`, invoke `emu-cua:screenshot` with `{pid, window_id}` and return `{success, base64, error}`.
+   - Else fall through to the existing `captureScreenshot()` (desktopCapturer / native screencapture).
+   - On coworker capture failure, fall back to remote capture once with a warning, so a stale window never wedges the loop.
 
-6.4 `frontend/cua-driver-commands/index.js` — ensure `emu-cua:screenshot` extracts image content blocks and returns `{success, base64, output}`. The spec expects MCP screenshot results to contain `{type:"image", data:<base64>}` blocks, not only text summaries.
+6.3 Wire `captureForStep` into `pages/Chat.js#continueLoop` (the only per-step screenshot call site for `postStep`). The other `captureScreenshot` reference in `frontend/actions/actionProxy.js` is the remote `screenshot` action and stays unchanged.
 
-6.5 `backend/models/response.py` — confirm/extend that the response object surfaces `pid`/`window_id` so the frontend can pass them to `captureForStep`. (Likely already plumbed via `Action`; double-check.)
+6.4 ✅ Already done: `frontend/cua-driver-commands/index.js#_extractBase64` returns the image block as base64 alongside text output.
 
-6.6 Action-set audit against the spec:
-- Supported in v1: `screenshot`, `left_click`, `right_click`, `double_click`, `navigate_and_click` folded to click, `navigate_and_right_click` folded to right-click, `scroll`, `type_text`, `key_press`/hotkey, `wait`, `shell_exec`, `memory_read`, `done`.
-- Deferred/no-op: `triple_click`, `navigate_and_triple_click`, `mouse_move`, `relative_mouse_move`, `drag`, `relative_drag`, `get_mouse_position`.
-- `horizontal_scroll` is internally inconsistent in the spec: §2 lists it as a non-goal, while §6.1 maps it to `scroll` with a horizontal direction. Current code maps it. Before QA, decide whether to keep that implementation or intentionally return the deferred/no-op path.
+6.5 Surface `(pid, window_id)` to the frontend.
+   - `backend/models/response.py:AgentResponse` gains `coworker_target: Optional[dict] = None` (shape `{pid: int, window_id: int}`).
+   - `backend/main.py` populates it from `context_manager.get_coworker_target(session_id)` right before returning the `/agent/step` JSON, only when `agent_mode == "coworker"`.
+   - The HTTP `/agent/step` JSON also carries `coworker_target` so `frontend/services/api.js#postStep` can forward it.
+   - `frontend/state/store.js` adds `coworkerTarget: null` and exposes `setCoworkerTarget`. `pages/Chat.js` writes the target after every `postStep` reply.
+
+6.6 Action-set audit (unchanged from prior decisions, restated for QA):
+- Supported in v1 (coworker tool surface): `cua_click` family, `cua_scroll`, `cua_type_text`/`cua_type_text_chars`/`cua_set_value`, `cua_press_key`/`cua_hotkey`, `cua_screenshot`, `cua_get_window_state`, `cua_launch_app`, `cua_list_apps`/`cua_list_windows`, `cua_move_cursor`, `cua_drag`, plus diagnostics. Plain Action types still supported through the renderer in coworker mode: `screenshot`, `wait`, `done`.
+- Renderer Action types that are coworker-deferred no-ops in `cua-driver-commands/actionProxy.js`: `triple_click`, `navigate_and_triple_click`, `mouse_move`, `relative_mouse_move`, `relative_drag`, `drag`, `get_mouse_position`.
+- `horizontal_scroll`: **deferred / no-op in coworker** to resolve the SPEC §2 vs §6.1 disagreement. The model uses `cua_scroll` with `direction ∈ left|right` instead. Existing renderer mapping in `cua-driver-commands/actionProxy.js` is left in place but is unreachable on the single-channel path; will be cleaned up in Phase 7 if it bit-rots.
 
 ### Phase 7 — Permissions + End-to-End Smoke
 **Outcome:** Real workflows run successfully on a clean macOS install.

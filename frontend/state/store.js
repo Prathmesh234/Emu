@@ -24,6 +24,11 @@ const state = {
     dangerousMode: true,
     darkMode: _savedDarkMode,
     agentMode: _savedAgentMode,
+    // Active coworker target (PLAN §6.5). Populated from each /agent/step
+    // reply when agent_mode==='coworker'; consumed by captureForStep to
+    // pull a target-window screenshot via emu-cua-driver instead of the
+    // full desktop. null when unknown (no raise_app/launch_app yet).
+    coworkerTarget: null,
 
     // Transient references (current render cycle)
     currentAssistantEl: null,
@@ -93,6 +98,14 @@ function setAgentMode(value) {
     try { localStorage.setItem('emu-agent-mode', value); } catch(e) {}
 }
 
+function setCoworkerTarget(target) {
+    if (!target || target.pid == null || target.window_id == null) {
+        state.coworkerTarget = null;
+        return;
+    }
+    state.coworkerTarget = { pid: target.pid, window_id: target.window_id };
+}
+
 function setWebSocket(socket) {
     state.ws = socket;
 }
@@ -132,6 +145,7 @@ module.exports = {
     setDangerousMode,
     setDarkMode,
     setAgentMode,
+    setCoworkerTarget,
     setWebSocket,
     setAssistantEl,
     pushMessage,
