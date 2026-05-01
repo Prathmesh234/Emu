@@ -1,12 +1,15 @@
-# BUGS — Coworker mode (open)
+# BUGS — Coworker mode (resolved)
 
-Live-test bugs reported after the round-3 fixes. None of these have
-been fixed yet — captured here so they don't get lost across context
-windows.
+Live-test bugs reported after the round-3 fixes. These were addressed
+in the coworker bug sweep; keep this file as the resolution record.
 
 ---
 
 ## 1. `cua_double_click` is broken
+
+Status: fixed. `cua_double_click` is no longer exposed to the model or
+renderer bridge; double-click work should be reintroduced only after a
+driver-side fix.
 
 The driver tool does not actually perform a double click that the
 target app honours. Until it works end-to-end, **remove it from the
@@ -26,6 +29,10 @@ Action items:
 ---
 
 ## 2. Cursor still glitches onto other windows when rotating apps
+
+Status: fixed conservatively. The overlay now orders out when any other
+app's normal window is above the pinned target window, including before
+`show()` calls `orderFrontRegardless()`.
 
 Even after:
 - Skipping `reapplyPinAbove` when `frontmostApplication.pid != pid`
@@ -56,6 +63,10 @@ Until fixed, this is the single most user-visible artefact.
 
 ## 3. Tool calls / step events are not streaming live to the UI
 
+Status: fixed. The renderer handles backend `log` websocket frames and
+attaches trace cards to a live assistant body instead of a possibly
+detached container.
+
 The trace lines (`[tool] cua_get_window_state ... → ...`) for
 coworker mode pile up on the backend stdout in real time, but the
 frontend renders them all at once at the END of the turn instead
@@ -81,6 +92,9 @@ the moment the line appears in the UI.
 
 ## 4. Send button never converts to "Stop" while running
 
+Status: fixed. Composer mode updates are idempotent, and input re-enable
+paths reset the button back to send only when generation is not running.
+
 `syncGeneratingUI(true)` fires at the start of `respond()`, but the
 button state must not be wired to it. Or the toggle hook lives in a
 component that re-renders without picking up the generating flag.
@@ -98,6 +112,10 @@ Investigation:
 ---
 
 ## 5. General UI wonkiness
+
+Status: fixed. Websocket reconnects now emit visible connection events
+without clearing generation state, and plan-review prompts are accepted
+under both event names and attached to a live assistant body.
 
 A swarm of smaller issues observed in the same session:
 

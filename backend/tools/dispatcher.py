@@ -1,3 +1,4 @@
+import asyncio
 import json
 import platform
 from utilities.connection import ConnectionManager
@@ -32,6 +33,20 @@ def _maybe_update_coworker_target(
     has something to fetch. Best-effort — never raises.
     """
     try:
+        def _usable_window(window: object) -> tuple[int, int] | None:
+            if not isinstance(window, dict):
+                return None
+            wid = window.get("window_id") or window.get("id")
+            if wid is None:
+                return None
+            bounds = window.get("bounds") if isinstance(window.get("bounds"), dict) else {}
+            width = int(bounds.get("width") or 0)
+            height = int(bounds.get("height") or 0)
+            if width < 120 or height < 120:
+                return None
+            area = width * height
+            return int(wid), area
+
         # Explicit (pid, window_id) on any cua_* tool call wins.
         pid_arg = args.get("pid")
         wid_arg = args.get("window_id")
@@ -46,15 +61,90 @@ def _maybe_update_coworker_target(
             wins = parsed_result.get("windows") or []
             wid = None
             if isinstance(wins, list) and wins:
-                first = wins[0] if isinstance(wins[0], dict) else None
-                if first:
-                    wid = first.get("window_id") or first.get("id")
-            wid = wid or parsed_result.get("front_window_id") or parsed_result.get("window_id")
+                usable = [
+                    candidate for candidate in (_usable_window(win) for win in wins)
+                    if candidate is not None
+                ]
+                if usable:
+                    wid = max(usable, key=lambda item: item[1])[0]
+            else:
+                wid = parsed_result.get("front_window_id") or parsed_result.get("window_id")
             if pid is not None and wid is not None:
                 context_manager.set_coworker_target(session_id, pid, wid)
     except Exception:
         # Tracking is opportunistic; never let it break tool dispatch.
         pass
+
+
+def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
+    """
+    Normalize mutually-exclusive coworker driver addressing modes.
+
+    Some providers emit optional numeric fields as zero even when the model
+    chose the element-index path. The Swift driver correctly rejects mixed
+    `element_index` + `(x, y)` input, so strip pixel-only defaults when an
+    element target is present before crossing the driver boundary.
+    """
+    normalized = dict(args)
+
+    def _drop_empty(*keys: str) -> None:
+        for key in keys:
+            value = normalized.get(key)
+            if value == "" or value == []:
+                normalized.pop(key, None)
+
+    if name in {"cua_click", "cua_right_click", "cua_double_click"}:
+        has_element_target = (
+            normalized.get("element_index") is not None
+            and normalized.get("window_id") is not None
+        )
+        if has_element_target:
+            for key in ("x", "y", "modifier", "count", "from_zoom"):
+                normalized.pop(key, None)
+        elif normalized.get("x") is not None and normalized.get("y") is not None:
+            normalized.pop("element_index", None)
+
+    elif name == "cua_get_window_state":
+        _drop_empty("query", "javascript", "screenshot_out_file")
+
+    elif name == "cua_page":
+        action = normalized.get("action")
+        if action == "get_text":
+            for key in (
+                "javascript",
+                "css_selector",
+                "attributes",
+                "bundle_id",
+                "user_has_confirmed_enabling",
+            ):
+                normalized.pop(key, None)
+        elif action == "query_dom":
+            for key in ("javascript", "bundle_id", "user_has_confirmed_enabling"):
+                normalized.pop(key, None)
+            _drop_empty("attributes")
+        elif action == "execute_javascript":
+            for key in ("css_selector", "attributes", "bundle_id", "user_has_confirmed_enabling"):
+                normalized.pop(key, None)
+        elif action == "enable_javascript_apple_events":
+            for key in ("javascript", "css_selector", "attributes"):
+                normalized.pop(key, None)
+
+    elif name in {
+        "cua_set_agent_cursor_motion",
+        "cua_set_agent_cursor_style",
+        "cua_set_recording",
+        "cua_replay_trajectory",
+        "cua_drag",
+    }:
+        # Preserve empty strings for cursor-style reset fields; otherwise strip
+        # provider-filled empty optionals that the Swift schemas reject or treat
+        # as explicit work.
+        if name != "cua_set_agent_cursor_style":
+            for key, value in list(normalized.items()):
+                if value == "" or value == []:
+                    normalized.pop(key, None)
+
+    return normalized
 
 
 async def execute_agent_tool(
@@ -65,6 +155,7 @@ async def execute_agent_tool(
     context_manager: ContextManager,
     compact_model,
     agent_mode: str = "remote",
+    cancel_key: str | None = None,
 ) -> str:
     """Execute an agent tool by name and return the result string.
 
@@ -177,7 +268,7 @@ async def execute_agent_tool(
 
     elif name == "shell_exec":
         command = args.get("command", "")
-        result = handle_shell_exec(command)
+        result = handle_shell_exec(command, agent_mode=agent_mode)
         await manager.send(session_id, {
             "type": "tool_event",
             "event": "shell_exec",
@@ -188,7 +279,9 @@ async def execute_agent_tool(
 
     elif name == "raise_app":
         app_name = args.get("app_name", "")
-        result = handle_raise_app(app_name, agent_mode=agent_mode)
+        result = await asyncio.to_thread(
+            handle_raise_app, app_name, agent_mode, cancel_key
+        )
         # In coworker mode the driver returns structured JSON — mine it for
         # (pid, window_id) so the next perception turn has a target.
         if agent_mode == "coworker" and not result.startswith("ERROR"):
@@ -212,8 +305,11 @@ async def execute_agent_tool(
     # accept the friendlier alias ``list_running_apps`` which maps onto the
     # driver's ``list_apps`` tool.
     elif name == "list_running_apps" or name in COWORKER_DRIVER_TOOL_NAMES:
+        args = _normalize_coworker_driver_args(name, args)
         driver_tool = "list_apps" if name == "list_running_apps" else name[len("cua_"):]
-        result = call_driver_tool(driver_tool, args)
+        result = await asyncio.to_thread(
+            call_driver_tool, driver_tool, args, cancel_key
+        )
         _maybe_update_coworker_target(
             context_manager, session_id, name, args, result.get("json")
         )

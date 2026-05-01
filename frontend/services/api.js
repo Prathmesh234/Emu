@@ -26,8 +26,12 @@ function authHeaders(extra = {}) {
 }
 
 // fetch() wrapper that aborts after `timeoutMs` and surfaces a consistent
-// error message. Uses AbortController so the underlying socket is closed.
+// error message. Pass timeoutMs=0/null for long-lived requests whose lifecycle
+// is driven by the websocket stream instead of the HTTP response.
 async function fetchWithTimeout(url, opts = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    if (timeoutMs == null || timeoutMs <= 0) {
+        return fetch(url, opts);
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -58,8 +62,10 @@ async function createSession() {
 }
 
 async function postStep({ sessionId, userMessage, base64Screenshot, agentMode }) {
-    // Long timeout: this triggers a model step which can be slow.
-    return fetchWithTimeout(`${BACKEND_URL}/agent/step`, {
+    // Do not abort agent steps from the renderer. Coworker mode can run long
+    // server-side tool chains while progress streams over WebSocket; aborting
+    // this fetch only drops the UI back to "send" while the backend continues.
+    const res = await fetchWithTimeout(`${BACKEND_URL}/agent/step`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
@@ -68,7 +74,13 @@ async function postStep({ sessionId, userMessage, base64Screenshot, agentMode })
             base64_screenshot: base64Screenshot || '',
             agent_mode:        agentMode || 'coworker',
         }),
-    }, 120_000);
+    }, 0);
+    if (!res.ok) {
+        const err = new Error(`Agent step failed: ${res.status} ${res.statusText}`);
+        err.httpStatus = res.status;
+        throw err;
+    }
+    return res;
 }
 
 async function notifyActionComplete({ sessionId, ipcChannel, success, error, output }) {
@@ -131,11 +143,14 @@ async function fetchSessionMessages(sessionId) {
     }
 }
 
-async function continueSession(previousSessionId) {
+async function continueSession(previousSessionId, agentMode = 'coworker') {
     const res = await fetchWithTimeout(`${BACKEND_URL}/agent/session/continue`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ previous_session_id: previousSessionId }),
+        body: JSON.stringify({
+            previous_session_id: previousSessionId,
+            agent_mode: agentMode,
+        }),
     }, 10_000);
     if (!res.ok) throw new Error(`Continue session failed: ${res.status} ${res.statusText}`);
     const data = await res.json();

@@ -38,11 +38,17 @@ function initWebSocket(sessionId) {
     const token = readAuthToken();
     const ws = new WebSocket(`${WS_URL}/ws/${sessionId}?token=${encodeURIComponent(token)}`);
 
-    ws.onopen = () => console.log('[ws] connected');
+    ws.onopen = () => {
+        console.log('[ws] connected');
+        _queue.push({ type: 'connection_open' });
+        _processQueue();
+    };
 
     ws.onclose = () => {
         if (_closing) return;
         console.log('[ws] closed — reconnecting in 2s');
+        _queue.push({ type: 'connection_closed' });
+        _processQueue();
         setTimeout(() => initWebSocket(sessionId), 2000);
     };
 

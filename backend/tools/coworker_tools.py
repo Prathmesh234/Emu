@@ -31,7 +31,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -54,8 +56,8 @@ _WID_OPTIONAL = {
 _WID_REQUIRED = {
     "type": "integer",
     "description": (
-        "CGWindowID for the target window. Must belong to `pid` and be "
-        "on the user's current Space."
+        "CGWindowID for the target window. Must belong to `pid`; it can "
+        "come from cua_launch_app or cua_list_windows."
     ),
 }
 _ELEMENT_INDEX = {
@@ -72,7 +74,8 @@ _X_WINDOW = {
     "description": (
         "X in window-local screenshot pixels — same space as the PNG "
         "cua_get_window_state returns. Top-left origin of the target's "
-        "window. Must be provided together with y."
+        "window. Must be provided together with y. Pixel path only; omit "
+        "when using element_index."
     ),
 }
 _Y_WINDOW = {
@@ -80,7 +83,8 @@ _Y_WINDOW = {
     "description": (
         "Y in window-local screenshot pixels — same space as the PNG "
         "cua_get_window_state returns. Top-left origin of the target's "
-        "window. Must be provided together with x."
+        "window. Must be provided together with x. Pixel path only; omit "
+        "when using element_index."
     ),
 }
 _MODIFIER_ARRAY = {
@@ -204,8 +208,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Mints a fresh index map and invalidates the previous one for "
             "this (pid, window_id). INVARIANT: call this once per turn per "
             "(pid, window_id) before any element-indexed action against that "
-            "window. window_id MUST belong to pid and be on the user's "
-            "current Space — call returns isError otherwise. Optional "
+            "window. window_id MUST belong to pid. Optional "
             "case-insensitive substring `query` trims the rendered tree "
             "while preserving ancestors and index numbers (the cached "
             "element map is unchanged). Optional `javascript` runs in the "
@@ -217,7 +220,15 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "pid": _PID,
             "window_id": _WID_REQUIRED,
             "query": {"type": "string", "description": "Optional substring filter. Trims tree_markdown only."},
-            "javascript": {"type": "string", "description": "Optional JS to execute in the browser tab and return alongside the AX snapshot. Read-only queries only — for mutations use cua_page (not exposed in v1)."},
+            "javascript": {"type": "string", "description": "Optional JS to execute in the browser tab and return alongside the AX snapshot. Prefer read-only queries here; use cua_page for standalone DOM reads or deliberate JS."},
+            "screenshot_out_file": {
+                "type": "string",
+                "description": (
+                    "Optional absolute path to write the window screenshot. "
+                    "When set, the driver returns screenshot_file_path instead "
+                    "of inline image bytes."
+                ),
+            },
         },
         ["pid", "window_id"],
     ),
@@ -233,7 +244,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "of the cua_get_window_state PNG; CGEvent path). NO `button` "
             "param — for right-click use cua_right_click. On the element "
             "path, `action` selects the AX action; on the pixel path, "
-            "`count` enables double/triple click and `modifier` holds keys."
+            "`count` enables double/triple click and `modifier` holds keys. "
+            "Do not cycle `action` values on the same element after a failure "
+            "or no-op; use the advertised action from the latest AX tree, a "
+            "different sibling/parent element, or pixel coordinates."
         ),
         {
             "pid": _PID,
@@ -244,7 +258,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "action": {
                 "type": "string",
                 "enum": ["press", "show_menu", "pick", "confirm", "cancel", "open"],
-                "description": "AX action on the element path only. Default 'press'. Ignored on the pixel path.",
+                "description": "AX action on the element path only. Default 'press'. Ignored on the pixel path. Use only when the latest AX tree advertises that action or the role is known to accept it; do not try open/show_menu/pick against AXStaticText or after a no-op. When using element_index, omit x, y, modifier, count, and from_zoom entirely.",
             },
             "modifier": _MODIFIER_ARRAY,
             "count": {
@@ -264,11 +278,14 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "cua_right_click",
         (
             "Right-click against a target pid. Element path performs "
-            "AXShowMenu on the cached element (reliable, no cursor move). "
+            "AXShowMenu on the cached element when the element supports a "
+            "context menu (no cursor move). "
             "Pixel path synthesizes a right-mouse-down/up pair (Chromium "
             "web content has a known coercion-to-left-click caveat). "
             "Same XOR addressing as cua_click. NO `count` (single only). "
-            "`modifier` is pixel-path only."
+            "`modifier` is pixel-path only. Do not right-click AXStaticText "
+            "or retry AXShowMenu after it fails; use pixel fallback or another "
+            "control."
         ),
         {
             "pid": _PID,
@@ -283,13 +300,15 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     _fn(
         "cua_double_click",
         (
-            "Double-click against a target pid. Element path performs "
-            "AXOpen if the element advertises it (Finder items, openable "
-            "list rows, document cells); else falls back to a stamped "
-            "pixel double-click at the element's center. Pixel path posts "
-            "a stamped double-click (clickState 1→2). Same XOR addressing "
-            "as cua_click. NO `count` (always 2). `modifier` is pixel-path "
-            "only."
+            "Double-click against a target pid. Two addressing modes — exactly "
+            "one must be supplied: (a) element_index + window_id from the last "
+            "cua_get_window_state; performs AXOpen when advertised, otherwise "
+            "falls back to a stamped pixel double-click at the element center; "
+            "(b) x + y in window-local screenshot pixels. Prefer this for "
+            "open-on-double-click intents instead of cua_click(count=2). If "
+            "a double-click on an AXStaticText/static label verifies as no-op, "
+            "do not repeat with alternate AX actions; pick a real control, "
+            "pixel-coordinate target, keyboard path, or stop."
         ),
         {
             "pid": _PID,
@@ -301,15 +320,14 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         },
         ["pid"],
     ),
-
     # ── Scroll ────────────────────────────────────────────────────────────
     _fn(
         "cua_scroll",
         (
             "Scroll the target. Posts synthesized arrow-key (line) or "
             "PageUp/PageDown (page) keystrokes via the auth-signed pid "
-            "path. There is NO separate cua_page tool — page-sized "
-            "scrolls use `by=\"page\"`. element_index + window_id "
+            "path. Page-sized scrolls use `by=\"page\"`; cua_page is for "
+            "browser DOM primitives, not scrolling. element_index + window_id "
             "pre-focuses the element; skip them when focus is already "
             "established."
         ),
@@ -499,6 +517,49 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         ["pid", "from_x", "from_y", "to_x", "to_y"],
     ),
 
+    # ── Browser / vision helpers ──────────────────────────────────────────
+    _fn(
+        "cua_page",
+        (
+            "Browser page primitives for Chrome/Brave/Edge/Safari/Electron "
+            "when AX does not expose the data. Actions: get_text, query_dom, "
+            "execute_javascript, enable_javascript_apple_events. Requires "
+            "pid + window_id. Use get_text/query_dom for reading DOM data; "
+            "prefer cua_click/cua_set_value for indexed UI elements."
+        ),
+        {
+            "pid": _PID,
+            "window_id": _WID_REQUIRED,
+            "action": {
+                "type": "string",
+                "enum": ["execute_javascript", "get_text", "query_dom", "enable_javascript_apple_events"],
+            },
+            "javascript": {"type": "string", "description": "JS for action=execute_javascript. Wrap complex code in an IIFE."},
+            "css_selector": {"type": "string", "description": "CSS selector for action=query_dom."},
+            "attributes": {"type": "array", "items": {"type": "string"}, "description": "Attributes to include for query_dom matches."},
+            "bundle_id": {"type": "string", "description": "Browser bundle id for enable_javascript_apple_events."},
+            "user_has_confirmed_enabling": {"type": "boolean", "description": "Must be true only after explicit user permission for enable_javascript_apple_events."},
+        },
+        ["pid", "window_id", "action"],
+    ),
+    _fn(
+        "cua_zoom",
+        (
+            "Zoom into a rectangular region of the last get_window_state "
+            "screenshot at native resolution. Coordinates x1/y1/x2/y2 are "
+            "in the same resized-image pixel space returned by get_window_state. "
+            "Use for small text/icons before pixel fallback."
+        ),
+        {
+            "pid": _PID,
+            "x1": {"type": "number", "description": "Left edge in get_window_state screenshot pixels."},
+            "y1": {"type": "number", "description": "Top edge in get_window_state screenshot pixels."},
+            "x2": {"type": "number", "description": "Right edge in get_window_state screenshot pixels."},
+            "y2": {"type": "number", "description": "Bottom edge in get_window_state screenshot pixels."},
+        },
+        ["pid", "x1", "y1", "x2", "y2"],
+    ),
+
     # ── Diagnostics ───────────────────────────────────────────────────────
     _fn(
         "cua_check_permissions",
@@ -520,6 +581,20 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "cua_get_config",
         "Inspect the driver's current capture/cursor configuration (capture_mode ∈ som / vision / ax, cursor settings, feature flags).",
         {},
+    ),
+    _fn(
+        "cua_set_config",
+        (
+            "Write one persistent driver config key. Common keys: "
+            "capture_mode ('som' | 'vision' | 'ax'), max_image_dimension, "
+            "agent_cursor.enabled, agent_cursor.motion.start_handle/end_handle/"
+            "arc_size/arc_flow/spring."
+        ),
+        {
+            "key": {"type": "string", "description": "Dotted snake_case config key, e.g. capture_mode."},
+            "value": {"description": "JSON value for key, e.g. 'som', 1568, true, or a number."},
+        },
+        ["key", "value"],
     ),
     _fn(
         "cua_get_screen_size",
@@ -559,8 +634,56 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "spring": {"type": "number", "description": "Settle damping in [0.3, 1]."},
             "glide_duration_ms": {"type": "number", "minimum": 50, "maximum": 5000, "description": "Flight duration per click in ms."},
             "dwell_after_click_ms": {"type": "number", "minimum": 0, "maximum": 5000, "description": "Pause after click ripple in ms."},
-            "idle_hide_ms": {"type": "number", "minimum": 100, "maximum": 60000, "description": "Overlay linger after last action in ms."},
+            "idle_hide_ms": {"type": "number", "minimum": 0, "maximum": 60000, "description": "Overlay linger after last action in ms. 0 disables auto-hide."},
         },
+    ),
+    _fn(
+        "cua_set_agent_cursor_style",
+        (
+            "Customize the visual agent-cursor overlay. Omit fields to keep "
+            "current values. Empty gradient_colors/bloom_color/image_path "
+            "reverts that style to default. shape_size controls drawn cursor "
+            "size in points."
+        ),
+        {
+            "gradient_colors": {"type": "array", "items": {"type": "string"}, "description": "CSS hex colors for arrow gradient stops."},
+            "bloom_color": {"type": "string", "description": "CSS hex color for halo/focus rect; empty string resets."},
+            "shape_size": {"type": "number", "minimum": 10, "maximum": 40, "description": "Drawn cursor size in points."},
+            "image_path": {"type": "string", "description": "Absolute or ~ path to PNG/JPEG/PDF/SVG cursor image; empty string resets."},
+        },
+    ),
+    _fn(
+        "cua_set_recording",
+        (
+            "Toggle trajectory recording. Only use when the user explicitly "
+            "asks to record. When enabled, action tools write turn folders "
+            "under output_dir."
+        ),
+        {
+            "enabled": {"type": "boolean", "description": "True to start recording, false to stop."},
+            "output_dir": {"type": "string", "description": "Absolute or ~ directory. Required when enabled=true."},
+            "video_experimental": {"type": "boolean", "description": "Also capture main display video to recording.mp4. Off by default."},
+        },
+        ["enabled"],
+    ),
+    _fn(
+        "cua_get_recording_state",
+        "Report whether trajectory recording is enabled and where turns are written.",
+        {},
+    ),
+    _fn(
+        "cua_replay_trajectory",
+        (
+            "Replay a previously recorded trajectory directory. Only use when "
+            "the user explicitly asks for replay/regression testing. Element "
+            "indices do not survive across sessions; pixel/keyboard actions replay best."
+        ),
+        {
+            "dir": {"type": "string", "description": "Trajectory directory previously written by set_recording."},
+            "delay_ms": {"type": "integer", "minimum": 0, "maximum": 10000, "description": "Delay between turns. Default 500."},
+            "stop_on_error": {"type": "boolean", "description": "Stop on first error. Default true."},
+        },
+        ["dir"],
     ),
 ]
 
@@ -576,6 +699,35 @@ COWORKER_DRIVER_TOOL_NAMES: set[str] = {
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CALL_TIMEOUT_S = 30
+_ACTIVE_DRIVER_PROCS: dict[str, set[subprocess.Popen[str]]] = {}
+_ACTIVE_DRIVER_PROCS_LOCK = threading.Lock()
+
+
+def _kill_driver_proc(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def cancel_driver_calls(cancel_key: str) -> int:
+    """Terminate active emu-cua-driver CLI calls for a running agent step."""
+    with _ACTIVE_DRIVER_PROCS_LOCK:
+        procs = list(_ACTIVE_DRIVER_PROCS.get(cancel_key, set()))
+
+    killed = 0
+    for proc in procs:
+        if proc.poll() is None:
+            _kill_driver_proc(proc)
+            killed += 1
+    return killed
 
 
 def _resolve_driver_bin() -> str | None:
@@ -596,7 +748,11 @@ def _resolve_driver_bin() -> str | None:
     return found
 
 
-def call_driver_tool(name: str, args: dict | None = None) -> dict:
+def call_driver_tool(
+    name: str,
+    args: dict | None = None,
+    cancel_key: str | None = None,
+) -> dict:
     """
     Forward a tool call to the emu-cua-driver Swift CLI.
 
@@ -614,6 +770,39 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
     args = args or {}
     if not isinstance(args, dict):
         raise TypeError("call_driver_tool: args must be a dict")
+    args = dict(args)
+
+    # The Swift driver treats a present `javascript` field as "run browser JS".
+    # Models often emit an empty string for optional fields; do not turn that
+    # into an unnecessary browser/Electron JS round-trip.
+    if name == "get_window_state":
+        for key in ("query", "javascript", "screenshot_out_file"):
+            value = args.get(key)
+            if value == "" or value == []:
+                args.pop(key, None)
+
+    if name == "page":
+        action = args.get("action")
+        if action == "get_text":
+            for key in (
+                "javascript",
+                "css_selector",
+                "attributes",
+                "bundle_id",
+                "user_has_confirmed_enabling",
+            ):
+                args.pop(key, None)
+        elif action == "query_dom":
+            for key in ("javascript", "bundle_id", "user_has_confirmed_enabling"):
+                args.pop(key, None)
+            if args.get("attributes") == []:
+                args.pop("attributes", None)
+        elif action == "execute_javascript":
+            for key in ("css_selector", "attributes", "bundle_id", "user_has_confirmed_enabling"):
+                args.pop(key, None)
+        elif action == "enable_javascript_apple_events":
+            for key in ("javascript", "css_selector", "attributes"):
+                args.pop(key, None)
 
     bin_path = _resolve_driver_bin()
     if bin_path is None:
@@ -645,12 +834,30 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
     cmd.extend([name, payload])
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=_CALL_TIMEOUT_S,
+            start_new_session=True,
         )
+        if cancel_key:
+            with _ACTIVE_DRIVER_PROCS_LOCK:
+                _ACTIVE_DRIVER_PROCS.setdefault(cancel_key, set()).add(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=_CALL_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            _kill_driver_proc(proc)
+            stdout, stderr = proc.communicate()
+            return {"ok": False, "error": f"emu-cua-driver call {name} timed out after {_CALL_TIMEOUT_S}s", "code": None}
+        finally:
+            if cancel_key:
+                with _ACTIVE_DRIVER_PROCS_LOCK:
+                    procs = _ACTIVE_DRIVER_PROCS.get(cancel_key)
+                    if procs is not None:
+                        procs.discard(proc)
+                        if not procs:
+                            _ACTIVE_DRIVER_PROCS.pop(cancel_key, None)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"emu-cua-driver call {name} timed out after {_CALL_TIMEOUT_S}s", "code": None}
     except FileNotFoundError:
@@ -658,8 +865,8 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
     except OSError as exc:
         return {"ok": False, "error": f"failed to invoke emu-cua-driver: {exc}", "code": None}
 
-    output = (proc.stdout or "").strip()
-    err = (proc.stderr or "").strip()
+    output = (stdout or "").strip()
+    err = (stderr or "").strip()
 
     if proc.returncode != 0:
         return {
@@ -693,7 +900,7 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
 
 # Driver tools that emit an image content block. For these we must use
 # `--raw` to preserve access to the PNG bytes (post upstream 9d623c03).
-_IMAGE_PRODUCING_TOOLS = frozenset({"get_window_state", "screenshot"})
+_IMAGE_PRODUCING_TOOLS = frozenset({"get_window_state", "screenshot", "zoom"})
 
 
 def _flatten_raw_result(envelope: dict) -> dict:
@@ -734,19 +941,53 @@ def _flatten_raw_result(envelope: dict) -> dict:
     return flat
 
 
+def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
+    """Return short recovery guidance for common driver dead ends."""
+    if name not in {"cua_click", "cua_right_click", "cua_double_click"}:
+        return ""
+
+    lowered = text.lower()
+    guidance: list[str] = []
+
+    if "axstatictext" in lowered:
+        guidance.append(
+            "AXStaticText is usually a read-only/static label. If the follow-up "
+            "snapshot does not change, do not try AXOpen/AXShowMenu/pick on the "
+            "same element; use a parent/sibling control, pixel coordinates from "
+            "the screenshot, a keyboard shortcut, or stop."
+        )
+
+    if not ok and "ax action" in lowered and "failed" in lowered:
+        guidance.append(
+            "Treat this AX action failure as a strategy-change signal, not as "
+            "an invitation to cycle other AX actions on the same element."
+        )
+
+    if "disabled" in lowered or "axenabled = false" in lowered:
+        guidance.append(
+            "Disabled menu/items in a backgrounded app are not usable through "
+            "foreground menu navigation. Do not activate the app or use "
+            "AppleScript as a workaround; choose an in-window driver action or "
+            "report the limitation."
+        )
+
+    if not guidance:
+        return ""
+    return "\n[driver guidance] " + " ".join(dict.fromkeys(guidance))
+
+
 def format_driver_result_for_model(name: str, result: dict) -> str:
     """Render a call_driver_tool result as a string the LLM can read.
 
     Special-cases the image-bearing tools (`cua_screenshot`,
-    `cua_get_window_state`): when invoked via `--raw` (see
+    `cua_get_window_state`, `cua_zoom`): when invoked via `--raw` (see
     `_IMAGE_PRODUCING_TOOLS`) ``call_driver_tool`` flattens the response
     so the PNG ends up under `screenshot_png_b64`. Those bytes are useless
     to the model in a text channel and would otherwise eat the entire
     8000-char cap with base64 noise. Strip them and replace with a
     `_screenshot_omitted_bytes` marker so the structured fields
     (dimensions, element_count, tree_markdown, bundle_id, …) survive
-    intact. The actual image, when needed, is delivered out-of-band by
-    `_inject_coworker_perception` in main.py.
+    intact. If the model needs pixels, it should call `cua_screenshot`.
     """
     if result.get("ok"):
         parsed = result.get("json")
@@ -764,8 +1005,10 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
         # Cap to avoid blowing up context if the driver returns a huge AX dump.
         if len(out) > 8000:
             out = out[:8000] + "\n... [truncated]"
+        out += _driver_result_guidance(name, out, ok=True)
         return f"[{name}] {out}"
     err = result.get("error") or "unknown error"
     code = result.get("code")
     suffix = f" (exit {code})" if code is not None else ""
+    err += _driver_result_guidance(name, err, ok=False)
     return f"[{name} error{suffix}] {err}"

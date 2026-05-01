@@ -61,6 +61,74 @@ Either way, you MUST call update_plan before taking any desktop actions. The use
 """
 
 
+def _mode_transition_block(previous_mode: str, current_mode: str) -> str:
+    if previous_mode == current_mode:
+        return ""
+
+    if current_mode == "remote":
+        return """\
+
+<mode_transition>
+This session has just switched from coworker mode to remote mode.
+
+Historical coworker context may mention `cua_*` function tools, `(pid, window_id)`,
+and `[element_index N]` values from emu-cua-driver snapshots. Treat those as
+history only: they describe what was attempted and observed, but they are NOT
+valid remote-mode commands and old element_index values are not usable here.
+
+Current mode: REMOTE. You do not have `cua_*` desktop-driver tools in this
+request. Use only the remote action JSON protocol from this system prompt:
+  - `screenshot`: ask the harness for a fresh screen image.
+  - `navigate_and_click` / `navigate_and_right_click` / `navigate_and_triple_click`:
+    move to normalized screen coordinates and click.
+  - `left_click` / `right_click` / `double_click` / `triple_click`: click at the
+    current cursor position.
+  - `mouse_move`: move the cursor to normalized coordinates without clicking.
+  - `drag`: drag from `coordinates` to `end_coordinates`.
+  - `scroll`: scroll up/down by amount.
+  - `type_text`: type the provided text into the current focus.
+  - `key_press`: press one key, optionally with modifiers.
+  - `wait`: pause briefly.
+  - `done`: finish, ask one question, or report a blocker.
+
+If the prior coworker task was stopped, resume from the user's goal and the
+useful observations in history, but take a fresh `screenshot` before any
+coordinate-dependent action unless the current screen state is already obvious.
+</mode_transition>"""
+
+    if current_mode == "coworker":
+        return """\
+
+<mode_transition>
+This session has just switched from remote mode to coworker mode.
+
+Historical remote context may mention desktop action JSON such as
+`screenshot`, `navigate_and_click`, `type_text`, `key_press`, `scroll`, or
+normalized screen coordinates. Treat those as history only: they describe what
+was attempted and observed, but they are NOT valid coworker interaction
+commands except for `done`.
+
+Current mode: COWORKER. The only action JSON you may emit is `done`. All real
+desktop interaction must use function tools available in this request:
+  - Discovery: `raise_app`, `list_running_apps`, `cua_launch_app`,
+    `cua_list_apps`, `cua_list_windows`.
+  - Perception: `cua_get_window_state` for AX tree + element_index cache,
+    `cua_screenshot` for pixels, `cua_zoom` for tiny visual details.
+  - Interaction: `cua_click`, `cua_right_click`, `cua_double_click`,
+    `cua_type_text`, `cua_set_value`, `cua_press_key`, `cua_hotkey`,
+    `cua_scroll`, `cua_drag`.
+  - Browser DOM: `cua_page` when AX is sparse and page/DOM data is needed.
+  - Finish: raw `done` JSON only when complete, blocked, or asking one question.
+
+If the prior remote task was stopped, resume from the user's goal and the useful
+observations in history, but first rebuild coworker targeting with discovery and
+fresh `cua_get_window_state` before using any `element_index`. Remote
+coordinates do not translate into coworker element indices.
+</mode_transition>"""
+
+    return ""
+
+
 class ContextManager:
     """
     Maintains conversation history per session.
@@ -87,31 +155,57 @@ class ContextManager:
         self._coworker_target: dict[str, tuple[int, int]] = {}
         self.action_validator = ActionValidator()
 
+    def _build_system_prompt(self, session_id: str, mode: str) -> str:
+        from workspace import is_hermes_setup_needed
+        workspace_ctx = build_workspace_context()
+        bootstrap_mode = is_bootstrap_needed()
+        bootstrap_content = read_bootstrap() if bootstrap_mode else ""
+        hermes_setup_mode = (not bootstrap_mode) and is_hermes_setup_needed()
+        device_info = get_device_details()
+        if mode == "coworker":
+            return build_coworker_system_prompt(
+                workspace_context=workspace_ctx,
+                session_id=session_id,
+                device_details=device_info,
+            )
+        return build_system_prompt(
+            workspace_ctx,
+            session_id=session_id,
+            bootstrap_mode=bootstrap_mode,
+            bootstrap_content=bootstrap_content,
+            device_details=device_info,
+            use_omni_parser=USE_OMNI_PARSER,
+            hermes_setup_mode=hermes_setup_mode,
+        )
+
+    def _replace_system_prompt(
+        self,
+        session_id: str,
+        mode: str,
+        previous_mode: str | None = None,
+    ) -> None:
+        history = self._history.get(session_id)
+        if not history:
+            return
+
+        prompt = self._build_system_prompt(session_id, mode).strip()
+        if previous_mode and previous_mode != mode:
+            prompt += _mode_transition_block(previous_mode, mode)
+
+        for idx, message in enumerate(history):
+            if message.role == MessageRole.system:
+                history[idx] = PreviousMessage(role=MessageRole.system, content=prompt)
+                return
+
+        history.insert(0, PreviousMessage(role=MessageRole.system, content=prompt))
+
     def _get(self, session_id: str) -> list[PreviousMessage]:
         """Return existing history or bootstrap a new session with the system prompt."""
         if session_id not in self._history:
-            from workspace import is_hermes_setup_needed
-            workspace_ctx = build_workspace_context()
-            bootstrap_mode = is_bootstrap_needed()
-            bootstrap_content = read_bootstrap() if bootstrap_mode else ""
-            hermes_setup_mode = (not bootstrap_mode) and is_hermes_setup_needed()
-            device_info = get_device_details()
-            if self._agent_mode.get(session_id) == "coworker":
-                system_prompt = build_coworker_system_prompt(
-                    workspace_context=workspace_ctx,
-                    session_id=session_id,
-                    device_details=device_info,
-                )
-            else:
-                system_prompt = build_system_prompt(
-                    workspace_ctx,
-                    session_id=session_id,
-                    bootstrap_mode=bootstrap_mode,
-                    bootstrap_content=bootstrap_content,
-                    device_details=device_info,
-                    use_omni_parser=USE_OMNI_PARSER,
-                    hermes_setup_mode=hermes_setup_mode,
-                )
+            system_prompt = self._build_system_prompt(
+                session_id,
+                self._agent_mode.get(session_id, "coworker"),
+            )
             self._history[session_id] = [
                 PreviousMessage(role=MessageRole.system, content=system_prompt.strip())
             ]
@@ -157,7 +251,13 @@ class ContextManager:
         """Record the current frontend mode for the next model request."""
         if mode not in ("coworker", "remote"):
             raise ValueError(f"invalid agent mode: {mode}")
+        previous_mode = self._agent_mode.get(session_id)
         self._agent_mode[session_id] = mode
+        if previous_mode and previous_mode != mode and session_id in self._history:
+            if mode == "remote":
+                self.clear_coworker_target(session_id)
+            self._replace_system_prompt(session_id, mode, previous_mode)
+            print(f"[agent_mode] session={session_id} {previous_mode} → {mode}; refreshed system prompt")
 
     def set_coworker_target(self, session_id: str, pid: int, window_id: int) -> None:
         """Record the active (pid, window_id) for coworker-mode per-turn perception."""
@@ -533,27 +633,12 @@ class ContextManager:
         while preserving the most recent KEEP_RECENT_MESSAGES verbatim.
         Result: system prompt + summary directive + recent tail.
         """
-        from workspace import build_workspace_context, get_device_details
-        from prompts import build_system_prompt, build_coworker_system_prompt
         from prompts.compact_prompt import CONTINUATION_DIRECTIVE
 
-        workspace_ctx = build_workspace_context()
-        device_info = get_device_details()
-        if self._agent_mode.get(session_id) == "coworker":
-            system_prompt = build_coworker_system_prompt(
-                workspace_context=workspace_ctx,
-                session_id=session_id,
-                device_details=device_info,
-            )
-        else:
-            system_prompt = build_system_prompt(
-                workspace_ctx,
-                session_id=session_id,
-                bootstrap_mode=False,
-                bootstrap_content="",
-                device_details=device_info,
-                use_omni_parser=USE_OMNI_PARSER,
-            )
+        system_prompt = self._build_system_prompt(
+            session_id,
+            self._agent_mode.get(session_id, "coworker"),
+        )
 
         old_history = self._history.get(session_id, [])
 

@@ -235,29 +235,38 @@ function _stopServe() {
 }
 
 // Configure the agent-cursor overlay so it stays pinned for the whole
-// app session — including after the agent stops. By default the daemon
-// auto-hides the overlay 3000ms after the last pointer action, which is
-// fine for headless CI but reads as "the cursor disappeared" to a user
-// watching their app. Bumping idle_hide_ms to ~10 minutes effectively
-// keeps the overlay visible until the next click re-arms the timer.
+// app session — including after the agent stops. `idle_hide_ms: 0`
+// disables the daemon's idle-hide timer, so the overlay remains visible
+// until the driver/app shuts down.
 // Fire-and-forget — the daemon already defaults to enabled, so a
 // failure here just means slightly less-sticky cursor, not a broken
 // session.
 function _configureAgentCursor(bin) {
   try {
     const { execFile } = require('child_process');
-    execFile(
-      bin,
-      ['call', 'set_agent_cursor_motion', JSON.stringify({ idle_hide_ms: 600000 })],
-      { timeout: 5000 },
-      (err) => {
-        if (err) {
-          console.warn(`[emu-cua-driver] set_agent_cursor_motion failed: ${err.message}`);
-        } else {
-          console.log('[emu-cua-driver] agent cursor configured (idle_hide_ms=600000)');
+    const calls = [
+      ['set_agent_cursor_motion', { idle_hide_ms: 0 }],
+      ['set_agent_cursor_style', {
+        gradient_colors: ['#FFFFFF', '#F7FBFF'],
+        bloom_color: '#2F80FF',
+        shape_size: 18,
+      }],
+    ];
+
+    for (const [tool, args] of calls) {
+      execFile(
+        bin,
+        ['call', tool, JSON.stringify(args)],
+        { timeout: 5000 },
+        (err) => {
+          if (err) {
+            console.warn(`[emu-cua-driver] ${tool} failed: ${err.message}`);
+          } else {
+            console.log(`[emu-cua-driver] agent cursor configured (${tool})`);
+          }
         }
-      }
-    );
+      );
+    }
   } catch (err) {
     console.warn(`[emu-cua-driver] _configureAgentCursor error: ${err?.message || err}`);
   }

@@ -39,6 +39,7 @@ let _pastSessionId = null;
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+const COWORKER_SIDE_PANEL_DELAY_MS = 1500;
 
 // Chain length threshold: auto-compact when the backend context chain exceeds this.
 const COMPACT_THRESHOLD = 100;
@@ -47,6 +48,7 @@ const COMPACT_THRESHOLD = 100;
 // Used to detect stale WS messages from a previous generation cycle so
 // they don't accidentally execute actions after a stop or new task start.
 let _generationId = 0;
+let _terminalGenerationId = null;
 
 /** Scroll chat to bottom after the browser has laid out new content. */
 function scrollToBottom() {
@@ -65,11 +67,21 @@ function _formatCuaCall(tool, argsJson, ok) {
     const name = String(tool || '').replace(/^cua_/, '');
     let argsObj = {};
     try { argsObj = argsJson ? JSON.parse(argsJson) : {}; } catch (_) {}
+
+    if (argsObj.element_index !== undefined) {
+        delete argsObj.x;
+        delete argsObj.y;
+        delete argsObj.count;
+        delete argsObj.modifier;
+        delete argsObj.from_zoom;
+    }
+
     const keys = ['element_index', 'x', 'y', 'key', 'keys', 'text', 'direction', 'amount', 'app_name', 'bundle_id'];
     const parts = [];
     for (const k of keys) {
         if (argsObj[k] !== undefined) {
             const v = argsObj[k];
+            if (v === '' || (Array.isArray(v) && v.length === 0)) continue;
             const s = typeof v === 'string' ? `"${v.length > 40 ? v.slice(0, 40) + '…' : v}"` : JSON.stringify(v);
             parts.push(`${k}: ${s}`);
         }
@@ -105,6 +117,55 @@ function syncGeneratingUI(generating) {
     }
 }
 
+function markGenerationActive(reason = '') {
+    _terminalGenerationId = null;
+    if (reason) console.log(`[generation] active: ${reason} gen=${_generationId}`);
+    syncGeneratingUI(true);
+}
+
+function markGenerationTerminal(reason = '') {
+    _terminalGenerationId = _generationId;
+    if (reason) console.log(`[generation] terminal: ${reason} gen=${_generationId}`);
+    syncGeneratingUI(false);
+}
+
+function hasActiveGeneration() {
+    return (
+        _generationId > 0 &&
+        _terminalGenerationId !== _generationId &&
+        !store.state.isStopped
+    );
+}
+
+function reassertGeneratingUI(reason = '') {
+    if (!hasActiveGeneration()) return;
+    const buttonLooksStopped = chatInput?.sendBtn?.textContent === 'stop';
+    if (!store.state.isGenerating || !buttonLooksStopped) {
+        console.warn(`[generation] reasserting Stop UI (${reason})`);
+    }
+    syncGeneratingUI(true);
+}
+
+function handlePostStepFailure(err, contextEl, source) {
+    console.error(`[${source}] POST failed:`, err);
+    const canStillReceiveStream =
+        !err?.httpStatus &&
+        store.state.ws &&
+        store.state.ws.readyState === WebSocket.OPEN &&
+        hasActiveGeneration();
+    if (canStillReceiveStream) {
+        showStatus('Still waiting for Emu…');
+        reassertGeneratingUI(`${source}:post-failed`);
+        return;
+    }
+    if (contextEl) {
+        contextEl.textContent = `Backend unreachable: ${err.message}`;
+    } else {
+        showStatus(`Backend error: ${err.message}`);
+    }
+    markGenerationTerminal(`${source}:post-failed`);
+}
+
 // Re-attach a fresh EmuRunner ("the bird") at the bottom of the assistant
 // turn so the user always sees the agent is thinking, even between steps.
 // Called after each step/tool_event renders while generation is ongoing.
@@ -112,7 +173,7 @@ function syncGeneratingUI(generating) {
 // its card, so the runner naturally moves to the trailing position.
 function ensureTypingIndicator(el) {
     if (!el) return;
-    if (!store.state.isGenerating) return;
+    if (!store.state.isGenerating && !hasActiveGeneration()) return;
     if (store.state.isStopped) return;
     el.querySelectorAll('.typing').forEach((t) => t.remove());
     el.appendChild(createEmuRunner());
@@ -128,6 +189,30 @@ async function moveToSidePanel()   { if (_winMgr) return _winMgr.moveToSidePanel
 async function moveToCentered()    { if (_winMgr) return _winMgr.moveToCentered(); }
 async function minimizeWindow()    { if (_winMgr) return _winMgr.minimizeWindow(); }
 async function maximizeWindow()    { if (_winMgr) return _winMgr.maximizeWindow(); }
+async function expandOrMaximizeWindow() {
+    if (store.state.isSidePanel) return moveToCentered();
+    return maximizeWindow();
+}
+
+async function moveCoworkerToSidePanelAfterDelay(generationId) {
+    if (store.state.agentMode !== 'coworker' || store.state.isSidePanel) return true;
+
+    await sleep(COWORKER_SIDE_PANEL_DELAY_MS);
+    if (
+        generationId !== _generationId ||
+        store.state.isStopped ||
+        (!store.state.isGenerating && !hasActiveGeneration())
+    ) {
+        return false;
+    }
+
+    try {
+        await moveToSidePanel();
+    } catch (err) {
+        console.warn('[window] delayed coworker side-panel move failed:', err.message);
+    }
+    return true;
+}
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
@@ -158,6 +243,21 @@ function addMessage(role, content, index) {
     }
 }
 
+function ensureAssistantBody() {
+    const existing = store.state.currentAssistantEl;
+    if (existing && existing.isConnected) return existing;
+
+    const chat = store.getCurrentChat();
+    if (!chat) return null;
+
+    store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
+    const body = addMessage('assistant', '', chat.messages.length - 1);
+    store.setAssistantEl(body);
+    store.state.stepContainer = body;
+    store.state.stepCount = store.state.stepCount || 0;
+    return body;
+}
+
 // Design change (Phase 4): status messages now drive the WindowHeader pill
 // instead of appending a visible bubble to the chat area. This matches the
 // design's quiet aesthetic — status lives in the chrome, not the conversation.
@@ -171,7 +271,8 @@ function updateStatus(text) {
 
 function removeStatus() {
     // Revert to the live/idle state that syncGeneratingUI will correct on next call
-    if (winHeader) winHeader.setStatus(store.state.isGenerating ? 'working' : 'ready', store.state.isGenerating);
+    const generating = store.state.isGenerating || hasActiveGeneration();
+    if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
 }
 
 // ── Chat selection ───────────────────────────────────────────────────────
@@ -263,7 +364,7 @@ async function continuePastSession(oldSessionId) {
         const messages = await api.fetchSessionMessages(oldSessionId);
 
         // Create new session pre-seeded with old context; old session dir is deleted server-side
-        const newSessionId = await api.continueSession(oldSessionId);
+        const newSessionId = await api.continueSession(oldSessionId, store.state.agentMode);
 
         // Show old messages as read-only context display
         if (messages && messages.length > 0) {
@@ -302,7 +403,13 @@ function enableInput() {
     container.classList.remove('composer-disabled');
     chatInput.textarea.disabled = false;
     chatInput.textarea.placeholder = 'Ask anything…';
-    chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
+    if (hasActiveGeneration()) {
+        chatInput.setMode('stop');
+        chatInput.sendBtn.disabled = false;
+    } else if (!store.state.isGenerating) {
+        chatInput.setMode('send');
+        chatInput.sendBtn.disabled = !chatInput.textarea.value.trim();
+    }
 
     const overlay = container.querySelector('.composer-overlay');
     if (overlay) overlay.remove();
@@ -319,7 +426,7 @@ function enableInput() {
 // ── Send / respond / stop ────────────────────────────────────────────────
 
 async function stopAgent() {
-    if (!store.state.isGenerating) return;
+    if (!store.state.isGenerating && !hasActiveGeneration()) return;
 
     console.log('[stopAgent] user requested stop');
     store.setStopped(true);
@@ -327,14 +434,16 @@ async function stopAgent() {
     // generation are ignored — prevents stale actions from executing
     _generationId++;
 
+    renderStoppedState();
+    markGenerationTerminal('user-stop');
+
     // Notify backend — adds STOP to the context chain
     // The session itself is NOT destroyed — user can continue chatting
-    try {
-        await api.stopAgent(store.state.sessionId);
-    } catch (err) {
-        console.warn('[stopAgent] backend call failed:', err.message);
-    }
+    api.stopAgent(store.state.sessionId)
+        .catch((err) => console.warn('[stopAgent] backend call failed:', err.message));
+}
 
+function renderStoppedState() {
     // Show a stopped step card in the UI
     const { state } = store;
     store.state.stepCount = (store.state.stepCount || 0) + 1;
@@ -359,8 +468,6 @@ async function stopAgent() {
         }
     }
     scrollToBottom();
-
-    syncGeneratingUI(false);
 
     // Add visible STOP message in chat
     const chat = store.getCurrentChat();
@@ -393,7 +500,7 @@ async function sendMessage() {
     }
 
     // If currently generating, stop the current task first, then send the new message
-    if (store.state.isGenerating) {
+    if (store.state.isGenerating || hasActiveGeneration()) {
         // Grab the text before stopping (stop clears state)
         const pendingText = text;
         await stopAgent();
@@ -464,14 +571,7 @@ async function respond(chat, base64Screenshot = null) {
     _generationId++;
     const thisGenId = _generationId;
     store.state._generationId = thisGenId;
-    syncGeneratingUI(true);
-
-    // Shift to side panel immediately so the user sees the desktop the agent
-    // is about to operate on. Previously we waited for the first step that
-    // returned an `action` JSON, which in coworker mode never happens until
-    // the very last turn (every intermediate turn is a `cua_*` tool call,
-    // not an action), leaving the panel covering the work area.
-    moveToSidePanel().catch(() => {});
+    markGenerationActive('respond');
 
     const lastUserMsg = store.getLastUserMessage(chat);
 
@@ -486,6 +586,9 @@ async function respond(chat, base64Screenshot = null) {
     store.state.stepCount = 0;
 
     try {
+        const canContinue = await moveCoworkerToSidePanelAfterDelay(thisGenId);
+        if (!canContinue) return;
+
         await api.postStep({
             sessionId:        store.state.sessionId,
             userMessage:      base64Screenshot ? '' : lastUserMsg,
@@ -493,8 +596,7 @@ async function respond(chat, base64Screenshot = null) {
             agentMode:        store.state.agentMode,
         });
     } catch (err) {
-        contentEl.textContent = `Backend unreachable: ${err.message}`;
-        syncGeneratingUI(false);
+        handlePostStepFailure(err, contentEl, 'respond');
     }
 }
 
@@ -526,7 +628,7 @@ async function continueLoop() {
         showStatus('Screenshot failed: ' + (screenshot.error || 'unknown'));
         await sleep(1500);
         removeStatus();
-        syncGeneratingUI(false);
+        markGenerationTerminal('screenshot-failed');
         return;
     }
 
@@ -576,11 +678,7 @@ async function continueLoop() {
         });
         console.log('[continueLoop] POST completed');
     } catch (err) {
-        console.error('[continueLoop] POST failed:', err);
-        showStatus(`Backend error: ${err.message}`);
-        await sleep(1500);
-        removeStatus();
-        syncGeneratingUI(false);
+        handlePostStepFailure(err, null, 'continueLoop');
     }
 }
 
@@ -595,7 +693,43 @@ async function handleWsMessage(data) {
         case 'status':
             // Status updates logged to console only — no visible card
             console.log(`[status] ${data.message}`);
+            reassertGeneratingUI('status');
             break;
+
+        case 'connection_open':
+            if (store.state.isGenerating) {
+                removeStatus();
+            }
+            reassertGeneratingUI('connection_open');
+            break;
+
+        case 'connection_closed':
+            if (store.state.isGenerating) {
+                showStatus('Connection lost — reconnecting…');
+            }
+            reassertGeneratingUI('connection_closed');
+            break;
+
+        case 'log': {
+            if (msgGenId !== _generationId) break;
+            reassertGeneratingUI('log');
+            if (!store.state.isGenerating) break;
+            const message = data.message || '';
+            if (!message.startsWith('[tool]')) break;
+
+            const root = ensureAssistantBody();
+            if (!root) break;
+            const typing = root.querySelector('.typing');
+            if (typing) typing.remove();
+
+            const wrap = document.createElement('div');
+            wrap.className = 'trace resolved';
+            const compact = message.replace(/\s+/g, ' ').trim();
+            wrap.textContent = compact.length > 220 ? compact.slice(0, 220) + '…' : compact;
+            root.appendChild(wrap);
+            scrollToBottom();
+            break;
+        }
 
         case 'step': {
             // If the generation has changed since this message was queued,
@@ -603,6 +737,9 @@ async function handleWsMessage(data) {
             if (msgGenId !== _generationId) {
                 console.log(`[step] stale message (gen ${msgGenId} vs current ${_generationId}) — ignoring`);
                 break;
+            }
+            if (!data.done) {
+                reassertGeneratingUI('step');
             }
             removeStatus();
 
@@ -620,17 +757,11 @@ async function handleWsMessage(data) {
             }
 
             // Window placement per step:
-            //   Stay in the side panel for the ENTIRE agent loop so the
-            //   window doesn't flicker between sizes when shell_exec /
-            //   memory_read / wait are interleaved with screen actions.
-            //   Only return to centered once the agent signals `done`.
-            //   Coworker-mode steps frequently return action=null (the
-            //   model only emitted `cua_*` tool calls), so we key off
-            //   `done` alone — any non-final step keeps the side panel.
+            //   Once the window has moved to the side panel, never return it
+            //   to centered automatically. The user controls expansion via
+            //   the top green expand button only.
             if (!data.done) {
                 await moveToSidePanel();
-            } else {
-                await moveToCentered();
             }
 
             // Increment step counter
@@ -666,14 +797,14 @@ async function handleWsMessage(data) {
             scrollToBottom();
 
             if (data.done) {
-                syncGeneratingUI(false);
+                markGenerationTerminal('step-done');
                 break;
             }
 
             // Bail out if user stopped
             if (store.state.isStopped) {
                 console.log('[step] user stopped — not executing action');
-                syncGeneratingUI(false);
+                markGenerationTerminal('step-stopped');
                 break;
             }
 
@@ -700,10 +831,11 @@ async function handleWsMessage(data) {
                     showStatus(`Agent error: ${err.message}`);
                     await sleep(2000);
                     removeStatus();
-                    syncGeneratingUI(false);
+                    markGenerationTerminal('action-loop-error');
                 }
             } else {
-                syncGeneratingUI(false);
+                showStatus('Agent paused: no action returned.');
+                markGenerationTerminal('step-without-action');
             }
             break;
         }
@@ -733,7 +865,7 @@ async function handleWsMessage(data) {
             if (state.currentChat) {
                 state.currentChat.messages[state.currentChat.messages.length - 1].content = msg;
             }
-            syncGeneratingUI(false);
+            markGenerationTerminal('done-event');
             scrollToBottom();
             break;
         }
@@ -741,26 +873,35 @@ async function handleWsMessage(data) {
         case 'stopped':
             removeStatus();
             console.log('[ws] received stopped from backend');
-            syncGeneratingUI(false);
+            markGenerationTerminal('stopped-event');
             break;
 
+        case 'plan_review_request':
         case 'plan_review': {
             if (msgGenId !== _generationId) break;
             removeStatus();
+            if (!store.state.dangerousMode) {
+                // Plan review is a real pause: the backend has returned and
+                // is waiting for user approval/refinement, so the composer
+                // should not remain in Stop/working mode.
+                markGenerationTerminal('plan-review');
+            }
 
-            if (state.currentAssistantEl) {
-                const typing = state.currentAssistantEl.querySelector('.typing');
+            const root = ensureAssistantBody();
+            if (root) {
+                const typing = root.querySelector('.typing');
                 if (typing) typing.remove();
 
                 let container = state.stepContainer;
                 if (container && !container.parentNode) {
-                    state.currentAssistantEl.appendChild(container);
+                    root.appendChild(container);
                 }
 
                 const planCard = PlanCard(data.content);
 
                 // In dangerous mode, auto-accept the plan without user confirmation
                 if (store.state.dangerousMode) {
+                    markGenerationActive('plan-auto-accepted');
                     planCard.acceptBtn.disabled = true;
                     planCard.refineBtn.disabled = true;
                     planCard.acceptBtn.classList.add('chosen');
@@ -768,23 +909,21 @@ async function handleWsMessage(data) {
                     if (container) {
                         container.appendChild(planCard.element);
                     } else {
-                        state.currentAssistantEl.appendChild(planCard.element);
+                        root.appendChild(planCard.element);
                     }
                     scrollToBottom();
 
                     showStatus('Plan auto-accepted — starting execution...');
-                    try {
-                        await api.postStep({
-                            sessionId: store.state.sessionId,
-                            userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
-                            base64Screenshot: '',
-                            agentMode: store.state.agentMode,
-                        });
-                    } catch (err) {
+                    api.postStep({
+                        sessionId: store.state.sessionId,
+                        userMessage: '[PLAN APPROVED] The user has accepted the plan. Proceed with execution — take a screenshot to orient yourself and begin from step 1.',
+                        base64Screenshot: '',
+                        agentMode: store.state.agentMode,
+                    }).catch((err) => {
                         console.error('[plan_review] auto-accept failed:', err);
                         removeStatus();
-                        syncGeneratingUI(false);
-                    }
+                        handlePostStepFailure(err, null, 'plan_review:auto_accept');
+                    });
                     break;
                 }
 
@@ -794,6 +933,8 @@ async function handleWsMessage(data) {
                     planCard.acceptBtn.classList.add('chosen');
 
                     // User accepted — inject approval into context and resume
+                    store.setStopped(false);
+                    markGenerationActive('plan-accepted');
                     showStatus('Plan accepted — starting execution...');
                     try {
                         await api.postStep({
@@ -805,7 +946,7 @@ async function handleWsMessage(data) {
                     } catch (err) {
                         console.error('[plan_review] accept failed:', err);
                         removeStatus();
-                        syncGeneratingUI(false);
+                        handlePostStepFailure(err, null, 'plan_review:accept');
                     }
                 }, { once: true });
 
@@ -815,7 +956,7 @@ async function handleWsMessage(data) {
                     planCard.refineBtn.classList.add('chosen');
 
                     // Pause — let user type refinement
-                    syncGeneratingUI(false);
+                    markGenerationTerminal('plan-refine');
                     store.state.pendingPlanRefine = true;
                     chatInput.textarea.placeholder = 'Describe how to refine the plan…';
                     chatInput.textarea.focus();
@@ -824,7 +965,7 @@ async function handleWsMessage(data) {
                 if (container) {
                     container.appendChild(planCard.element);
                 } else {
-                    state.currentAssistantEl.appendChild(planCard.element);
+                    root.appendChild(planCard.element);
                 }
             }
             scrollToBottom();
@@ -833,15 +974,17 @@ async function handleWsMessage(data) {
 
         case 'tool_event': {
             if (msgGenId !== _generationId) break;
+            reassertGeneratingUI('tool_event');
             removeStatus();
 
-            if (state.currentAssistantEl) {
-                const typing = state.currentAssistantEl.querySelector('.typing');
+            const root = ensureAssistantBody();
+            if (root) {
+                const typing = root.querySelector('.typing');
                 if (typing) typing.remove();
 
                 let container = state.stepContainer;
                 if (container && !container.parentNode) {
-                    state.currentAssistantEl.appendChild(container);
+                    root.appendChild(container);
                 }
 
                 if (data.event === 'file_written') {
@@ -849,14 +992,14 @@ async function handleWsMessage(data) {
                     if (container) {
                         container.appendChild(fileCard.element);
                     } else {
-                        state.currentAssistantEl.appendChild(fileCard.element);
+                        root.appendChild(fileCard.element);
                     }
                 } else if (data.event === 'skill_used') {
                     const skillCard = SkillCard(data.skill_name);
                     if (container) {
                         container.appendChild(skillCard.element);
                     } else {
-                        state.currentAssistantEl.appendChild(skillCard.element);
+                        root.appendChild(skillCard.element);
                     }
                 } else if (data.event === 'hermes_invoked') {
                     // Generic tool trace — matches the replay-path style
@@ -869,7 +1012,7 @@ async function handleWsMessage(data) {
                     if (container) {
                         container.appendChild(toolWrap);
                     } else {
-                        state.currentAssistantEl.appendChild(toolWrap);
+                        root.appendChild(toolWrap);
                     }
                 } else if (data.event === 'hermes_done') {
                     // Update the most recent still-running hermes trace card
@@ -893,8 +1036,14 @@ async function handleWsMessage(data) {
                         wrap.dataset.hermes = status;
                         wrap.textContent = label;
                         if (container) container.appendChild(wrap);
-                        else state.currentAssistantEl.appendChild(wrap);
+                        else root.appendChild(wrap);
                     }
+                } else if (data.event === 'tool_call_started') {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'trace resolved';
+                    wrap.textContent = _formatCuaCall(data.tool, data.args, true).replace(/^using /, 'starting ');
+                    if (container) container.appendChild(wrap);
+                    else root.appendChild(wrap);
                 } else if (data.event === 'cua_driver_call' || data.event === 'raise_app') {
                     // Coworker-mode tool calls (cua_click, cua_type_text,
                     // raise_app, etc). Show one trace line per call so the
@@ -907,7 +1056,7 @@ async function handleWsMessage(data) {
                         : _formatCuaCall(data.tool, data.args, data.ok);
                     wrap.textContent = label;
                     if (container) container.appendChild(wrap);
-                    else state.currentAssistantEl.appendChild(wrap);
+                    else root.appendChild(wrap);
                 }
             }
             // Don't re-show the running emu between tool events either —
@@ -931,7 +1080,7 @@ async function handleWsMessage(data) {
                     state.currentAssistantEl.appendChild(errCard.element);
                 }
             }
-            syncGeneratingUI(false);
+            markGenerationTerminal('error-event');
             break;
     }
 }
@@ -978,7 +1127,7 @@ function mount(appEl) {
     // `header` keeps the same variable name so all existing callers
     // (setExpandVisible, setToggleDisabled, setCompact) work unchanged.
     header = MacWindow({
-        onMaximize:        maximizeWindow,
+        onMaximize:        expandOrMaximizeWindow,
         onMinimize:        minimizeWindow,
         onClose:           () => window.close(),
         onNewTask:         newChat,
@@ -1045,9 +1194,6 @@ function mount(appEl) {
         if (e.ctrlKey && e.shiftKey && e.key === 'N') {
             e.preventDefault();
             newChat();
-        }
-        if (e.key === 'Escape' && store.state.isSidePanel) {
-            toggleWindow();
         }
     };
     document.addEventListener('keydown', _onChatKeyDown);

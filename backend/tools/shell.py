@@ -115,7 +115,27 @@ def _violates_blocklist(command: str) -> tuple[bool, str]:
     return False, ""
 
 
-def handle_shell_exec(command: str) -> str:
+def _violates_coworker_contract(command: str) -> tuple[bool, str]:
+    lowered = command.lower()
+    uses_osascript = any(os.path.basename(t).lower() == "osascript" for t in _tokens(command))
+    if not uses_osascript:
+        return False, ""
+
+    if "tell application" in lowered or "system events" in lowered:
+        return True, (
+            "coworker mode forbids AppleScript/System Events app scripting. "
+            "Use emu-cua-driver tools for native app automation; if the driver "
+            "cannot access the target UI in the background, stop with a done "
+            "message instead of bypassing the driver."
+        )
+
+    return True, (
+        "coworker mode does not use osascript as an automation escape hatch. "
+        "Use emu-cua-driver tools or a safe file-inspection command."
+    )
+
+
+def handle_shell_exec(command: str, agent_mode: str = "remote") -> str:
     command = (command or "").strip()
     if not command:
         return "ERROR: shell_exec requires a non-empty 'command'."
@@ -125,6 +145,11 @@ def handle_shell_exec(command: str) -> str:
     bad, reason = _violates_blocklist(command)
     if bad:
         return _reject(reason)
+
+    if agent_mode == "coworker":
+        bad, reason = _violates_coworker_contract(command)
+        if bad:
+            return _reject(reason)
 
     emu_dir = get_emu_path()
     emu_dir.mkdir(parents=True, exist_ok=True)

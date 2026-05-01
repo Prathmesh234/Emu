@@ -73,7 +73,7 @@ def _raise_via_osascript(name: str) -> str:
     )
 
 
-def _raise_via_driver(name: str) -> str:
+def _raise_via_driver(name: str, cancel_key: str | None = None) -> str:
     """
     Coworker-mode path — hidden background launch via the driver's
     ``launch_app`` MCP tool. Returns the driver's structured JSON on
@@ -94,7 +94,7 @@ def _raise_via_driver(name: str) -> str:
 
     last_error = None
     for cand in candidates:
-        result = call_driver_tool("launch_app", {"name": cand})
+        result = call_driver_tool("launch_app", {"name": cand}, cancel_key=cancel_key)
         if result.get("ok"):
             parsed = result.get("json")
             if isinstance(parsed, dict):
@@ -107,7 +107,11 @@ def _raise_via_driver(name: str) -> str:
     )
 
 
-def handle_raise_app(app_name: str, agent_mode: str = "remote") -> str:
+def handle_raise_app(
+    app_name: str,
+    agent_mode: str = "remote",
+    cancel_key: str | None = None,
+) -> str:
     """Activate or hidden-launch a macOS application by name.
 
     Behaviour depends on ``agent_mode`` (PLAN §5.1):
@@ -122,5 +126,5 @@ def handle_raise_app(app_name: str, agent_mode: str = "remote") -> str:
         return err
 
     if agent_mode == "coworker":
-        return _raise_via_driver(name)
+        return _raise_via_driver(name, cancel_key=cancel_key)
     return _raise_via_osascript(name)

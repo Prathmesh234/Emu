@@ -38,7 +38,7 @@ function register(ipcMain, getMainWindow) {
             y: wa.y + Math.round((wa.height - panelHeight) / 2),
             width: panelWidth,
             height: panelHeight,
-        }, false);
+        }, true);
         win.setAlwaysOnTop(true, 'screen-saver');
         return { success: true };
     });

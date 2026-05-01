@@ -22,7 +22,6 @@ function registerAll(ipcMain, deps) {
     ipcMain.handle('emu-cua:screenshot',       wrap('screenshot'));
     ipcMain.handle('emu-cua:click',            wrap('click'));
     ipcMain.handle('emu-cua:right-click',      wrap('right_click'));
-    ipcMain.handle('emu-cua:double-click',     wrap('double_click'));
     ipcMain.handle('emu-cua:scroll',           wrap('scroll'));
     ipcMain.handle('emu-cua:type',             wrap('type_text'));
     ipcMain.handle('emu-cua:hotkey',           wrap('hotkey'));

@@ -36,6 +36,7 @@ from context_manager import ContextManager
 from workspace import ensure_session_dir
 from utilities import ConnectionManager, log_entry, log_and_send, ipc_to_action_label, interpret_action_error
 from tools import execute_agent_tool, auto_compact
+from tools.coworker_tools import cancel_driver_calls
 
 # ── Inference backend ────────────────────────────────────────────────────────
 from providers.registry import load_provider, load_compact_provider
@@ -108,87 +109,36 @@ app.add_middleware(TokenAuthMiddleware)
 manager = ConnectionManager()
 context_manager = ContextManager()
 
-# Sessions that received POST /agent/stop while a step loop was in flight.
-# The /agent/step loop checks this set before every model call and tool
-# execution and bails out cleanly so the user sees an immediate stop
-# instead of N more tool calls trickling out before the loop notices.
-_stopped_sessions: set[str] = set()
+# Per-session stop tokens. A user can stop an in-flight step and immediately
+# send a new message in the same session; tracking the specific step id keeps
+# the old loop stopped without poisoning the new one.
+_active_step_ids: dict[str, int] = {}
+_stopped_step_ids: dict[str, int] = {}
 
 
 
-def _inject_coworker_perception(session_id: str) -> None:
+async def _inject_coworker_perception(session_id: str) -> None:
     """
-    Coworker-mode per-turn AX-tree + window screenshot injection (PLAN §4.6).
+    Coworker-mode lightweight target reminder.
 
-    If the session has a known active (pid, window_id), shell out to the
-    local emu-cua-driver to capture the current AX tree + window image and
-    append both as a synthetic user-side ``coworker_perception`` block. The
-    model can then reason against fresh state without having to call
-    ``cua_get_window_state`` itself every turn.
-
-    Best-effort: any failure (driver missing, target stale, etc.) is logged
-    and silently dropped so the request still proceeds.
+    Do NOT automatically call ``get_window_state`` here. AX snapshots can be
+    slow or app-specific, and doing them before every model turn makes Stop
+    feel broken because the request cannot return until the driver call
+    unwinds. The model already has explicit ``cua_screenshot`` and
+    ``cua_get_window_state`` tools; it should request those only when needed.
     """
     target = context_manager.get_coworker_target(session_id)
     if not target:
         return
 
     pid, window_id = target
-    try:
-        from tools.coworker_tools import call_driver_tool
-        result = call_driver_tool(
-            "get_window_state", {"pid": pid, "window_id": window_id}
-        )
-    except Exception as exc:
-        print(f"[coworker-perception] driver call raised: {exc}")
-        return
-
-    if not result.get("ok"):
-        print(f"[coworker-perception] driver returned error: {result.get('error')}")
-        # Stale target — drop it so we don't keep retrying every step.
-        context_manager.clear_coworker_target(session_id)
-        return
-
-    parsed = result.get("json")
-    tree_md = ""
-    screenshot_b64 = None
-    if isinstance(parsed, dict):
-        tree_md = (
-            parsed.get("tree_markdown")
-            or parsed.get("markdown")
-            or parsed.get("tree")
-            or ""
-        )
-        # call_driver_tool flattens the image-bearing tools' raw envelope
-        # so the PNG lands under `screenshot_png_b64` (see _flatten_raw_result
-        # in tools/coworker_tools.py). Other keys are tolerated as
-        # defensive fallbacks for daemon/raw paths.
-        screenshot_b64 = (
-            parsed.get("screenshot_png_b64")
-            or parsed.get("screenshot_base64")
-            or parsed.get("screenshot")
-            or parsed.get("image")
-        )
-    if not tree_md:
-        # Fallback to raw output if the JSON shape didn't match.
-        tree_md = (result.get("output") or "")[:6000]
-
-    # Cap to keep context manageable.
-    if len(tree_md) > 6000:
-        tree_md = tree_md[:6000] + "\n... [truncated]"
-
-    header = (
-        f"[coworker_perception] target pid={pid} window_id={window_id} "
-        f"capture_mode=window_state"
+    context_manager.add_user_message(
+        session_id,
+        "[coworker_target]\n"
+        f"Current target: pid={pid} window_id={window_id}.\n"
+        "No automatic screenshot or AX tree was captured for this turn. "
+        "Call cua_screenshot or cua_get_window_state explicitly only if the next action needs fresh UI state."
     )
-    body = f"{header}\n\n```ax-tree\n{tree_md}\n```"
-    context_manager.add_user_message(session_id, body)
-
-    if screenshot_b64:
-        try:
-            context_manager.add_screenshot_turn(session_id, screenshot_b64)
-        except Exception as exc:
-            print(f"[coworker-perception] screenshot inject failed: {exc}")
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -390,6 +340,16 @@ async def agent_step(req: AgentRequest):
     has_text = bool(req.user_message.strip())
     context_manager.set_agent_mode(session_id, req.agent_mode)
 
+    # Register this concrete /agent/step invocation before any await points.
+    # Stop requests target the active step id, so a later user message can
+    # start a fresh step without clearing the stop signal for this one.
+    step_id = _active_step_ids.get(session_id, 0) + 1
+    _active_step_ids[session_id] = step_id
+
+    def _is_stopped() -> bool:
+        return _stopped_step_ids.get(session_id) == step_id
+    cancel_key = f"{session_id}:{step_id}"
+
     # ── 1. Add input to context ──────────────────────────────────────────────
     if has_screenshot:
         context_manager.add_screenshot_turn(session_id, req.base64_screenshot)
@@ -403,7 +363,11 @@ async def agent_step(req: AgentRequest):
     # screenshot via the local driver and inject as a user-side perception
     # block before the model is called. Best-effort — silent skip on failure.
     if req.agent_mode == "coworker":
-        _inject_coworker_perception(session_id)
+        await _inject_coworker_perception(session_id)
+
+    if _is_stopped():
+        print(f"[agent/step] Stop signal received before model loop — aborting (step_id={step_id})")
+        return {"session_id": session_id, "status": "stopped", "done": False}
 
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
@@ -419,10 +383,14 @@ async def agent_step(req: AgentRequest):
     if not is_ready():
         await manager.send(session_id, {"type": "status", "message": "Warming up..."})
     try:
-        ensure_ready(timeout=300, poll_interval=5)
+        await asyncio.to_thread(ensure_ready, timeout=300, poll_interval=5)
     except TimeoutError as e:
         await manager.send(session_id, {"type": "error", "message": str(e)})
         return {"session_id": session_id, "status": "error", "error": str(e)}
+
+    if _is_stopped():
+        print(f"[agent/step] Stop signal received after warmup — aborting (step_id={step_id})")
+        return {"session_id": session_id, "status": "stopped", "done": False}
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
     # No fixed tool-call ceiling: a coworker task may legitimately chain
@@ -434,13 +402,10 @@ async def agent_step(req: AgentRequest):
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
     hermes_started = False
-
-    # New runs of /agent/step clear any stale stop-flag from a prior run
-    # for the same session id, so the user can resume after stopping.
-    _stopped_sessions.discard(session_id)
-
-    def _is_stopped() -> bool:
-        return session_id in _stopped_sessions
+    plan_review_enabled = has_text and not req.user_message.startswith((
+        "[PLAN APPROVED]",
+        "User wants to refine the plan:",
+    ))
 
     loop_i = 0
     while True:
@@ -490,6 +455,10 @@ async def agent_step(req: AgentRequest):
             await manager.send(session_id, {"type": "error", "message": f"Inference failed: {e}"})
             return {"session_id": session_id, "status": "error", "error": str(e)}
 
+        if _is_stopped():
+            print(f"[agent/step] Stop signal received after model response — aborting (loop_i={loop_i})")
+            return {"session_id": session_id, "status": "stopped", "done": False}
+
         print(f"[agent/step] Response in {response.inference_time_ms}ms"
               f"  tool_calls={bool(response.tool_calls)}"
               f"  action={response.action.type.value if response.action else 'none'}"
@@ -524,10 +493,33 @@ async def agent_step(req: AgentRequest):
                 except json.JSONDecodeError:
                     args = {}
 
+                await manager.send(session_id, {
+                    "type": "tool_event",
+                    "event": "tool_call_started",
+                    "tool": tc.name,
+                    "args": json.dumps(args, ensure_ascii=False)[:300],
+                })
+                log_entry(
+                    session_id,
+                    f"[tool:start] {tc.name}({json.dumps(args, ensure_ascii=False)[:500]})",
+                    metadata={
+                        "tool_name": tc.name,
+                        "args": json.dumps(args, ensure_ascii=False)[:500],
+                        "status": "started",
+                    },
+                )
+                print(f"[tool:start] {tc.name}({json.dumps(args, ensure_ascii=False)[:120]})")
+
                 result = await execute_agent_tool(
                     session_id, tc.name, args, manager, context_manager, compact_model,
                     agent_mode=req.agent_mode,
+                    cancel_key=cancel_key,
                 )
+
+                if _is_stopped():
+                    print(f"[agent/step] Stop signal received after tool returned — aborting (tool={tc.name})")
+                    return {"session_id": session_id, "status": "stopped", "done": False}
+
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
                 await log_and_send(
@@ -538,7 +530,7 @@ async def agent_step(req: AgentRequest):
                 )
 
                 # If update_plan was called, capture the plan content for review
-                if tc.name == "update_plan":
+                if plan_review_enabled and tc.name == "update_plan":
                     plan_content = args.get("content", "")
                     if plan_content:
                         plan_pending_review = plan_content
@@ -549,6 +541,10 @@ async def agent_step(req: AgentRequest):
                 if tc.name == "invoke_hermes" and result.startswith("Hermes job started:"):
                     hermes_started = True
                     break
+
+            if _is_stopped():
+                print(f"[agent/step] Stop signal received after tool batch — aborting (loop_i={loop_i})")
+                return {"session_id": session_id, "status": "stopped", "done": False}
 
             if hermes_started:
                 response = AgentResponse(
@@ -619,6 +615,31 @@ async def agent_step(req: AgentRequest):
         action_payload = response.action.model_dump(exclude_none=True)
 
         # ── 4. Action validation ─────────────────────────────────────────────────
+        if req.agent_mode == "coworker" and response.action.type != ActionType.DONE:
+            bad_action = response.action.type.value
+            print(f"[coworker-validator] REJECTED remote action in coworker mode: {bad_action}")
+            context_manager.add_assistant_turn(
+                session_id,
+                response.model_dump_json(exclude_none=True),
+            )
+            context_manager.add_user_message(
+                session_id,
+                "[COWORKER ACTION REJECTED] You returned a remote-mode desktop action "
+                f"`{bad_action}`. In coworker mode, remote actions like navigate_and_click, "
+                "key_press, scroll, type_text, screenshot, mouse_move, drag, and click actions "
+                "are invalid because they bypass the backend emu-cua-driver tool workflow and "
+                "do not carry the required pid/window_id/element_index context.\n\n"
+                "Use function tools instead: raise_app/list_running_apps/cua_list_windows for "
+                "discovery, cua_get_window_state for AX state, cua_click/cua_press_key/"
+                "cua_scroll/cua_type_text for interaction, and only emit the raw JSON `done` "
+                "action when the task is complete or blocked."
+            )
+            await manager.send(session_id, {
+                "type": "status",
+                "message": f"Rejected remote action {bad_action} in coworker mode; asking model to use cua_* tools.",
+            })
+            continue
+
         is_valid, error_msg = context_manager.action_validator.validate(
             session_id, action_payload
         )
@@ -780,13 +801,18 @@ async def action_complete(req: ActionCompleteRequest):
 async def agent_stop(req: StopRequest):
     """User interrupted the agent flow."""
     session_id = req.session_id
-    # Mark the session as stopped FIRST so any in-flight /agent/step loop
-    # bails out at its next checkpoint (before the next model call or
-    # tool execution). Without this, the loop happily keeps chaining
-    # tool calls for many seconds after the user clicks stop.
-    _stopped_sessions.add(session_id)
+    # Mark the currently active step as stopped FIRST so its loop bails out
+    # at the next checkpoint. The token is step-specific: if the user sends a
+    # new message immediately after stopping, the old loop still stops and the
+    # new loop gets a fresh token.
+    active_step_id = _active_step_ids.get(session_id)
+    if active_step_id is not None:
+        _stopped_step_ids[session_id] = active_step_id
+        killed = cancel_driver_calls(f"{session_id}:{active_step_id}")
+    else:
+        killed = 0
     context_manager.add_user_message(session_id, "STOP")
-    print(f"[agent/stop] session={session_id}")
+    print(f"[agent/stop] session={session_id} step_id={active_step_id} killed_driver_calls={killed}")
 
     await manager.send(session_id, {
         "type": "stopped",
@@ -939,6 +965,7 @@ async def continue_session(req: ContinueSessionRequest):
 
     new_id = str(uuid.uuid4())
     ensure_session_dir(new_id)
+    context_manager.set_agent_mode(new_id, req.agent_mode)
     context_manager.preload_from_conversation(new_id, old_messages)
 
     try:

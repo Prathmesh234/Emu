@@ -91,7 +91,6 @@ function Composer(onSend, onStop) {
     let _mode = 'send'; // 'send' | 'stop'
 
     function setMode(mode) {
-        if (_mode === mode) return;
         _mode = mode;
         if (mode === 'stop') {
             sendBtn.textContent = 'stop';

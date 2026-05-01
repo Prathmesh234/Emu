@@ -56,19 +56,6 @@ const ACTION_MAP = {
             : `Right click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
     },
 
-    double_click: {
-        label: 'Double Click',
-        icon: '🖱️',
-        ipc: 'emu-cua:double-click',
-        dispatch: async (a) => {
-            const args = _clickArgs(a);
-            return ipcRenderer.invoke('emu-cua:double-click', args);
-        },
-        describe: (a) => a.element_index != null
-            ? `Double click element [${a.element_index}]`
-            : `Double click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
-    },
-
     triple_click: {
         label: 'Triple Click',
         icon: '🖱️',

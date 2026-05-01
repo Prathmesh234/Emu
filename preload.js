@@ -40,7 +40,6 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'emu-cua:screenshot',
     'emu-cua:click',
     'emu-cua:right-click',
-    'emu-cua:double-click',
     'emu-cua:scroll',
     'emu-cua:type',
     'emu-cua:hotkey',

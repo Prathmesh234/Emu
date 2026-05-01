@@ -489,7 +489,11 @@ AGENT_TOOLS_OPENAI = [
                 "USE FOR: reading/writing .emu files (cat, ls, grep, sed, "
                 "python3 -c on .emu paths, jq on .emu json, etc.). "
                 "DO NOT USE FOR: installing software, network fetches, "
-                "launching apps, or touching anything outside .emu."
+                "launching apps, or touching anything outside .emu.\n\n"
+                "In coworker mode, this is also NOT an AppleScript/System "
+                "Events escape hatch. `osascript` app scripting is refused; "
+                "use emu-cua-driver tools for native app state, or stop and "
+                "report the driver limitation."
             ),
             "parameters": {
                 "type": "object",
@@ -511,30 +515,25 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "raise_app",
             "description": (
-                "Bring a named macOS application to the foreground (raise its "
+                "Resolve/prepare a named macOS application before interacting "
+                "with it.\n\n"
+                "REMOTE MODE: brings the app to the foreground (raise its "
                 "window, give it focus, switch Spaces if needed) via osascript "
-                "`tell application \"X\" to activate`.\n\n"
-                "ALWAYS call this BEFORE any desktop interaction with a target "
-                "application — clicks, typing, scrolling, screenshots intended "
-                "for that app, drags, key_press shortcuts. Skipping this step "
-                "when the app is in the background causes actions to land on "
-                "the wrong window (often Emu itself) and fail silently.\n\n"
-                "Calling raise_app on an already-focused app is a cheap no-op. "
-                "When in doubt, raise.\n\n"
+                "`tell application \"X\" to activate`. Always call this before "
+                "remote desktop actions targeting that app.\n\n"
+                "COWORKER MODE: routes to emu-cua-driver's hidden `launch_app` "
+                "instead of `osascript activate` — it returns `{pid, bundle_id, "
+                "name, windows: […]}` JSON without raising a window or stealing "
+                "focus. Use the returned `pid` and `windows[0].window_id` as "
+                "the target for subsequent `cua_*` calls.\n\n"
                 "Pass the EXACT macOS application name as it appears in the "
                 "Dock or Applications folder, e.g. 'Google Chrome', 'Finder', "
                 "'Visual Studio Code', 'Safari', 'Microsoft Excel'. If the app "
-                "is not running, `activate` will launch it.\n\n"
+                "is not running, the mode-specific launch path starts it.\n\n"
                 "Limitations: cannot raise the login window or pick a specific "
                 "window by title (raises the most recently used window of the "
                 "app). Citrix Viewer is known not to accept clicks even after "
-                "being raised.\n\n"
-                "In coworker mode this routes to the emu-cua-driver's hidden "
-                "`launch_app` instead of `osascript activate` — it returns "
-                "`{pid, bundle_id, name, windows: […]}` JSON without raising "
-                "a window or stealing focus, satisfying the no-foreground "
-                "contract. Use the returned `pid` and `windows[0].window_id` "
-                "as the target for subsequent `cua_*` calls."
+                "being raised in remote mode."
             ),
             "parameters": {
                 "type": "object",
