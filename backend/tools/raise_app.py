@@ -128,3 +128,17 @@ def handle_raise_app(
     if agent_mode == "coworker":
         return _raise_via_driver(name, cancel_key=cancel_key)
     return _raise_via_osascript(name)
+
+
+def handle_bring_app_frontmost(app_name: str, user_approved: bool = False) -> str:
+    """Explicit foreground fallback for coworker mode after user approval."""
+    name = (app_name or "").strip()
+    err = _validate_name(name)
+    if err:
+        return err.replace("raise_app", "bring_app_frontmost")
+    if not user_approved:
+        return (
+            "ERROR: bring_app_frontmost requires user_approved=true after the "
+            "user explicitly agrees to foreground the app."
+        )
+    return _raise_via_osascript(name)

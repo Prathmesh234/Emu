@@ -11,12 +11,9 @@ Key features:
   - Model-driven compaction: model calls compact_context tool, harness executes
 """
 
-import base64
 import json
 import os
 import sys
-from datetime import datetime
-from pathlib import Path
 
 from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation, ScreenElement
 from prompts import build_system_prompt, build_coworker_system_prompt
@@ -111,7 +108,8 @@ commands except for `done`.
 Current mode: COWORKER. The only action JSON you may emit is `done`. All real
 desktop interaction must use function tools available in this request:
   - Discovery: `raise_app`, `list_running_apps`, `cua_launch_app`,
-    `cua_list_apps`, `cua_list_windows`.
+    `cua_list_apps`, `cua_list_windows`. If the user explicitly approved
+    a foreground fallback, `bring_app_frontmost`.
   - Perception: `cua_get_window_state` for AX tree + element_index cache,
     `cua_screenshot` for pixels, `cua_zoom` for tiny visual details.
   - Interaction: `cua_click`, `cua_right_click`, `cua_double_click`,

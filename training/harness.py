@@ -46,7 +46,9 @@ sys.modules["utilities"] = _utilities_pkg
 _load_module("utilities.paths", _BACKEND / "utilities" / "paths.py")
 
 _sp = _load_module("emu_system_prompt", _BACKEND / "prompts" / "system_prompt.py")
+_csp = _load_module("emu_coworker_system_prompt", _BACKEND / "prompts" / "coworker_system_prompt.py")
 build_system_prompt = _sp.build_system_prompt
+build_coworker_system_prompt = _csp.build_coworker_system_prompt
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -73,13 +75,25 @@ AGENTS_MD = """\
   you see relevant data on screen. Do not rely on memory.
 - Anti-loop: never repeat a failing action more than twice. Switch strategy
   (Spotlight, shell_exec, keyboard shortcut, different element).
-- Focus safety: before any input action, click into the target app first so
-  input doesn't land in the Emu panel.
+- Focus safety: ensure the target app is focused before text/keyboard input.
 - After invoke_hermes, you MUST call check_hermes(job_id, wait_s=60) — the
   invoke alone does not return the result.
-- Use shell_exec for non-.emu work (open -a, mdfind, find, cat, python3).
+- Use shell_exec for safe file-backed work (find, cat, python3).
   For .emu files use the dedicated tools (read_plan, read_memory,
   read_session_file, list_session_files).
+"""
+
+COWORKER_AGENTS_MD = """\
+# AGENTS.md — coworker operational rules
+
+- Use emu-cua-driver function tools for native app work.
+- Start background-first: discover pid/window_id, call cua_get_window_state,
+  act, then verify with a fresh driver snapshot.
+- Treat driver screenshots as first-class context; use pixels when AX is sparse.
+- Never claim success from a posted click/key alone.
+- If background automation is proven insufficient, ask the user before using
+  bring_app_frontmost, then continue with cua_* tools.
+- Do not use open -a, osascript, or System Events as an escape hatch.
 """
 
 IDENTITY_MD = """\
@@ -114,7 +128,6 @@ PERSONAS: list[dict] = [
 - Standup is daily at 09:30 PT in #team-infra Slack channel.
 - For Excel/PPT generation, prefer invoke_hermes — it's faster and more
   accurate than driving Office UI.
-- User has admin (sudo) on this Mac.
 """,
     },
     {
@@ -163,7 +176,7 @@ PERSONAS: list[dict] = [
 #    accumulate over time for their personal redundant tasks. The block
 #    matches the format emit by skills.loader.format_skills_for_prompt().
 _BUNDLED_SKILLS: list[tuple[str, str]] = [
-    ("app-launcher",         "Open, switch, and manage apps via Spotlight / shortcuts / `open -a`."),
+    ("app-launcher",         "Open, switch, and manage apps via Spotlight / raise_app."),
     ("file-manager",         "Find, move, rename, copy files via Finder shortcuts and shell."),
     ("system-info",          "Inspect macOS system info — disk, CPU, network, installed apps."),
     ("web-search",           "Run a web search via the default browser address bar."),
@@ -254,6 +267,11 @@ def build_workspace_context(persona_idx: int = 0) -> str:
     return "\n".join(parts)
 
 
+def build_coworker_workspace_context(persona_idx: int = 0) -> str:
+    """Workspace context tuned for coworker-mode harness runs."""
+    return build_workspace_context(persona_idx).replace(AGENTS_MD, COWORKER_AGENTS_MD)
+
+
 def build_full_system_prompt(persona_idx: int = 0, session_id: str | None = None) -> str:
     """Build the complete system prompt the emu backend would send."""
     sid = session_id or str(uuid.uuid4())
@@ -273,9 +291,28 @@ def build_full_system_prompt(persona_idx: int = 0, session_id: str | None = None
     )
 
 
+def build_full_coworker_system_prompt(persona_idx: int = 0, session_id: str | None = None) -> str:
+    """Build the complete coworker-mode prompt the backend sends in production."""
+    sid = session_id or str(uuid.uuid4())
+    workspace_ctx = build_coworker_workspace_context(persona_idx)
+    return build_coworker_system_prompt(
+        workspace_context=workspace_ctx,
+        session_id=sid,
+        device_details={
+            "os_name": "macOS",
+            "arch": "arm64",
+            "screen_width": 1920,
+            "screen_height": 1080,
+            "scale_factor": 2,
+        },
+    )
+
+
 __all__ = [
     "PERSONAS",
     "build_full_system_prompt",
+    "build_full_coworker_system_prompt",
+    "build_coworker_workspace_context",
     "build_workspace_context",
     "get_all_skill_names",
     "get_skills_catalog",

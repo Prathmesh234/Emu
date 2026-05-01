@@ -2,6 +2,7 @@ import asyncio
 import os
 import secrets
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -157,9 +158,118 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _nonnegative_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a non-negative integer, got {raw!r}") from exc
+
+    if value < 0:
+        raise RuntimeError(f"{name} must be a non-negative integer, got {raw!r}")
+
+    return value
+
+
 MODEL_TIMEOUT_SECS = _positive_int_env("EMU_MODEL_TIMEOUT_SECS", 60)
 MAX_TIMEOUT_RETRIES = _positive_int_env("EMU_MODEL_TIMEOUT_RETRIES", 1)
-print(f"[config] Model timeout: {MODEL_TIMEOUT_SECS}s, retries: {MAX_TIMEOUT_RETRIES}")
+MAX_RATE_LIMIT_RETRIES = _nonnegative_int_env("EMU_MODEL_RATE_LIMIT_RETRIES", 2)
+RATE_LIMIT_BASE_DELAY_SECS = _positive_int_env("EMU_MODEL_RATE_LIMIT_BASE_DELAY_SECS", 2)
+RATE_LIMIT_MAX_DELAY_SECS = _positive_int_env("EMU_MODEL_RATE_LIMIT_MAX_DELAY_SECS", 30)
+print(
+    f"[config] Model timeout: {MODEL_TIMEOUT_SECS}s, retries: {MAX_TIMEOUT_RETRIES}, "
+    f"rate-limit retries: {MAX_RATE_LIMIT_RETRIES}"
+)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status == 429:
+        return True
+    text = f"{status or ''} {exc}".lower()
+    return any(
+        marker in text
+        for marker in (
+            "429",
+            "rate limit",
+            "rate_limit",
+            "rate-limit",
+            "too many requests",
+            "too_many_requests",
+            "resource exhausted",
+            "quota exceeded",
+            "throttl",
+        )
+    )
+
+
+def _rate_limit_retry_delay(exc: Exception, attempt_index: int) -> int:
+    retry_after = _retry_after_seconds(exc)
+    if retry_after is not None:
+        return max(1, min(RATE_LIMIT_MAX_DELAY_SECS, retry_after))
+    delay = RATE_LIMIT_BASE_DELAY_SECS * (2 ** max(0, attempt_index))
+    return min(RATE_LIMIT_MAX_DELAY_SECS, delay)
+
+
+def _retry_after_seconds(exc: Exception) -> int | None:
+    headers = getattr(exc, "headers", None)
+    response = getattr(exc, "response", None)
+    if headers is None and response is not None:
+        headers = getattr(response, "headers", None)
+
+    value = None
+    if headers is not None:
+        try:
+            value = headers.get("retry-after") or headers.get("Retry-After")
+        except AttributeError:
+            if isinstance(headers, dict):
+                value = headers.get("retry-after") or headers.get("Retry-After")
+
+    if value is None:
+        return None
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _sleep_with_stop(delay_s: int, is_stopped) -> bool:
+    deadline = asyncio.get_running_loop().time() + max(0, delay_s)
+    while True:
+        if is_stopped():
+            return False
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return True
+        await asyncio.sleep(min(0.5, remaining))
+
+
+def _call_sync_provider_with_rate_limit(func, *args, label: str):
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            return func(*args)
+        except Exception as exc:
+            if not _is_rate_limit_error(exc) or attempt >= MAX_RATE_LIMIT_RETRIES:
+                raise
+            delay = _rate_limit_retry_delay(exc, attempt)
+            print(
+                f"[provider] {label} rate-limited — retrying in {delay}s "
+                f"({attempt + 1}/{MAX_RATE_LIMIT_RETRIES})"
+            )
+            time.sleep(delay)
+
+
+def _wrap_compact_model(func):
+    def _wrapped(messages):
+        return _call_sync_provider_with_rate_limit(func, messages, label="compact_model")
+
+    return _wrapped
+
+
+compact_model = _wrap_compact_model(compact_model)
 
 
 # ── Provider settings config ─────────────────────────────────────────────────
@@ -292,7 +402,7 @@ async def save_provider_settings(req: ProviderSettingsRequest):
         try:
             compact_mod = importlib.import_module(f"{module_path}.client_compact")
             importlib.reload(compact_mod)
-            compact_model = compact_mod.compact
+            compact_model = _wrap_compact_model(compact_mod.compact)
         except Exception:
             pass
 
@@ -417,28 +527,49 @@ async def agent_step(req: AgentRequest):
             return {"session_id": session_id, "status": "stopped", "done": False}
         loop_i += 1
 
-        # Call model (with timeout + retry)
+        # Call model (with timeout + provider-agnostic rate-limit retry)
         try:
-            for timeout_attempt in range(MAX_TIMEOUT_RETRIES + 1):
+            for rate_attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
                 try:
-                    agent_req = context_manager.build_request(session_id)
-                    response = await asyncio.wait_for(
-                        asyncio.to_thread(call_model, agent_req),
-                        timeout=MODEL_TIMEOUT_SECS,
-                    )
+                    for timeout_attempt in range(MAX_TIMEOUT_RETRIES + 1):
+                        try:
+                            agent_req = context_manager.build_request(session_id)
+                            response = await asyncio.wait_for(
+                                asyncio.to_thread(call_model, agent_req),
+                                timeout=MODEL_TIMEOUT_SECS,
+                            )
+                            break  # success
+                        except asyncio.TimeoutError:
+                            if timeout_attempt < MAX_TIMEOUT_RETRIES:
+                                print(f"[agent/step] Model call timed out after {MODEL_TIMEOUT_SECS}s — retrying ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})")
+                                await manager.send(session_id, {
+                                    "type": "status",
+                                    "message": f"Model response timed out, retrying... ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})",
+                                })
+                            else:
+                                raise TimeoutError(
+                                    f"Model did not respond after {MAX_TIMEOUT_RETRIES} retries "
+                                    f"(timeout={MODEL_TIMEOUT_SECS}s each)"
+                                )
                     break  # success
-                except asyncio.TimeoutError:
-                    if timeout_attempt < MAX_TIMEOUT_RETRIES:
-                        print(f"[agent/step] Model call timed out after {MODEL_TIMEOUT_SECS}s — retrying ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})")
-                        await manager.send(session_id, {
-                            "type": "status",
-                            "message": f"Model response timed out, retrying... ({timeout_attempt + 1}/{MAX_TIMEOUT_RETRIES})",
-                        })
-                    else:
-                        raise TimeoutError(
-                            f"Model did not respond after {MAX_TIMEOUT_RETRIES} retries "
-                            f"(timeout={MODEL_TIMEOUT_SECS}s each)"
-                        )
+                except Exception as rate_exc:
+                    if not _is_rate_limit_error(rate_exc) or rate_attempt >= MAX_RATE_LIMIT_RETRIES:
+                        raise
+                    delay = _rate_limit_retry_delay(rate_exc, rate_attempt)
+                    print(
+                        f"[agent/step] Provider rate-limited — retrying in {delay}s "
+                        f"({rate_attempt + 1}/{MAX_RATE_LIMIT_RETRIES})"
+                    )
+                    await manager.send(session_id, {
+                        "type": "status",
+                        "message": (
+                            f"Provider rate limit hit; retrying in {delay}s... "
+                            f"({rate_attempt + 1}/{MAX_RATE_LIMIT_RETRIES})"
+                        ),
+                    })
+                    if not await _sleep_with_stop(delay, _is_stopped):
+                        print(f"[agent/step] Stop signal received during rate-limit backoff — aborting (loop_i={loop_i})")
+                        return {"session_id": session_id, "status": "stopped", "done": False}
         except Exception as e:
             from pydantic import ValidationError
             if isinstance(e, ValidationError):
@@ -476,6 +607,7 @@ async def agent_step(req: AgentRequest):
                 for tc in response.tool_calls
             ]
             context_manager.add_tool_call_turn(session_id, raw_tool_calls)
+            screenshots_for_context = []
 
             # Execute each tool and add results
             for tc in response.tool_calls:
@@ -492,6 +624,29 @@ async def agent_step(req: AgentRequest):
                     args = json.loads(tc.arguments) if tc.arguments else {}
                 except json.JSONDecodeError:
                     args = {}
+
+                tool_ok, tool_err = context_manager.action_validator.validate_tool_call(
+                    session_id,
+                    tc.name,
+                    args,
+                    agent_mode=req.agent_mode,
+                )
+                if not tool_ok:
+                    result = f"[COWORKER TOOL REJECTED] {tool_err}"
+                    context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
+                    print(f"[tool:reject] {tc.name}({json.dumps(args, ensure_ascii=False)[:120]}) → {tool_err}")
+                    await log_and_send(
+                        session_id,
+                        f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}",
+                        manager,
+                        metadata={
+                            "tool_name": tc.name,
+                            "args": json.dumps(args, ensure_ascii=False)[:500],
+                            "result": result[:500],
+                            "status": "rejected",
+                        },
+                    )
+                    continue
 
                 await manager.send(session_id, {
                     "type": "tool_event",
@@ -510,17 +665,32 @@ async def agent_step(req: AgentRequest):
                 )
                 print(f"[tool:start] {tc.name}({json.dumps(args, ensure_ascii=False)[:120]})")
 
-                result = await execute_agent_tool(
+                raw_result = await execute_agent_tool(
                     session_id, tc.name, args, manager, context_manager, compact_model,
                     agent_mode=req.agent_mode,
                     cancel_key=cancel_key,
                 )
+                screenshot_for_context = None
+                if isinstance(raw_result, dict):
+                    result = str(raw_result.get("text") or "")
+                    screenshot_for_context = raw_result.get("screenshot")
+                else:
+                    result = str(raw_result)
 
                 if _is_stopped():
                     print(f"[agent/step] Stop signal received after tool returned — aborting (tool={tc.name})")
                     return {"session_id": session_id, "status": "stopped", "done": False}
 
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
+                if screenshot_for_context:
+                    screenshots_for_context.append(screenshot_for_context)
+                context_manager.action_validator.record_tool_result(
+                    session_id,
+                    tc.name,
+                    args,
+                    result,
+                    agent_mode=req.agent_mode,
+                )
                 print(f"[tool] {tc.name}({json.dumps(args)[:80]}) → {result[:150]}")
                 await log_and_send(
                     session_id,
@@ -545,6 +715,9 @@ async def agent_step(req: AgentRequest):
             if _is_stopped():
                 print(f"[agent/step] Stop signal received after tool batch — aborting (loop_i={loop_i})")
                 return {"session_id": session_id, "status": "stopped", "done": False}
+
+            for screenshot in screenshots_for_context:
+                context_manager.add_screenshot_turn(session_id, screenshot)
 
             if hermes_started:
                 response = AgentResponse(
@@ -675,6 +848,27 @@ async def agent_step(req: AgentRequest):
                 response.final_message = None
                 await manager.send(session_id, {"type": "status", "message": "Truncated response detected, retaking screenshot..."})
                 continue
+
+            if req.agent_mode == "coworker":
+                verify_ok, verify_err = context_manager.action_validator.validate_coworker_done_response(
+                    session_id,
+                    response.final_message,
+                )
+                if not verify_ok:
+                    print(f"[coworker-validator] REJECTED unverified done: {verify_err}")
+                    context_manager.add_assistant_turn(
+                        session_id,
+                        response.model_dump_json(exclude_none=True),
+                    )
+                    context_manager.add_user_message(
+                        session_id,
+                        f"[COWORKER VERIFY REQUIRED] {verify_err}",
+                    )
+                    await manager.send(session_id, {
+                        "type": "status",
+                        "message": "Coworker action needs verification before reporting success.",
+                    })
+                    continue
 
         break  # Valid desktop action or done, dispatch to frontend
 

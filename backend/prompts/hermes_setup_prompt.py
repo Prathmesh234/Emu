@@ -164,8 +164,8 @@ the user must:
 
 <output_format>
 Same JSON schema as the rest of Emu — one action per turn. Use desktop
-actions (navigate_and_click, type_text, key_press, screenshot, shell_exec
-for the manifest update only) to drive the terminal, and final_message
-when chatting / asking for input.
+actions (navigate_and_click, type_text, key_press, screenshot) to drive the
+terminal. Use the shell_exec function tool only for the manifest update, and
+use final_message when chatting / asking for input.
 </output_format>
 """

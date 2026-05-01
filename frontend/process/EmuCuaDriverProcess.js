@@ -226,16 +226,24 @@ function _startServeOnce(bin) {
 }
 
 function _stopServe() {
-  if (_serveChild && !_serveChild.killed) {
+  const child = _serveChild;
+  if (child && child.exitCode === null && child.signalCode === null) {
     console.log('[emu-cua-driver] stopping daemon');
-    try { _serveChild.kill('SIGTERM'); } catch (_) {}
+    try { child.kill('SIGTERM'); } catch (_) {}
+    setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        console.warn('[emu-cua-driver] daemon did not exit after SIGTERM; forcing stop');
+        try { child.kill('SIGKILL'); } catch (_) {}
+      }
+    }, 1500).unref();
   }
   _serveChild = null;
   _serveStarting = null;
 }
 
 // Configure the agent-cursor overlay so it stays pinned for the whole
-// app session — including after the agent stops. `idle_hide_ms: 0`
+// app session — including after the agent stops — and matches Emu's
+// smaller white-with-blue-glow visual treatment. `idle_hide_ms: 0`
 // disables the daemon's idle-hide timer, so the overlay remains visible
 // until the driver/app shuts down.
 // Fire-and-forget — the daemon already defaults to enabled, so a
@@ -245,11 +253,19 @@ function _configureAgentCursor(bin) {
   try {
     const { execFile } = require('child_process');
     const calls = [
-      ['set_agent_cursor_motion', { idle_hide_ms: 0 }],
+      ['set_agent_cursor_motion', {
+        start_handle: 0.42,
+        end_handle: 0.42,
+        arc_size: 0.16,
+        spring: 0.9,
+        glide_duration_ms: 900,
+        dwell_after_click_ms: 250,
+        idle_hide_ms: 0,
+      }],
       ['set_agent_cursor_style', {
         gradient_colors: ['#FFFFFF', '#F7FBFF'],
         bloom_color: '#2F80FF',
-        shape_size: 18,
+        shape_size: 16,
       }],
     ];
 
@@ -272,7 +288,36 @@ function _configureAgentCursor(bin) {
   }
 }
 
+function _hideAgentCursor(bin) {
+  if (!bin) return;
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync(
+      bin,
+      ['call', 'set_agent_cursor_enabled', JSON.stringify({ enabled: false })],
+      { timeout: 2000, stdio: 'ignore' }
+    );
+    console.log('[emu-cua-driver] agent cursor hidden');
+  } catch (err) {
+    console.warn(`[emu-cua-driver] hide cursor failed: ${err?.message || err}`);
+  }
+}
+
+function _requestDaemonStop(bin) {
+  if (!bin) return;
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync(bin, ['stop'], { timeout: 2000, stdio: 'ignore' });
+    console.log('[emu-cua-driver] daemon stop requested');
+  } catch (err) {
+    console.warn(`[emu-cua-driver] daemon stop request failed: ${err?.message || err}`);
+  }
+}
+
 function stop() {
+  const bin = _serveLastBin || _resolveBinary(_configuredApp);
+  _hideAgentCursor(bin);
+  _requestDaemonStop(bin);
   if (_child) {
     console.log('[emu-cua-driver] stopping');
     _child.kill();

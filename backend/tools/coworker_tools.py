@@ -943,11 +943,25 @@ def _flatten_raw_result(envelope: dict) -> dict:
 
 def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
     """Return short recovery guidance for common driver dead ends."""
-    if name not in {"cua_click", "cua_right_click", "cua_double_click"}:
-        return ""
-
     lowered = text.lower()
     guidance: list[str] = []
+
+    if name == "cua_screenshot" and not ok and "timed out" in lowered:
+        guidance.append(
+            "Window screenshot timed out. Do not repeat the same screenshot "
+            "call immediately; use cua_get_window_state/list_windows to "
+            "re-orient, or switch strategy."
+        )
+        return "\n[driver guidance] " + " ".join(guidance)
+
+    if name not in {"cua_click", "cua_right_click", "cua_double_click", "cua_press_key", "cua_hotkey", "cua_type_text", "cua_set_value"}:
+        return ""
+
+    if ok:
+        guidance.append(
+            "A successful tool result only means the input was posted/accepted; "
+            "verify the visible or AX state changed before reporting success."
+        )
 
     if "axstatictext" in lowered:
         guidance.append(
@@ -982,12 +996,9 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
     Special-cases the image-bearing tools (`cua_screenshot`,
     `cua_get_window_state`, `cua_zoom`): when invoked via `--raw` (see
     `_IMAGE_PRODUCING_TOOLS`) ``call_driver_tool`` flattens the response
-    so the PNG ends up under `screenshot_png_b64`. Those bytes are useless
-    to the model in a text channel and would otherwise eat the entire
-    8000-char cap with base64 noise. Strip them and replace with a
-    `_screenshot_omitted_bytes` marker so the structured fields
-    (dimensions, element_count, tree_markdown, bundle_id, …) survive
-    intact. If the model needs pixels, it should call `cua_screenshot`.
+    so the PNG ends up under `screenshot_png_b64`. Keep the text channel
+    compact by stripping the bytes here; the dispatcher attaches the image
+    as a real multimodal message immediately after the tool result.
     """
     if result.get("ok"):
         parsed = result.get("json")
@@ -995,7 +1006,8 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
             stripped = dict(parsed)
             b64 = stripped.pop("screenshot_png_b64", None) or ""
             stripped.pop("screenshot_mime_type", None)
-            stripped["_screenshot_omitted_bytes"] = len(b64)
+            stripped["_screenshot_attached"] = bool(b64)
+            stripped["_screenshot_bytes"] = len(b64)
             try:
                 out = json.dumps(stripped, ensure_ascii=False, indent=2)
             except (TypeError, ValueError):
@@ -1012,3 +1024,19 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
     suffix = f" (exit {code})" if code is not None else ""
     err += _driver_result_guidance(name, err, ok=False)
     return f"[{name} error{suffix}] {err}"
+
+
+def driver_screenshot_for_context(result: dict) -> str | None:
+    """Return a screenshot data URI from a successful driver result, if present."""
+    if not result.get("ok"):
+        return None
+    parsed = result.get("json")
+    if not isinstance(parsed, dict):
+        return None
+    b64 = parsed.get("screenshot_png_b64")
+    if not isinstance(b64, str) or not b64:
+        return None
+    mime = parsed.get("screenshot_mime_type")
+    if not isinstance(mime, str) or not mime:
+        mime = "image/png"
+    return f"data:{mime};base64,{b64}"

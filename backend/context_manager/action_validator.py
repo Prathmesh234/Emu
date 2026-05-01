@@ -6,6 +6,7 @@ the frontend.  Fully decoupled from ContextManager; just takes a session_id
 and an action dict, returns (is_valid, error_message).
 """
 
+import json
 import re
 
 # Desktop action types that should NEVER appear in a "done" final_message.
@@ -70,6 +71,43 @@ class ActionValidator:
     # Max consecutive repetitions of the same action type before we force a
     # strategy change. 4 repeats allowed; the 5th is rejected.
     MAX_CONSECUTIVE_REPEATS = 4
+    MAX_IDENTICAL_COWORKER_TOOL_REPEATS = 2
+
+    _COWORKER_INTERACTIVE_TOOLS = {
+        "cua_click",
+        "cua_right_click",
+        "cua_double_click",
+        "cua_press_key",
+        "cua_hotkey",
+        "cua_type_text",
+        "cua_set_value",
+        "cua_drag",
+    }
+
+    _COWORKER_PERCEPTION_TOOLS = {
+        "cua_get_window_state",
+        "cua_screenshot",
+        "cua_zoom",
+        "cua_list_windows",
+        "cua_list_apps",
+        "list_running_apps",
+        "raise_app",
+        "cua_launch_app",
+    }
+
+    _BLOCKED_DONE_WORDS = (
+        "can't",
+        "cannot",
+        "couldn't",
+        "unable",
+        "failed",
+        "blocked",
+        "limitation",
+        "not possible",
+        "not safely",
+        "need you",
+        "please",
+    )
 
     def __init__(self):
         self._history: dict[str, list[str]] = {}
@@ -77,6 +115,10 @@ class ActionValidator:
         self._last_move_coords: dict[str, tuple[float, float]] = {}
         # Last navigate_and_click* target per session
         self._last_click_coords: dict[str, tuple[float, float]] = {}
+        # Coworker-mode tool-call history. The remote action validator does
+        # not see function tools, so track repeated driver primitives here.
+        self._coworker_tool_history: dict[str, list[str]] = {}
+        self._coworker_pending_verification: dict[str, str] = {}
 
     def validate(
         self,
@@ -275,6 +317,92 @@ class ActionValidator:
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
         self._last_click_coords.pop(session_id, None)
+        self._coworker_tool_history.pop(session_id, None)
+        self._coworker_pending_verification.pop(session_id, None)
+
+    def validate_tool_call(
+        self,
+        session_id: str,
+        name: str,
+        args: dict | None,
+        agent_mode: str = "remote",
+    ) -> tuple[bool, str]:
+        """Validate backend function-tool calls before execution."""
+        if agent_mode != "coworker" or name not in self._COWORKER_INTERACTIVE_TOOLS:
+            return True, ""
+
+        signature = self._tool_signature(name, args or {})
+        history = self._coworker_tool_history.setdefault(session_id, [])
+        repeats = sum(1 for item in history[-8:] if item == signature)
+        if repeats >= self.MAX_IDENTICAL_COWORKER_TOOL_REPEATS:
+            return False, (
+                f"`{name}` with the same target arguments has already been "
+                f"used {repeats} times recently. Do not repeat the same "
+                "pixel/element/key action. Re-orient with cua_get_window_state, "
+                "choose a different element/coordinate/keyboard path, or stop "
+                "with a clear limitation."
+            )
+        return True, ""
+
+    def record_tool_result(
+        self,
+        session_id: str,
+        name: str,
+        args: dict | None,
+        result: str,
+        agent_mode: str = "remote",
+    ) -> None:
+        """Update coworker tool history after a function tool returns."""
+        if agent_mode != "coworker":
+            return
+
+        ok = result.startswith(f"[{name}]")
+
+        if name in self._COWORKER_PERCEPTION_TOOLS:
+            if ok:
+                self._coworker_pending_verification.pop(session_id, None)
+            return
+
+        if name not in self._COWORKER_INTERACTIVE_TOOLS:
+            return
+
+        signature = self._tool_signature(name, args or {})
+        history = self._coworker_tool_history.setdefault(session_id, [])
+        history.append(signature)
+        if len(history) > 12:
+            history[:] = history[-12:]
+
+        if ok:
+            self._coworker_pending_verification[session_id] = name
+
+    def validate_coworker_done_response(self, session_id: str, final_message: str | None) -> tuple[bool, str]:
+        """
+        Prevent success-shaped final answers immediately after an unverified
+        coworker interaction. Honest blocked/limitation messages are allowed.
+        """
+        pending = self._coworker_pending_verification.get(session_id)
+        if not pending:
+            return True, ""
+
+        text = (final_message or "").lower()
+        if any(word in text for word in self._BLOCKED_DONE_WORDS):
+            return True, ""
+
+        return False, (
+            f"The last coworker interaction (`{pending}`) has not been verified "
+            "by a successful cua_get_window_state/cua_screenshot/list_windows "
+            "call. Do not claim success from a posted click/key alone. Verify "
+            "the UI state first; if it did not change, switch strategy or report "
+            "the limitation."
+        )
+
+    @staticmethod
+    def _tool_signature(name: str, args: dict) -> str:
+        try:
+            encoded = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        except (TypeError, ValueError):
+            encoded = repr(sorted(args.items())) if isinstance(args, dict) else repr(args)
+        return f"{name}:{encoded}"
 
     @staticmethod
     def validate_done_response(final_message: str | None) -> tuple[bool, str]:

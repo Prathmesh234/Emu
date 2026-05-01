@@ -1,16 +1,16 @@
 import asyncio
 import json
-import platform
 from utilities.connection import ConnectionManager
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
 from .handlers import handle_update_plan, handle_read_plan, handle_use_skill, handle_read_memory, handle_create_skill
 from .compaction import handle_compact_context
 from .shell import handle_shell_exec
-from .raise_app import handle_raise_app
+from .raise_app import handle_bring_app_frontmost, handle_raise_app
 from .coworker_tools import (
     COWORKER_DRIVER_TOOL_NAMES,
     call_driver_tool,
+    driver_screenshot_for_context,
     format_driver_result_for_model,
 )
 from .hermes import (
@@ -156,8 +156,8 @@ async def execute_agent_tool(
     compact_model,
     agent_mode: str = "remote",
     cancel_key: str | None = None,
-) -> str:
-    """Execute an agent tool by name and return the result string.
+) -> str | dict:
+    """Execute an agent tool by name and return text, optionally with an image.
 
     ``agent_mode`` is passed through to mode-aware handlers (currently
     only ``raise_app``, which uses the driver's hidden ``launch_app``
@@ -300,6 +300,21 @@ async def execute_agent_tool(
         })
         return result
 
+    elif name == "bring_app_frontmost":
+        app_name = args.get("app_name", "")
+        user_approved = bool(args.get("user_approved", False))
+        result = await asyncio.to_thread(
+            handle_bring_app_frontmost, app_name, user_approved
+        )
+        await manager.send(session_id, {
+            "type": "tool_event",
+            "event": "bring_app_frontmost",
+            "app_name": app_name,
+            "ok": not result.startswith("ERROR"),
+            "result": result[:200],
+        })
+        return result
+
     # ── Coworker-mode driver tools (PLAN §4.5) ────────────────────────────
     # Forward every cua_* call to the local emu-cua-driver Swift CLI. Also
     # accept the friendlier alias ``list_running_apps`` which maps onto the
@@ -320,7 +335,16 @@ async def execute_agent_tool(
             "ok": bool(result.get("ok")),
             "args": json.dumps(args, ensure_ascii=False)[:300],
         })
-        return format_driver_result_for_model(name, result)
+        text = format_driver_result_for_model(name, result)
+        screenshot = driver_screenshot_for_context(result)
+        if screenshot:
+            text += (
+                "\n[coworker snapshot] A fresh driver screenshot is attached "
+                "as the next user image. Use it with this tool result for "
+                "visual targeting and verification."
+            )
+            return {"text": text, "screenshot": screenshot}
+        return text
 
     else:
         args_str = json.dumps(args, ensure_ascii=False)
@@ -341,14 +365,15 @@ async def execute_agent_tool(
             f"JSON text response (no function/tool call) with this exact shape:\n\n"
             f"  {example_json}\n\n"
             f"Desktop actions that MUST be returned as JSON text (never as tool calls):\n"
-            f"  shell_exec, screenshot, mouse_move, navigate_and_click, "
+            f"  screenshot, mouse_move, navigate_and_click, "
             f"navigate_and_right_click, navigate_and_triple_click, left_click, "
             f"right_click, double_click, triple_click, drag, scroll, type_text, "
             f"key_press, wait, done.\n\n"
             f"Function tools are ONLY: update_plan, read_plan, write_session_file, "
             f"read_session_file, list_session_files, read_memory, use_skill, "
-            f"create_skill, compact_context, invoke_hermes, check_hermes, "
-            f"cancel_hermes, list_hermes_jobs, raise_app, list_running_apps, "
+            f"create_skill, compact_context, shell_exec, invoke_hermes, check_hermes, "
+            f"cancel_hermes, list_hermes_jobs, raise_app, bring_app_frontmost, "
+            f"list_running_apps, "
             f"and (coworker mode only) cua_* driver tools."
         )
 

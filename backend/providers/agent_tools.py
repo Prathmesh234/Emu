@@ -11,8 +11,6 @@ Tools are defined once in OpenAI format. Helpers convert to Anthropic / Gemini
 format as needed.
 """
 
-import json
-
 # ── OpenAI format (used by OpenRouter, OpenAI, OpenAI-compatible, Modal) ──────
 
 AGENT_TOOLS_OPENAI = [
@@ -476,24 +474,10 @@ AGENT_TOOLS_OPENAI = [
                 "Run a shell command inside the .emu directory and return its "
                 "combined stdout+stderr. This is a SANDBOXED backend tool, not "
                 "a desktop action.\n\n"
-                "SCOPE (enforced):\n"
-                "  • cwd is pinned to the .emu directory. Relative paths "
-                "resolve there. `~` expands to .emu.\n"
-                "  • Any absolute /path argument must be inside .emu or the "
-                "command is refused.\n"
-                "  • Blocked programs: curl, wget, ssh, scp, nc, rsync, ftp, "
-                "telnet, sudo, su, rm -rf, chmod, chown, kill, pkill, killall, "
-                "launchctl, systemctl, mount, umount, mkfs, dd, eval, source.\n"
-                "  • Blocked patterns: `| bash`, `| sh`, writes to /dev/*.\n"
-                "  • 30s timeout, 100 KB output cap.\n\n"
-                "USE FOR: reading/writing .emu files (cat, ls, grep, sed, "
-                "python3 -c on .emu paths, jq on .emu json, etc.). "
-                "DO NOT USE FOR: installing software, network fetches, "
-                "launching apps, or touching anything outside .emu.\n\n"
-                "In coworker mode, this is also NOT an AppleScript/System "
-                "Events escape hatch. `osascript` app scripting is refused; "
-                "use emu-cua-driver tools for native app state, or stop and "
-                "report the driver limitation."
+                "Scope is enforced: cwd/HOME are `.emu`, absolute paths must "
+                "stay under `.emu`, risky/network/destructive programs are "
+                "blocked, and output is capped. Use for file-backed inspection "
+                "only, not GUI automation or app launching."
             ),
             "parameters": {
                 "type": "object",
@@ -515,25 +499,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "raise_app",
             "description": (
-                "Resolve/prepare a named macOS application before interacting "
-                "with it.\n\n"
-                "REMOTE MODE: brings the app to the foreground (raise its "
-                "window, give it focus, switch Spaces if needed) via osascript "
-                "`tell application \"X\" to activate`. Always call this before "
-                "remote desktop actions targeting that app.\n\n"
-                "COWORKER MODE: routes to emu-cua-driver's hidden `launch_app` "
-                "instead of `osascript activate` — it returns `{pid, bundle_id, "
-                "name, windows: […]}` JSON without raising a window or stealing "
-                "focus. Use the returned `pid` and `windows[0].window_id` as "
-                "the target for subsequent `cua_*` calls.\n\n"
-                "Pass the EXACT macOS application name as it appears in the "
-                "Dock or Applications folder, e.g. 'Google Chrome', 'Finder', "
-                "'Visual Studio Code', 'Safari', 'Microsoft Excel'. If the app "
-                "is not running, the mode-specific launch path starts it.\n\n"
-                "Limitations: cannot raise the login window or pick a specific "
-                "window by title (raises the most recently used window of the "
-                "app). Citrix Viewer is known not to accept clicks even after "
-                "being raised in remote mode."
+                "Resolve/prepare a named macOS app. Remote mode activates it. "
+                "Coworker mode uses emu-cua-driver `launch_app` and returns "
+                "`{pid, bundle_id, name, windows}` without foregrounding. Use "
+                "the returned pid/window_id for `cua_*` tools."
             ),
             "parameters": {
                 "type": "object",
@@ -547,6 +516,31 @@ AGENT_TOOLS_OPENAI = [
                     },
                 },
                 "required": ["app_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bring_app_frontmost",
+            "description": (
+                "User-approved foreground fallback. Requires explicit user "
+                "approval; after it succeeds, take a fresh "
+                "`cua_get_window_state` and continue with `cua_*` tools."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name": {
+                        "type": "string",
+                        "description": "Exact macOS application name, e.g. 'TV' or 'Google Chrome'.",
+                    },
+                    "user_approved": {
+                        "type": "boolean",
+                        "description": "Must be true only after the user explicitly approved foregrounding.",
+                    },
+                },
+                "required": ["app_name", "user_approved"],
             },
         },
     },

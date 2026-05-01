@@ -141,13 +141,13 @@ EMU SCAFFOLDING TO ADD (the real trajectory does NOT have these -- weave in
   4. write_session_file when info is gathered (urls, names, prices).
   5. read_plan() / read_session_file when re-orienting.
   6. compact_context(focus="...") if real trajectory had 20+ steps.
-  7. shell_exec for filesystem work inside .emu (open -a, mdfind, find,
-     cat, python3 -c). Never curl/wget/sudo/rm -rf.
+  7. shell_exec for safe file-backed work (find, cat, python3 -c).
+     Never curl/wget/sudo/rm -rf.
   8. invoke_hermes for HEAVY non-GUI work the real trajectory did with
      many GUI clicks. ALWAYS follow with check_hermes(job_id, wait_s=60).
   9. ANTI-LOOP: if real trajectory repeated a failing action, change
      strategy in your version.
- 10. FOCUS SAFETY: click into the target app before any input.
+  10. FOCUS SAFETY: ensure the target app is focused before input.
  11. Mark plan steps [x] with another update_plan call as you progress.
 
 OUTPUT FORMAT - RETURN ONE JSON OBJECT, NOTHING ELSE:

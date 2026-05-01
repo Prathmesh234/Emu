@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Optional
 
 from utilities.connection import ConnectionManager
-from utilities.paths import get_emu_path_str
 from workspace import get_sessions_dir, write_session_file
 
 from . import hermes_jobs
@@ -153,30 +152,12 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
 
 def _install_guidance() -> str:
     """Message returned when the hermes binary cannot be located."""
-    manifest_path = f"{get_emu_path_str()}/manifest.json"
     return (
-        "Hermes Agent is not installed on this machine.\n\n"
-        "Ask the user (in your next final_message): \"Hermes Agent isn't "
-        "installed yet — it's a headless terminal agent from Nous Research "
-        "that I'd use to do the heavy lifting here. I can install it (~30s) "
-        "and then walk you through picking a provider/model and adding an "
-        "API key in a fresh session. Want me to go ahead?\"\n\n"
-        "If the user says YES:\n"
-        "  1. shell_exec → curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash\n"
-        f"  2. shell_exec → python3 -c \"import json; p='{manifest_path}'; "
-        "d=json.load(open(p)); d['hermes_installed']=True; d['hermes_setup_pending']=True; "
-        "json.dump(d,open(p,'w'),indent=2)\"\n"
-        "  3. Tell the user the install is done and ask them to start a "
-        "NEW session — the next session will auto-detect "
-        "hermes_setup_pending and boot straight into setup mode where "
-        "I'll open Terminal and run `hermes setup` with you. We'll come "
-        "back to the current task after that.\n\n"
-        "DO NOT try to run `hermes setup` in the current session yourself "
-        "— that wizard is interactive (TTY) and only the dedicated setup "
-        "mode is wired to drive it through Terminal.\n\n"
-        "If the user says NO, abandon the Hermes plan and either complete "
-        "the task yourself via desktop actions or tell the user it can't "
-        "be done well without Hermes."
+        "ERROR: Hermes Agent is not installed on this machine.\n\n"
+        "Do not try to install Hermes through shell_exec; shell_exec is "
+        "sandboxed and blocks network installers. Tell the user Hermes is "
+        "unavailable for this task. If they want Hermes, ask them to install "
+        "it outside Emu and start a new setup session."
     )
 
 

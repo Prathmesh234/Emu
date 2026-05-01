@@ -32,11 +32,9 @@ def interpret_action_error(error: str, action_label: str) -> str:
                                 "sudo", "administrator", "elevated", "requires elevation")):
         return (
             f"[ACTION FAILED: {action_label}] Permission denied — {error}\n"
-            f"This action requires elevated privileges. Your options:\n"
-            f"  1. Inform the user they need to run Emu with appropriate permissions.\n"
-            f"  2. Use shell_exec with sudo to request elevation:\n"
-            f"     sudo open -a 'AppName'\n"
-            f"  3. Choose an approach that doesn't require admin rights."
+            f"This action requires additional permissions. Ask the user to grant "
+            f"the required macOS access or choose an approach that does not need "
+            f"elevated privileges."
         )
 
     if any(kw in el for kw in ("not found", "no such file", "cannot find",
@@ -44,8 +42,9 @@ def interpret_action_error(error: str, action_label: str) -> str:
         return (
             f"[ACTION FAILED: {action_label}] Target not found — {error}\n"
             f"The file, app, or element doesn't exist at the expected location.\n"
-            f"Try: use shell_exec to verify the path exists, or search for the "
-            f"correct location with ls / which / find."
+            f"Check the visible spelling, try the exact app name with raise_app, "
+            f"or ask the user for the correct location. Use shell_exec only for "
+            f"files inside .emu."
         )
 
     if "timed out" in el:
@@ -53,14 +52,15 @@ def interpret_action_error(error: str, action_label: str) -> str:
             f"[ACTION FAILED: {action_label}] Timed out after 30s — the app may be "
             f"unresponsive.\n"
             f"Take a screenshot to assess the current state. If the app is frozen, "
-            f"use shell_exec to kill and relaunch it: killall 'appname'"
+            f"try raise_app once or report that the app is not responding."
         )
 
     if any(kw in el for kw in ("zsh", "bash", "shell", "process exited", "ps exited")):
         return (
             f"[ACTION FAILED: {action_label}] Shell process error — {error}\n"
             f"The automation shell encountered an error. Take a screenshot to "
-            f"re-orient, then try a simpler action or use shell_exec directly."
+            f"re-orient, then try a simpler desktop action. Use shell_exec only "
+            f"for safe .emu file inspection."
         )
 
     # Generic failure
