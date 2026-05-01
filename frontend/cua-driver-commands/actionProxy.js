@@ -154,15 +154,9 @@ const ACTION_MAP = {
     horizontal_scroll: {
         label: 'Horizontal Scroll',
         icon: '📜',
-        ipc: 'emu-cua:scroll',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:scroll', {
-            pid: a.pid,
-            direction: a.direction || 'right',
-            amount: a.amount || 3,
-            element_index: a.element_index,
-            window_id: a.window_id,
-        }),
-        describe: (a) => `Scroll ${a.direction || 'right'} ${a.amount || 3} (horizontal)`,
+        ipc: null, // PLAN §6.6: deferred / no-op in coworker. Use cua_scroll tool with direction=left|right instead.
+        dispatch: null,
+        describe: () => 'Horizontal scroll (not in co-worker v1)',
     },
 
     type_text: {

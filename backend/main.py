@@ -108,6 +108,13 @@ app.add_middleware(TokenAuthMiddleware)
 manager = ConnectionManager()
 context_manager = ContextManager()
 
+# Sessions that received POST /agent/stop while a step loop was in flight.
+# The /agent/step loop checks this set before every model call and tool
+# execution and bails out cleanly so the user sees an immediate stop
+# instead of N more tool calls trickling out before the loop notices.
+_stopped_sessions: set[str] = set()
+
+
 
 def _inject_coworker_perception(session_id: str) -> None:
     """
@@ -152,9 +159,10 @@ def _inject_coworker_perception(session_id: str) -> None:
             or parsed.get("tree")
             or ""
         )
-        # The CLI splices the MCP image content block into structuredContent
-        # under `screenshot_png_b64` (see CallCommand.mergeImageContentIntoJSON).
-        # Other keys are tolerated as defensive fallbacks for daemon/raw paths.
+        # call_driver_tool flattens the image-bearing tools' raw envelope
+        # so the PNG lands under `screenshot_png_b64` (see _flatten_raw_result
+        # in tools/coworker_tools.py). Other keys are tolerated as
+        # defensive fallbacks for daemon/raw paths.
         screenshot_b64 = (
             parsed.get("screenshot_png_b64")
             or parsed.get("screenshot_base64")
@@ -417,12 +425,33 @@ async def agent_step(req: AgentRequest):
         return {"session_id": session_id, "status": "error", "error": str(e)}
 
     # ── 2. Model loop — tool calls resolved server-side, actions go to frontend
-    MAX_TOOL_LOOPS = 10
+    # No fixed tool-call ceiling: a coworker task may legitimately chain
+    # many `cua_*` calls (raise → snapshot → click → snapshot → click …)
+    # before yielding a `done`. The previous `MAX_TOOL_LOOPS` cap forced
+    # synthetic screenshots / done actions in the middle of useful work.
+    # The user stop button is the user-facing escape, and `_is_stopped()`
+    # checks below break the loop within one tool call of `/agent/stop`.
     response: AgentResponse | None = None
     plan_pending_review: str | None = None  # set when update_plan is called
     hermes_started = False
 
-    for loop_i in range(MAX_TOOL_LOOPS + 1):
+    # New runs of /agent/step clear any stale stop-flag from a prior run
+    # for the same session id, so the user can resume after stopping.
+    _stopped_sessions.discard(session_id)
+
+    def _is_stopped() -> bool:
+        return session_id in _stopped_sessions
+
+    loop_i = 0
+    while True:
+        # ── Stop checkpoint (user clicked stop) ──────────────────────────
+        # Bail before the next model call so we don't burn another
+        # inference + tool round-trip after the user said stop.
+        if _is_stopped():
+            print(f"[agent/step] Stop signal received — aborting loop (loop_i={loop_i})")
+            return {"session_id": session_id, "status": "stopped", "done": False}
+        loop_i += 1
+
         # Call model (with timeout + retry)
         try:
             for timeout_attempt in range(MAX_TIMEOUT_RETRIES + 1):
@@ -455,10 +484,6 @@ async def agent_step(req: AgentRequest):
                     f"[SCHEMA VALIDATION FAILED] The JSON you returned was invalid or violated the schema limits:\n{e}\n\nPlease fix your formatting and try again."
                 )
                 await manager.send(session_id, {"type": "status", "message": "Pydantic schema validation error, returning to model to fix..."})
-                
-                if loop_i >= MAX_TOOL_LOOPS:
-                    return {"session_id": session_id, "status": "action_rejected", "error": str(e), "done": False}
-                    
                 continue  # Re-call the model internally
 
             print(f"[agent/step] Inference failed: {e}")
@@ -472,19 +497,6 @@ async def agent_step(req: AgentRequest):
 
         # ── 3. Tool calls? Execute and loop ──────────────────────────────────
         if response.tool_calls:
-            if loop_i >= MAX_TOOL_LOOPS:
-                print(f"[agent/step] Hit max tool loops ({MAX_TOOL_LOOPS}) — forcing screenshot")
-                context_manager.add_user_message(
-                    session_id,
-                    "[TOOL LOOP LIMIT] You called tools 10 times without taking a desktop action. "
-                    "STOP calling tools. Take a screenshot to see the screen and proceed with "
-                    "a desktop action (navigate_and_click, mouse_move, type_text, key_press, etc.)."
-                )
-                response.tool_calls = None
-                response.action = Action(type=ActionType.SCREENSHOT)
-                response.done = False
-                break
-
             # Store assistant turn with tool calls (OpenAI format for context)
             raw_tool_calls = [
                 {
@@ -498,6 +510,15 @@ async def agent_step(req: AgentRequest):
 
             # Execute each tool and add results
             for tc in response.tool_calls:
+                # ── Stop checkpoint inside the tool batch ──────────────
+                # Multi-tool batches can take a few seconds (clicks +
+                # snapshots). Check on every iteration so the user
+                # doesn't have to wait through the whole batch after
+                # clicking stop.
+                if _is_stopped():
+                    print(f"[agent/step] Stop signal received mid-batch — aborting (tool={tc.name})")
+                    return {"session_id": session_id, "status": "stopped", "done": False}
+
                 try:
                     args = json.loads(tc.arguments) if tc.arguments else {}
                 except json.JSONDecodeError:
@@ -592,8 +613,7 @@ async def agent_step(req: AgentRequest):
             response.done = False
             response.final_message = None
             await manager.send(session_id, {"type": "status", "message": "Unparseable action, retaking screenshot..."})
-            if loop_i < MAX_TOOL_LOOPS:
-                continue
+            continue
 
         action_type = response.action.type.value
         action_payload = response.action.model_dump(exclude_none=True)
@@ -614,12 +634,6 @@ async def agent_step(req: AgentRequest):
                 f"[ACTION REJECTED] {error_msg}\nChoose a different action.",
             )
             await manager.send(session_id, {"type": "status", "message": f"Rejected: {error_msg}. Retrying..."})
-            
-            # If we hit the loop limit, don't loop again to avoid infinite hangs
-            if loop_i >= MAX_TOOL_LOOPS:
-                await manager.send(session_id, {"type": "error", "message": f"Validation failed {MAX_TOOL_LOOPS} times. Aborting."})
-                return {"session_id": session_id, "status": "action_rejected", "error": error_msg, "done": False}
-                
             continue  # Re-call the model internally
 
         # ── 4b. Catch bogus "done" from truncated action parse ───────────────────
@@ -639,8 +653,7 @@ async def agent_step(req: AgentRequest):
                 response.done = False
                 response.final_message = None
                 await manager.send(session_id, {"type": "status", "message": "Truncated response detected, retaking screenshot..."})
-                if loop_i < MAX_TOOL_LOOPS:
-                    continue
+                continue
 
         break  # Valid desktop action or done, dispatch to frontend
 
@@ -767,6 +780,11 @@ async def action_complete(req: ActionCompleteRequest):
 async def agent_stop(req: StopRequest):
     """User interrupted the agent flow."""
     session_id = req.session_id
+    # Mark the session as stopped FIRST so any in-flight /agent/step loop
+    # bails out at its next checkpoint (before the next model call or
+    # tool execution). Without this, the loop happily keeps chaining
+    # tool calls for many seconds after the user clicks stop.
+    _stopped_sessions.add(session_id)
     context_manager.add_user_message(session_id, "STOP")
     print(f"[agent/stop] session={session_id}")
 

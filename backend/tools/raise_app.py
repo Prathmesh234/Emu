@@ -79,21 +79,32 @@ def _raise_via_driver(name: str) -> str:
     ``launch_app`` MCP tool. Returns the driver's structured JSON on
     success so ``_maybe_update_coworker_target`` can parse ``pid`` and
     ``windows[0].window_id`` for the next perception turn.
+
+    Many Apple system apps use a marketing prefix ("Apple Music", "Apple TV")
+    that doesn't match their actual `CFBundleName` ("Music", "TV") which
+    is what the driver's name lookup compares against. If the first try
+    fails AND the name looks like one of those, retry once with the
+    prefix stripped — saves the model an entire `list_running_apps`
+    detour and keeps the conversation tight.
     """
-    result = call_driver_tool("launch_app", {"name": name})
-    if not result.get("ok"):
-        return (
-            f"ERROR: coworker raise_app failed to launch '{name}': "
-            f"{result.get('error', '(no error message)')}"
-        )
+    candidates = [name]
+    for prefix in ("Apple ",):
+        if name.startswith(prefix) and len(name) > len(prefix):
+            candidates.append(name[len(prefix):])
 
-    parsed = result.get("json")
-    if isinstance(parsed, dict):
-        # Return the canonical JSON the model can parse for pid/window_id.
-        return json.dumps(parsed, ensure_ascii=False)
+    last_error = None
+    for cand in candidates:
+        result = call_driver_tool("launch_app", {"name": cand})
+        if result.get("ok"):
+            parsed = result.get("json")
+            if isinstance(parsed, dict):
+                return json.dumps(parsed, ensure_ascii=False)
+            return result.get("output") or f"{cand} launched (no structured output)"
+        last_error = result.get("error", "(no error message)")
 
-    # Fallback: driver returned non-JSON output (shouldn't happen for launch_app).
-    return result.get("output") or f"{name} launched (no structured output)"
+    return (
+        f"ERROR: coworker raise_app failed to launch '{name}': {last_error}"
+    )
 
 
 def handle_raise_app(app_name: str, agent_mode: str = "remote") -> str:

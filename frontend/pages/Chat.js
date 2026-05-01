@@ -57,6 +57,28 @@ function scrollToBottom() {
     });
 }
 
+// Build a one-line trace label for coworker-mode driver calls. Strips the
+// `cua_` prefix and only surfaces the args the user actually cares about
+// (coords, element_index, key, text), keeping pid/window_id off the line so
+// it stays readable when several calls fire in a row.
+function _formatCuaCall(tool, argsJson, ok) {
+    const name = String(tool || '').replace(/^cua_/, '');
+    let argsObj = {};
+    try { argsObj = argsJson ? JSON.parse(argsJson) : {}; } catch (_) {}
+    const keys = ['element_index', 'x', 'y', 'key', 'keys', 'text', 'direction', 'amount', 'app_name', 'bundle_id'];
+    const parts = [];
+    for (const k of keys) {
+        if (argsObj[k] !== undefined) {
+            const v = argsObj[k];
+            const s = typeof v === 'string' ? `"${v.length > 40 ? v.slice(0, 40) + '…' : v}"` : JSON.stringify(v);
+            parts.push(`${k}: ${s}`);
+        }
+    }
+    const sig = parts.length ? `{${parts.join(', ')}}` : '';
+    const mark = ok === false ? ' ✗' : '';
+    return `using ${name}(${sig})${mark}`;
+}
+
 function syncGeneratingUI(generating) {
     store.setGenerating(generating);
     // Border glow only while agent is executing
@@ -444,6 +466,13 @@ async function respond(chat, base64Screenshot = null) {
     store.state._generationId = thisGenId;
     syncGeneratingUI(true);
 
+    // Shift to side panel immediately so the user sees the desktop the agent
+    // is about to operate on. Previously we waited for the first step that
+    // returned an `action` JSON, which in coworker mode never happens until
+    // the very last turn (every intermediate turn is a `cua_*` tool call,
+    // not an action), leaving the panel covering the work area.
+    moveToSidePanel().catch(() => {});
+
     const lastUserMsg = store.getLastUserMessage(chat);
 
     store.pushMessage(chat.id, { role: 'assistant', content: '', stepCount: 0 });
@@ -595,9 +624,12 @@ async function handleWsMessage(data) {
             //   window doesn't flicker between sizes when shell_exec /
             //   memory_read / wait are interleaved with screen actions.
             //   Only return to centered once the agent signals `done`.
-            if (!data.done && data.action) {
+            //   Coworker-mode steps frequently return action=null (the
+            //   model only emitted `cua_*` tool calls), so we key off
+            //   `done` alone — any non-final step keeps the side panel.
+            if (!data.done) {
                 await moveToSidePanel();
-            } else if (!data.action) {
+            } else {
                 await moveToCentered();
             }
 
@@ -863,6 +895,19 @@ async function handleWsMessage(data) {
                         if (container) container.appendChild(wrap);
                         else state.currentAssistantEl.appendChild(wrap);
                     }
+                } else if (data.event === 'cua_driver_call' || data.event === 'raise_app') {
+                    // Coworker-mode tool calls (cua_click, cua_type_text,
+                    // raise_app, etc). Show one trace line per call so the
+                    // user can see what the agent is actually doing — same
+                    // pattern remote mode uses for click/navigate/etc.
+                    const wrap = document.createElement('div');
+                    wrap.className = 'trace resolved';
+                    const label = data.event === 'raise_app'
+                        ? `raise_app(${data.app_name || ''})`
+                        : _formatCuaCall(data.tool, data.args, data.ok);
+                    wrap.textContent = label;
+                    if (container) container.appendChild(wrap);
+                    else state.currentAssistantEl.appendChild(wrap);
                 }
             }
             // Don't re-show the running emu between tool events either —

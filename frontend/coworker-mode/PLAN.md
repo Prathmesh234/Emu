@@ -403,10 +403,11 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 6.4 ✅ Already done: `frontend/cua-driver-commands/index.js#_extractBase64` returns the image block as base64 alongside text output.
 
 6.5 Surface `(pid, window_id)` to the frontend.
-   - `backend/models/response.py:AgentResponse` gains `coworker_target: Optional[dict] = None` (shape `{pid: int, window_id: int}`).
-   - `backend/main.py` populates it from `context_manager.get_coworker_target(session_id)` right before returning the `/agent/step` JSON, only when `agent_mode == "coworker"`.
-   - The HTTP `/agent/step` JSON also carries `coworker_target` so `frontend/services/api.js#postStep` can forward it.
-   - `frontend/state/store.js` adds `coworkerTarget: null` and exposes `setCoworkerTarget`. `pages/Chat.js` writes the target after every `postStep` reply.
+   - `backend/main.py` populates `coworker_target` on the WebSocket `step` event payload (the per-step transport that drives the renderer loop). Pulled from `context_manager.get_coworker_target(session_id)` and only set when `req.agent_mode == "coworker"`. Sends `null` to explicitly clear a stale target; key omitted entirely in remote mode.
+   - `AgentResponse` and the HTTP `/agent/step` JSON body are intentionally NOT extended — `frontend/services/api.js#postStep` doesn't read the response body, and adding the field there would be dead weight.
+   - `frontend/state/store.js` adds `coworkerTarget: null` and `setCoworkerTarget(target)` (clears on null/missing pid/window_id).
+   - `frontend/pages/Chat.js#handleWsMessage` step case persists `data.coworker_target` via `store.setCoworkerTarget` whenever the key is present (including explicit null clears). Remote-mode steps omit the key, so the existing target is left intact across mode switches.
+   - `frontend/services/captureForStep.js` reads `store.state.coworkerTarget` to decide which capture path to use.
 
 6.6 Action-set audit (unchanged from prior decisions, restated for QA):
 - Supported in v1 (coworker tool surface): `cua_click` family, `cua_scroll`, `cua_type_text`/`cua_type_text_chars`/`cua_set_value`, `cua_press_key`/`cua_hotkey`, `cua_screenshot`, `cua_get_window_state`, `cua_launch_app`, `cua_list_apps`/`cua_list_windows`, `cua_move_cursor`, `cua_drag`, plus diagnostics. Plain Action types still supported through the renderer in coworker mode: `screenshot`, `wait`, `done`.

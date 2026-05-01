@@ -337,42 +337,26 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     _fn(
         "cua_type_text",
         (
-            "Insert text via AXSetAttribute(kAXSelectedText). Works for "
-            "standard Cocoa text fields/views. Does NOT synthesize "
-            "keystrokes — Return/Tab go through cua_press_key / cua_hotkey. "
-            "Optional element_index + window_id pre-focuses the element. "
-            "FOR CHROMIUM/ELECTRON inputs that do not implement "
-            "kAXSelectedText, characters are silently dropped — fall back "
-            "to cua_type_text_chars."
+            "Insert text into the target pid. Tries AXSetAttribute"
+            "(kAXSelectedText) first (standard Cocoa text fields/views) "
+            "and silently falls back to per-character CGEvent.postToPid "
+            "synthesis when the AX write is rejected — covers "
+            "Chromium / Electron inputs that ignore kAXSelectedText. "
+            "Does NOT synthesize Return/Tab — use cua_press_key / "
+            "cua_hotkey for those. Optional element_index + window_id "
+            "pre-focuses the element. Optional `delay_ms` paces the "
+            "CGEvent fallback (default 30ms; ignored on the AX path)."
         ),
         {
             "pid": _PID,
             "text": {"type": "string"},
             "element_index": _ELEMENT_INDEX,
             "window_id": _WID_OPTIONAL,
-        },
-        ["pid", "text"],
-    ),
-    _fn(
-        "cua_type_text_chars",
-        (
-            "Character-by-character typing via CGEvent.postToPid with "
-            "CGEventKeyboardSetUnicodeString — bypasses VK mapping so "
-            "accents, symbols, and emoji transmit verbatim. USE THIS "
-            "when cua_type_text silently drops characters (Chromium / "
-            "Electron text inputs). The target does NOT need to be "
-            "frontmost; keyboard focus within the target pid determines "
-            "where characters land — focus the receiving element FIRST "
-            "via cua_click (this tool has no element_index param)."
-        ),
-        {
-            "pid": _PID,
-            "text": {"type": "string", "description": "Text to type into the focused element."},
             "delay_ms": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 200,
-                "description": "Milliseconds between successive characters (autocomplete/IME pacing). Default 30.",
+                "description": "Milliseconds between successive characters on the CGEvent fallback path (autocomplete/IME pacing). Default 30. Ignored when AX write succeeds.",
             },
         },
         ["pid", "text"],
@@ -386,7 +370,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "the native popup menu is never opened. (b) Other elements — "
             "writes AXValue directly (sliders, steppers, date pickers, "
             "native text fields). For free-form text in WebKit inputs use "
-            "cua_type_text_chars — AXValue writes are ignored by WebKit."
+            "cua_type_text — AXValue writes are ignored by WebKit."
         ),
         {
             "pid": _PID,
@@ -648,9 +632,21 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
     except (TypeError, ValueError) as exc:
         return {"ok": False, "error": f"args not JSON-serialisable: {exc}", "code": None}
 
+    # Image-bearing tools no longer splice their PNG into structuredContent
+    # in the default CLI output (upstream commit 9d623c03 — "screenshot_out_file
+    # param; CLI no longer dumps base64 by default"). Use `--raw` for these
+    # so we receive the full CallTool.Result with `content[].image` blocks,
+    # then re-merge the image into a flat dict shaped like the old contract:
+    # `{...structuredContent, screenshot_png_b64, screenshot_mime_type}`.
+    use_raw = name in _IMAGE_PRODUCING_TOOLS
+    cmd = [bin_path, "call"]
+    if use_raw:
+        cmd.append("--raw")
+    cmd.extend([name, payload])
+
     try:
         proc = subprocess.run(
-            [bin_path, "call", name, payload],
+            cmd,
             capture_output=True,
             text=True,
             timeout=_CALL_TIMEOUT_S,
@@ -679,21 +675,78 @@ def call_driver_tool(name: str, args: dict | None = None) -> dict:
         except json.JSONDecodeError:
             parsed = None
 
+    # In raw mode the parsed JSON is a CallTool.Result envelope. Flatten it
+    # back into the old shape callers expect, splicing the first image
+    # content block into `screenshot_png_b64` so format_driver_result_for_model
+    # and _inject_coworker_perception keep working unchanged.
+    if use_raw and isinstance(parsed, dict):
+        parsed = _flatten_raw_result(parsed)
+        # Re-render output so callers that fall back to .output (rare) see
+        # the flattened shape, not the raw envelope.
+        try:
+            output = json.dumps(parsed, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            pass
+
     return {"ok": True, "output": output, "json": parsed}
+
+
+# Driver tools that emit an image content block. For these we must use
+# `--raw` to preserve access to the PNG bytes (post upstream 9d623c03).
+_IMAGE_PRODUCING_TOOLS = frozenset({"get_window_state", "screenshot"})
+
+
+def _flatten_raw_result(envelope: dict) -> dict:
+    """Convert a `--raw` CallTool.Result envelope into the legacy flat shape.
+
+    Inputs (raw envelope):
+        {
+          "content": [
+            {"type": "image", "data": "<base64>", "mimeType": "image/png"},
+            {"type": "text",  "text": "..."}
+          ],
+          "structuredContent": {...},
+          "isError": false
+        }
+
+    Output (legacy flat dict that matches v0.0.13 default-mode output):
+        {
+          ...structuredContent,
+          "screenshot_png_b64": "<base64>",
+          "screenshot_mime_type": "image/png"
+        }
+    """
+    structured = envelope.get("structuredContent")
+    flat: dict = dict(structured) if isinstance(structured, dict) else {}
+
+    for item in envelope.get("content") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "image":
+            data = item.get("data")
+            mime = item.get("mimeType")
+            if isinstance(data, str) and "screenshot_png_b64" not in flat:
+                flat["screenshot_png_b64"] = data
+            if isinstance(mime, str) and "screenshot_mime_type" not in flat:
+                flat["screenshot_mime_type"] = mime
+            break
+
+    return flat
 
 
 def format_driver_result_for_model(name: str, result: dict) -> str:
     """Render a call_driver_tool result as a string the LLM can read.
 
     Special-cases the image-bearing tools (`cua_screenshot`,
-    `cua_get_window_state`): the CLI splices the PNG bytes into
-    `screenshot_png_b64` (see CallCommand.mergeImageContentIntoJSON).
-    Those bytes are useless to the model in a text channel and would
-    otherwise eat the entire 8000-char cap with base64 noise. Strip them
-    and replace with a `<screenshot_png_b64: N bytes omitted>` marker so
-    the structured fields (dimensions, element_count, tree_markdown,
-    bundle_id, …) survive intact. The actual image, when needed, is
-    delivered out-of-band by `_inject_coworker_perception` in main.py.
+    `cua_get_window_state`): when invoked via `--raw` (see
+    `_IMAGE_PRODUCING_TOOLS`) ``call_driver_tool`` flattens the response
+    so the PNG ends up under `screenshot_png_b64`. Those bytes are useless
+    to the model in a text channel and would otherwise eat the entire
+    8000-char cap with base64 noise. Strip them and replace with a
+    `_screenshot_omitted_bytes` marker so the structured fields
+    (dimensions, element_count, tree_markdown, bundle_id, …) survive
+    intact. The actual image, when needed, is delivered out-of-band by
+    `_inject_coworker_perception` in main.py.
     """
     if result.get("ok"):
         parsed = result.get("json")

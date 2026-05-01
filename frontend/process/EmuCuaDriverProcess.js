@@ -12,6 +12,9 @@ const { spawn } = require('child_process');
 const pkg = require('../../package.json');
 
 let _child = null;
+let _serveChild = null;        // long-running `serve` daemon (Unix socket)
+let _serveStarting = null;
+let _serveLastBin = null;
 let _starting = null;
 let _configuredApp = null;
 let _initialized = false;
@@ -35,11 +38,22 @@ function _resolveBinary(app) {
     if (fs.existsSync(bundled)) return bundled;
   }
 
-  // Priority 2: ~/.local/bin (from curl install)
+  // Priority 2 (dev only): freshly-built fork inside the repo. Lets local
+  // dev test the live nested-driver source without `cp`-ing the binary
+  // into ~/.local/bin every rebuild.
+  if (!app || !app.isPackaged) {
+    const repoBuild = path.join(
+      __dirname, '..', 'coworker-mode', 'emu-driver',
+      '.build', 'EmuCuaDriver.app', 'Contents', 'MacOS', 'emu-cua-driver'
+    );
+    if (fs.existsSync(repoBuild)) return repoBuild;
+  }
+
+  // Priority 3: ~/.local/bin (from curl install)
   const local = path.join(os.homedir(), '.local', 'bin', 'emu-cua-driver');
   if (fs.existsSync(local)) return local;
 
-  // Priority 3: /Applications/EmuCuaDriver.app (unlikely, but check)
+  // Priority 4: /Applications/EmuCuaDriver.app (unlikely, but check)
   const app_bin = '/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver';
   if (fs.existsSync(app_bin)) return app_bin;
 
@@ -122,6 +136,20 @@ async function _startOnce({ checkPermissions }) {
 
   try {
     await _initialize();
+    // Spawn the long-running `serve` daemon as a sibling. The daemon owns
+    // the persistent AppKit run loop + per-pid AX cache, so any
+    // `emu-cua-driver call ...` shell-out from the Python backend
+    // auto-forwards to its Unix socket. Without it, each CLI call is a
+    // fresh process: the AX cache is empty (model gets "No cached AX
+    // state for pid X" errors when using element_index) and the agent
+    // cursor overlay flashes once per call and dies with the process.
+    // Failures here are non-fatal — element_index workflows degrade to
+    // "no cached AX state" messages, but pixel/coord clicks still work.
+    _ensureServeStarted(bin)
+      .then(() => _configureAgentCursor(bin))
+      .catch((err) => {
+        console.warn(`[emu-cua-driver] serve daemon start failed: ${err?.message || err}`);
+      });
     const state = { running: true, pid: _child.pid, binary: bin };
     if (checkPermissions) {
       state.permissions = await _checkPermissions();
@@ -133,12 +161,115 @@ async function _startOnce({ checkPermissions }) {
   }
 }
 
+// ============================================================================
+// Daemon (`serve`) lifecycle — sibling of the stdio MCP child
+// ============================================================================
+
+function _ensureServeStarted(bin) {
+  if (_serveChild && !_serveChild.killed) return Promise.resolve();
+  if (_serveStarting) return _serveStarting;
+  _serveStarting = _startServeOnce(bin).finally(() => {
+    _serveStarting = null;
+  });
+  return _serveStarting;
+}
+
+function _startServeOnce(bin) {
+  return new Promise((resolve, reject) => {
+    _serveLastBin = bin;
+    // `--no-relaunch` keeps the daemon attached to this process so we can
+    // manage its lifetime; we trust Electron's TCC grants (AX + screen
+    // recording) to cover the daemon since it inherits our identity.
+    console.log(`[emu-cua-driver] spawning daemon: ${bin} serve --no-relaunch`);
+    const child = spawn(bin, ['serve', '--no-relaunch'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let settled = false;
+    const settle = (err) => {
+      if (settled) return;
+      settled = true;
+      err ? reject(err) : resolve();
+    };
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      // Daemon prints "emu-cua-driver daemon started on <socket>" on bind.
+      if (!settled && /daemon started on/i.test(chunk)) settle();
+      // Surface daemon stdout under a clear prefix for diagnostics.
+      process.stdout.write(`[emu-cua-driver:serve] ${chunk}`);
+    });
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      // Idempotent re-start case: another daemon is already listening on
+      // the default socket. Treat as success — CLI calls auto-forward to
+      // whoever owns the socket.
+      if (!settled && /daemon is already running/i.test(text)) {
+        console.warn(`[emu-cua-driver:serve] ${text.trim()}`);
+        settle();
+        return;
+      }
+      console.error(`[emu-cua-driver:serve stderr] ${text}`);
+    });
+    child.on('exit', (code, signal) => {
+      console.log(`[emu-cua-driver:serve] exited code=${code} signal=${signal}`);
+      if (_serveChild === child) _serveChild = null;
+      if (!settled) settle(new Error(`serve exited before bind (code=${code} signal=${signal})`));
+    });
+    child.on('error', (err) => {
+      if (!settled) settle(err);
+    });
+
+    _serveChild = child;
+    // Safety timeout — bind should complete in well under a second.
+    setTimeout(() => settle(), 5000);
+  });
+}
+
+function _stopServe() {
+  if (_serveChild && !_serveChild.killed) {
+    console.log('[emu-cua-driver] stopping daemon');
+    try { _serveChild.kill('SIGTERM'); } catch (_) {}
+  }
+  _serveChild = null;
+  _serveStarting = null;
+}
+
+// Configure the agent-cursor overlay so it stays pinned for the whole
+// app session — including after the agent stops. By default the daemon
+// auto-hides the overlay 3000ms after the last pointer action, which is
+// fine for headless CI but reads as "the cursor disappeared" to a user
+// watching their app. Bumping idle_hide_ms to ~10 minutes effectively
+// keeps the overlay visible until the next click re-arms the timer.
+// Fire-and-forget — the daemon already defaults to enabled, so a
+// failure here just means slightly less-sticky cursor, not a broken
+// session.
+function _configureAgentCursor(bin) {
+  try {
+    const { execFile } = require('child_process');
+    execFile(
+      bin,
+      ['call', 'set_agent_cursor_motion', JSON.stringify({ idle_hide_ms: 600000 })],
+      { timeout: 5000 },
+      (err) => {
+        if (err) {
+          console.warn(`[emu-cua-driver] set_agent_cursor_motion failed: ${err.message}`);
+        } else {
+          console.log('[emu-cua-driver] agent cursor configured (idle_hide_ms=600000)');
+        }
+      }
+    );
+  } catch (err) {
+    console.warn(`[emu-cua-driver] _configureAgentCursor error: ${err?.message || err}`);
+  }
+}
+
 function stop() {
   if (_child) {
     console.log('[emu-cua-driver] stopping');
     _child.kill();
     _child = null;
   }
+  _stopServe();
   _initialized = false;
   _permissionsChecked = false;
   _starting = null;

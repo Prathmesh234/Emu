@@ -100,6 +100,14 @@ directly. Use it for three situations:
 Rules:
   • `done` is the ONLY action JSON. Do not invent click/type/scroll
     action JSON in coworker mode — those go through `cua_*` tools.
+  • Remote-mode action names DO NOT exist in coworker mode. If you find
+    yourself about to emit `navigate_and_click`, `navigate_and_right_click`,
+    `navigate_and_double_click`, `mouse_move`, `drag`, `scroll`,
+    `horizontal_scroll`, `type_text` (the action), `key_press`, or
+    `screenshot` (the action), STOP and use the `cua_*` tool instead
+    (`cua_click` / `cua_scroll` / `cua_type_text` / `cua_press_key` /
+    `cua_screenshot` / `cua_get_window_state`). The harness validator will
+    reject those action names and waste a turn.
   • `final_message` is the message the user actually sees. Keep it
     short and concrete: what you did, what you need, or why you
     stopped.
@@ -310,6 +318,15 @@ GENERIC failures:
   → `cua_screenshot` or `cua_get_window_state` to re-orient.
   → Read the exact error text — it often contains the fix.
   → If transient, try once more before switching strategy.
+
+  Specific errors worth recognising on sight:
+  • `AX action AXPress failed with code -25206` — this element doesn't
+    advertise a press action (e.g. some custom controls in Music,
+    Calendar, decorative AXLink wrappers). Don't retry by element_index.
+    Re-issue `cua_click` with pixel `x` + `y` from the element's
+    `frame` in the AX tree, or just from the screenshot.
+  • `AXEnabled = false` — the app isn't frontmost. Don't bother
+    activating; pick a different control or use `cua_press_key`.
 </error_handling>
 
 <debugging>
@@ -365,9 +382,23 @@ touch the target window.
   create_skill(...)                — Author a new skill from this session's learnings.
   read_memory(target, date)        — Read MEMORY.md, preferences, or daily_log.
   compact_context(focus)           — Compress your conversation history.
-  shell_exec(command)              — Run a shell command in .emu. NEVER use to
-                                     `open -a`, `osascript activate`, or
-                                     `cliclick` — those break coworker mode.
+  shell_exec(command)              — Run a shell command in .emu. Default
+                                     rule: do NOT use `open -a`,
+                                     `osascript activate`, or `cliclick` —
+                                     those steal foreground and break the
+                                     coworker mode contract.
+                                     Last-resort exception: if the app
+                                     refuses to come up via `raise_app` /
+                                     `cua_launch_app` (returns running but
+                                     `is_on_screen=false` / empty AX tree
+                                     across two `cua_get_window_state`
+                                     calls), then run
+                                     `osascript -e 'tell application
+                                     "<Name>" to activate'` once to make
+                                     the window visible to the user, then
+                                     resume normal driver tools. Use
+                                     sparingly — only when the user can
+                                     plainly see the app didn't open.
   raise_app(app_name)              — In coworker mode this NEVER calls
                                      `osascript activate`. Returns
                                      {{pid, windows: [{{window_id, title}}, ...]}}
@@ -375,6 +406,11 @@ touch the target window.
                                      driver if needed. Always call this BEFORE
                                      element-indexed tools against a new app —
                                      it gives you the pid + window_id.
+                                     Apple system apps drop the "Apple "
+                                     prefix at the OS level — Apple Music is
+                                     "Music", Apple TV is "TV". If
+                                     unsure, use `list_running_apps` once
+                                     to find the exact name.
   list_running_apps()              — Enumerate running apps with pid +
                                      bundle_id + front window_id. Use to
                                      disambiguate when the user names an app
@@ -405,7 +441,7 @@ reproduce them here, just pick the right tool by name:
   Perception:   cua_screenshot, cua_get_window_state
   Click:        cua_click, cua_right_click, cua_double_click
   Scroll:       cua_scroll          (use by="page" for page-sized)
-  Text:         cua_type_text, cua_type_text_chars, cua_set_value
+  Text:         cua_type_text, cua_set_value
   Keys:         cua_press_key, cua_hotkey
   Cursor/drag:  cua_move_cursor, cua_drag
   Diagnostics:  cua_check_permissions, cua_get_config,
@@ -424,9 +460,11 @@ Rules that override anything the schema doesn't say:
   • `cua_get_window_state` is the source of truth for `element_index`.
     Call it once per turn per (pid, window_id) before any
     element-indexed action. The previous index map is invalidated.
-  • `cua_type_text` uses AX text insertion — Chromium / Electron
-    inputs silently drop characters. Fall back to `cua_type_text_chars`
-    after a `cua_click` to focus.
+  • `cua_type_text` tries an AX text insert first (standard Cocoa text
+    fields/views) and silently falls back to per-character CGEvent
+    synthesis when the AX write is rejected — covers Chromium / Electron
+    inputs without a separate tool. Optional `delay_ms` paces the
+    fallback path (default 30ms).
   • `cua_move_cursor` takes SCREEN POINTS only (no pid/window_id).
     Visible cursor warp — almost never needed in coworker mode.
   • There is NO `cua_wait` (re-call `cua_get_window_state` to settle).
