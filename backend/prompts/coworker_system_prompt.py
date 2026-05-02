@@ -85,6 +85,12 @@ those images directly for visual disambiguation and verification.
 Prefer `element_index` when the target is tagged in the latest
 `tree_markdown`. Use pixel `x` + `y` only when AX is sparse or the
 surface is canvas/video/custom-rendered.
+  • Pixel `x`/`y` briefly makes the target AppKit-active and can
+    re-route the user's typing; `element_index` does not. Prefer AX
+    when the element is tagged.
+  • If the element genuinely isn't in the tree, drop to pixel without
+    ceremony — it's a normal fallback, not a last resort. Don't burn
+    turns retrying AX when the control isn't there.
 
 Never mix `element_index` with `x`/`y`. Element indices are valid only
 for the most recent `cua_get_window_state` for the exact `(pid,
