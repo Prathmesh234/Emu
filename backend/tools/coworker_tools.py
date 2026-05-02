@@ -10,31 +10,21 @@ Coworker-mode tool surface — published to the LLM ONLY when
      catalogue alongside the always-on tools in
      ``providers/agent_tools.py:AGENT_TOOLS_OPENAI``.
 
-  2. ``call_driver_tool(name, args)`` — shells out to ``emu-cua-driver
-     call <name> '<json>'`` (the v1 transport per PLAN §4.5/§5.4) and
-     parses the result. The Swift CLI exposes one subcommand per MCP
-     tool, so this is a 1:1 forward.
+  2. ``call_driver_tool(name, args)`` — sends line-delimited JSON directly
+     to the long-running ``emu-cua-driver serve`` Unix socket. This keeps the
+     driver's AX cache alive and avoids the old Electron stdio bridge.
 
-The binary is resolved with this precedence:
-
-    $EMU_CUA_DRIVER_BIN
-    ~/.local/bin/emu-cua-driver
-    /Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver
-
-If none exist the helper returns a structured ``tool_error`` payload so
-the model can recover via the dispatcher's normal error-surfacing path
-rather than crashing the request.
+If the daemon is unreachable the helper returns a structured ``tool_error``
+payload so the model can recover via the dispatcher's normal error-surfacing
+path rather than crashing the request.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import signal
-import subprocess
+import socket
 import threading
-from pathlib import Path
 from typing import Any
 
 
@@ -695,57 +685,129 @@ COWORKER_DRIVER_TOOL_NAMES: set[str] = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Driver shell-out
+# Driver daemon client
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CALL_TIMEOUT_S = 30
-_ACTIVE_DRIVER_PROCS: dict[str, set[subprocess.Popen[str]]] = {}
-_ACTIVE_DRIVER_PROCS_LOCK = threading.Lock()
+_DAEMON_CONNECT_TIMEOUT_S = 0.25
+_ACTIVE_DRIVER_SOCKETS: dict[str, set[socket.socket]] = {}
+_ACTIVE_DRIVER_SOCKETS_LOCK = threading.Lock()
 
 
-def _kill_driver_proc(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
+def _daemon_socket_path() -> str:
+    override = os.environ.get("EMU_CUA_DRIVER_SOCKET", "").strip()
+    if override:
+        return os.path.expanduser(override)
+    home = os.path.expanduser("~")
+    return os.path.join(
+        home,
+        "Library",
+        "Caches",
+        "emu-cua-driver",
+        "emu-cua-driver.sock",
+    )
+
+
+def _close_driver_socket(sock: socket.socket) -> None:
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
+        sock.shutdown(socket.SHUT_RDWR)
     except OSError:
-        try:
-            proc.kill()
-        except OSError:
-            pass
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
 
 
 def cancel_driver_calls(cancel_key: str) -> int:
-    """Terminate active emu-cua-driver CLI calls for a running agent step."""
-    with _ACTIVE_DRIVER_PROCS_LOCK:
-        procs = list(_ACTIVE_DRIVER_PROCS.get(cancel_key, set()))
+    """Close active daemon socket calls for a running agent step."""
+    with _ACTIVE_DRIVER_SOCKETS_LOCK:
+        sockets = list(_ACTIVE_DRIVER_SOCKETS.get(cancel_key, set()))
 
     killed = 0
-    for proc in procs:
-        if proc.poll() is None:
-            _kill_driver_proc(proc)
-            killed += 1
+    for sock in sockets:
+        _close_driver_socket(sock)
+        killed += 1
     return killed
 
 
-def _resolve_driver_bin() -> str | None:
-    override = os.environ.get("EMU_CUA_DRIVER_BIN", "").strip()
-    if override and Path(override).is_file():
-        return override
+def _send_daemon_request(request: dict, cancel_key: str | None) -> dict:
+    socket_path = _daemon_socket_path()
+    if not os.path.exists(socket_path):
+        raise ConnectionError(
+            f"emu-cua-driver daemon socket not found at {socket_path}. "
+            "Start the app driver daemon with `emu-cua-driver serve --no-relaunch`."
+        )
 
-    home_local = Path.home() / ".local" / "bin" / "emu-cua-driver"
-    if home_local.is_file():
-        return str(home_local)
+    payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(_DAEMON_CONNECT_TIMEOUT_S)
+    try:
+        sock.connect(socket_path)
+    except OSError:
+        _close_driver_socket(sock)
+        raise
 
-    app_bin = Path("/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver")
-    if app_bin.is_file():
-        return str(app_bin)
+    sock.settimeout(_CALL_TIMEOUT_S)
+    if cancel_key:
+        with _ACTIVE_DRIVER_SOCKETS_LOCK:
+            _ACTIVE_DRIVER_SOCKETS.setdefault(cancel_key, set()).add(sock)
 
-    # Last resort: PATH lookup (covers Homebrew / dev installs)
-    found = shutil.which("emu-cua-driver")
-    return found
+    try:
+        sock.sendall(payload)
+        chunks: list[bytes] = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("daemon closed connection before responding")
+            newline_at = chunk.find(b"\n")
+            if newline_at >= 0:
+                chunks.append(chunk[:newline_at])
+                break
+            chunks.append(chunk)
+        line = b"".join(chunks)
+        return json.loads(line.decode("utf-8"))
+    finally:
+        if cancel_key:
+            with _ACTIVE_DRIVER_SOCKETS_LOCK:
+                sockets = _ACTIVE_DRIVER_SOCKETS.get(cancel_key)
+                if sockets is not None:
+                    sockets.discard(sock)
+                    if not sockets:
+                        _ACTIVE_DRIVER_SOCKETS.pop(cancel_key, None)
+        _close_driver_socket(sock)
+
+
+def _text_content(envelope: dict, first_only: bool = False) -> str:
+    parts: list[str] = []
+    for item in envelope.get("content") or []:
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            if first_only:
+                return text
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def _daemon_payload_to_output(name: str, payload: dict) -> tuple[str, Any]:
+    if name in _IMAGE_PRODUCING_TOOLS:
+        parsed = _flatten_raw_result(payload)
+        return json.dumps(parsed, ensure_ascii=False, indent=2), parsed
+
+    structured = payload.get("structuredContent")
+    if structured is not None:
+        return json.dumps(structured, ensure_ascii=False, indent=2), structured
+
+    output = _text_content(payload)
+    parsed: Any = None
+    if output:
+        try:
+            parsed = json.loads(output)
+        except json.JSONDecodeError:
+            parsed = None
+    return output, parsed
 
 
 def call_driver_tool(
@@ -754,7 +816,7 @@ def call_driver_tool(
     cancel_key: str | None = None,
 ) -> dict:
     """
-    Forward a tool call to the emu-cua-driver Swift CLI.
+    Forward a tool call to the running emu-cua-driver daemon.
 
     Always returns a dict shaped:
 
@@ -804,107 +866,62 @@ def call_driver_tool(
             for key in ("javascript", "css_selector", "attributes"):
                 args.pop(key, None)
 
-    bin_path = _resolve_driver_bin()
-    if bin_path is None:
-        return {
-            "ok": False,
-            "error": (
-                "emu-cua-driver binary not found. Set $EMU_CUA_DRIVER_BIN, "
-                "install via frontend/coworker-mode/emu-driver/scripts/install-local.sh, "
-                "or copy the binary into ~/.local/bin."
-            ),
-            "code": None,
-        }
-
     try:
-        payload = json.dumps(args, ensure_ascii=False)
+        json.dumps(args, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
         return {"ok": False, "error": f"args not JSON-serialisable: {exc}", "code": None}
 
-    # Image-bearing tools no longer splice their PNG into structuredContent
-    # in the default CLI output (upstream commit 9d623c03 — "screenshot_out_file
-    # param; CLI no longer dumps base64 by default"). Use `--raw` for these
-    # so we receive the full CallTool.Result with `content[].image` blocks,
-    # then re-merge the image into a flat dict shaped like the old contract:
-    # `{...structuredContent, screenshot_png_b64, screenshot_mime_type}`.
-    use_raw = name in _IMAGE_PRODUCING_TOOLS
-    cmd = [bin_path, "call"]
-    if use_raw:
-        cmd.append("--raw")
-    cmd.extend([name, payload])
-
+    request = {"method": "call", "name": name, "args": args}
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
-        if cancel_key:
-            with _ACTIVE_DRIVER_PROCS_LOCK:
-                _ACTIVE_DRIVER_PROCS.setdefault(cancel_key, set()).add(proc)
-        try:
-            stdout, stderr = proc.communicate(timeout=_CALL_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            _kill_driver_proc(proc)
-            stdout, stderr = proc.communicate()
-            return {"ok": False, "error": f"emu-cua-driver call {name} timed out after {_CALL_TIMEOUT_S}s", "code": None}
-        finally:
-            if cancel_key:
-                with _ACTIVE_DRIVER_PROCS_LOCK:
-                    procs = _ACTIVE_DRIVER_PROCS.get(cancel_key)
-                    if procs is not None:
-                        procs.discard(proc)
-                        if not procs:
-                            _ACTIVE_DRIVER_PROCS.pop(cancel_key, None)
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"emu-cua-driver call {name} timed out after {_CALL_TIMEOUT_S}s", "code": None}
-    except FileNotFoundError:
-        return {"ok": False, "error": f"emu-cua-driver binary missing at {bin_path}", "code": None}
-    except OSError as exc:
-        return {"ok": False, "error": f"failed to invoke emu-cua-driver: {exc}", "code": None}
-
-    output = (stdout or "").strip()
-    err = (stderr or "").strip()
-
-    if proc.returncode != 0:
+        response = _send_daemon_request(request, cancel_key)
+    except socket.timeout:
         return {
             "ok": False,
-            "error": err or output or f"emu-cua-driver call {name} exited {proc.returncode}",
-            "code": proc.returncode,
+            "error": f"emu-cua-driver daemon call {name} timed out after {_CALL_TIMEOUT_S}s",
+            "code": None,
+        }
+    except (ConnectionError, OSError) as exc:
+        return {"ok": False, "error": f"emu-cua-driver daemon unavailable: {exc}", "code": None}
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return {"ok": False, "error": f"daemon protocol error: {exc}", "code": None}
+
+    if not isinstance(response, dict):
+        return {"ok": False, "error": "daemon protocol error: response was not an object", "code": None}
+
+    if not response.get("ok"):
+        return {
+            "ok": False,
+            "error": response.get("error") or "daemon reported failure",
+            "code": response.get("exitCode"),
         }
 
-    parsed: Any = None
-    if output:
-        try:
-            parsed = json.loads(output)
-        except json.JSONDecodeError:
-            parsed = None
+    result = response.get("result")
+    if not isinstance(result, dict) or result.get("kind") != "call":
+        return {"ok": False, "error": "daemon returned unexpected result kind for call", "code": None}
 
-    # In raw mode the parsed JSON is a CallTool.Result envelope. Flatten it
-    # back into the old shape callers expect, splicing the first image
-    # content block into `screenshot_png_b64` so format_driver_result_for_model
-    # and _inject_coworker_perception keep working unchanged.
-    if use_raw and isinstance(parsed, dict):
-        parsed = _flatten_raw_result(parsed)
-        # Re-render output so callers that fall back to .output (rare) see
-        # the flattened shape, not the raw envelope.
-        try:
-            output = json.dumps(parsed, ensure_ascii=False, indent=2)
-        except (TypeError, ValueError):
-            pass
+    payload = result.get("payload")
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "daemon call payload was not an object", "code": None}
+
+    if payload.get("isError") is True:
+        return {
+            "ok": False,
+            "error": _text_content(payload, first_only=True) or "Tool reported an error with no text content.",
+            "code": 1,
+        }
+
+    output, parsed = _daemon_payload_to_output(name, payload)
 
     return {"ok": True, "output": output, "json": parsed}
 
 
-# Driver tools that emit an image content block. For these we must use
-# `--raw` to preserve access to the PNG bytes (post upstream 9d623c03).
+# Driver tools that emit an image content block. For these we preserve the
+# raw CallTool.Result envelope so PNG bytes can be attached to model context.
 _IMAGE_PRODUCING_TOOLS = frozenset({"get_window_state", "screenshot", "zoom"})
 
 
 def _flatten_raw_result(envelope: dict) -> dict:
-    """Convert a `--raw` CallTool.Result envelope into the legacy flat shape.
+    """Convert a CallTool.Result envelope into the legacy flat shape.
 
     Inputs (raw envelope):
         {
@@ -994,11 +1011,10 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
     """Render a call_driver_tool result as a string the LLM can read.
 
     Special-cases the image-bearing tools (`cua_screenshot`,
-    `cua_get_window_state`, `cua_zoom`): when invoked via `--raw` (see
-    `_IMAGE_PRODUCING_TOOLS`) ``call_driver_tool`` flattens the response
-    so the PNG ends up under `screenshot_png_b64`. Keep the text channel
-    compact by stripping the bytes here; the dispatcher attaches the image
-    as a real multimodal message immediately after the tool result.
+    `cua_get_window_state`, `cua_zoom`): ``call_driver_tool`` flattens the
+    daemon response so the PNG ends up under `screenshot_png_b64`. Keep the
+    text channel compact by stripping the bytes here; the dispatcher attaches
+    the image as a real multimodal message immediately after the tool result.
     """
     if result.get("ok"):
         parsed = result.get("json")

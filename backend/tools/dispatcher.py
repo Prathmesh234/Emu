@@ -316,7 +316,7 @@ async def execute_agent_tool(
         return result
 
     # ── Coworker-mode driver tools (PLAN §4.5) ────────────────────────────
-    # Forward every cua_* call to the local emu-cua-driver Swift CLI. Also
+    # Forward every cua_* call to the local emu-cua-driver daemon. Also
     # accept the friendlier alias ``list_running_apps`` which maps onto the
     # driver's ``list_apps`` tool.
     elif name == "list_running_apps" or name in COWORKER_DRIVER_TOOL_NAMES:

@@ -34,18 +34,13 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'window:maximize',
     'permissions:status',
     'permissions:open',
+    'emu-cua:recheck-permissions',
     'daemon:status',
     'daemon:repair',
-    'emu-cua:ensure-started',
-    'emu-cua:screenshot',
-    'emu-cua:click',
-    'emu-cua:right-click',
-    'emu-cua:scroll',
-    'emu-cua:type',
-    'emu-cua:hotkey',
-    'emu-cua:list-apps',
-    'emu-cua:launch-app',
-    'emu-cua:get-window-state',
+]);
+
+const ALLOWED_RECEIVE_CHANNELS = new Set([
+    'emu-cua:permissions-required',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([
@@ -91,6 +86,19 @@ const electronAPI = {
             return;
         }
         ipcRenderer.send(channel, data);
+    },
+
+    /**
+     * Subscribe to a one-way IPC event from the main process.
+     * Returns an unsubscribe function.
+     */
+    on(channel, callback) {
+        if (!ALLOWED_RECEIVE_CHANNELS.has(channel)) {
+            throw new Error(`IPC channel not allowed: ${channel}`);
+        }
+        const listener = (_event, payload) => callback(payload);
+        ipcRenderer.on(channel, listener);
+        return () => ipcRenderer.removeListener(channel, listener);
     },
 
     /**

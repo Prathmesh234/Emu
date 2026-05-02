@@ -1,0 +1,237 @@
+/*
+ * permissions-card.css -- Coworker permission widget
+ *
+ * Uses the Emu token palette so the permission flow feels native to the app,
+ * not like a macOS alert pasted into the renderer.
+ */
+
+.permissions-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.25);
+  animation: permissionsFadeIn 0.18s var(--ease);
+}
+
+@keyframes permissionsFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.permissions-card {
+  width: min(520px, 90vw);
+  max-height: 82vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.permissions-header {
+  position: relative;
+  display: block;
+  padding: 20px 32px 16px;
+}
+
+.permissions-mark {
+  display: inline-block;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--size-xl);
+  color: var(--ink);
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+
+.permissions-header-text {
+  min-width: 0;
+  margin-top: 18px;
+  padding-right: 28px;
+}
+
+.permissions-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--size-xl);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.permissions-subtitle {
+  margin: 8px 0 0;
+  max-width: 400px;
+  font-size: var(--size-base);
+  line-height: 1.45;
+  color: var(--ink-55);
+}
+
+.permissions-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-30);
+  font-size: 20px;
+  line-height: 1;
+  position: absolute;
+  top: 17px;
+  right: 24px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.permissions-close:hover {
+  color: var(--ink);
+  background: var(--ink-08);
+}
+
+.permissions-rows {
+  padding: 0 32px 10px;
+}
+
+.permissions-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid var(--ink-14);
+}
+
+.permissions-icon {
+  width: 20px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-55);
+  margin-top: 1px;
+}
+
+.permissions-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.permissions-icon circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.permissions-copy {
+  min-width: 0;
+}
+
+.permissions-row-title {
+  font-size: var(--size-base);
+  color: var(--ink);
+  margin-bottom: 3px;
+}
+
+.permissions-row-description,
+.permissions-row-status {
+  font-size: var(--size-sm);
+  line-height: 1.35;
+  color: var(--ink-55);
+}
+
+.permissions-row-status {
+  margin-top: 5px;
+  color: var(--ink-30);
+}
+
+.permissions-row.waiting .permissions-row-status::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--ink-55);
+  animation: emuPulse 1.6s ease-in-out infinite;
+  vertical-align: 1px;
+}
+
+.permissions-row.errored .permissions-row-status {
+  color: rgba(180, 60, 40, 0.8);
+}
+
+.permissions-button {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--size-sm);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink-22);
+  border-radius: var(--radius);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.permissions-button:hover:not(:disabled) {
+  background: var(--ink-08);
+  border-color: var(--ink-55);
+}
+
+.permissions-button:disabled {
+  color: var(--ink-30);
+  cursor: default;
+}
+
+.permissions-footer {
+  margin: 0 32px 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ink-08);
+  font-size: var(--size-sm);
+  line-height: 1.4;
+  color: var(--ink-55);
+}
+
+.permissions-done {
+  border-top: 1px solid var(--ink-08);
+  padding: 24px 0 18px;
+  font-size: var(--size-xl);
+  font-weight: 500;
+  color: var(--ink-55);
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .permissions-overlay {
+    align-items: flex-start;
+    padding: 18px;
+  }
+
+  .permissions-header {
+    padding: 18px 24px 14px;
+  }
+
+  .permissions-mark {
+    font-size: var(--size-lg);
+  }
+
+  .permissions-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .permissions-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

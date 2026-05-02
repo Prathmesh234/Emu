@@ -1,31 +1,24 @@
 // frontend/process/EmuCuaDriverProcess.js
 //
-// Lifecycle for the emu-cua-driver MCP stdio child process.
-// (Our fork of cua-driver, customized for Emu)
-// Spawned lazily on first co-worker action, killed on app quit.
-// Handles JSON-RPC 2.0 request/response matching over stdio.
+// Lifecycle owner for the emu-cua-driver `serve` daemon.
+// The Python coworker harness talks to this daemon socket directly; Electron
+// makes sure it is reachable, configures the cursor overlay, and only shuts
+// down a fallback child daemon if this process had to spawn one.
 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
-const pkg = require('../../package.json');
+const { spawn, spawnSync, execFile, execFileSync } = require('child_process');
 
-let _child = null;
-let _serveChild = null;        // long-running `serve` daemon (Unix socket)
+let _serveChild = null;
 let _serveStarting = null;
 let _serveLastBin = null;
 let _starting = null;
 let _configuredApp = null;
-let _initialized = false;
 let _permissionsChecked = false;
-let _nextId = 1;
-const _pending = new Map(); // id -> { resolve, reject, timeout }
-let _stdoutBuf = '';
-
-const REQUEST_TIMEOUT_MS = 15_000;
-const INITIALIZE_TIMEOUT_MS = 20_000;
-const MCP_PROTOCOL_VERSION = '2025-03-26';
+let _cursorConfiguredFor = null;
+let _ownsServeDaemon = false;
+const DRIVER_LAUNCHD_LABEL = 'com.emu.emu-cua-driver';
 
 // ============================================================================
 // Binary Resolution
@@ -39,8 +32,8 @@ function _resolveBinary(app) {
   }
 
   // Priority 2 (dev only): freshly-built fork inside the repo. Lets local
-  // dev test the live nested-driver source without `cp`-ing the binary
-  // into ~/.local/bin every rebuild.
+  // dev test the live nested-driver source without copying the binary into
+  // ~/.local/bin every rebuild.
   if (!app || !app.isPackaged) {
     const repoBuild = path.join(
       __dirname, '..', 'coworker-mode', 'emu-driver',
@@ -49,13 +42,13 @@ function _resolveBinary(app) {
     if (fs.existsSync(repoBuild)) return repoBuild;
   }
 
-  // Priority 3: ~/.local/bin (from curl install)
+  // Priority 3: ~/.local/bin (from local install)
   const local = path.join(os.homedir(), '.local', 'bin', 'emu-cua-driver');
   if (fs.existsSync(local)) return local;
 
   // Priority 4: /Applications/EmuCuaDriver.app (unlikely, but check)
-  const app_bin = '/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver';
-  if (fs.existsSync(app_bin)) return app_bin;
+  const appBin = '/Applications/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver';
+  if (fs.existsSync(appBin)) return appBin;
 
   return null;
 }
@@ -84,14 +77,6 @@ async function ensureStarted({ app, checkPermissions = true } = {}) {
 async function _ensureStartedOrThrow({ app, checkPermissions = true } = {}) {
   configure({ app });
 
-  if (_child && _initialized) {
-    const state = { running: true, pid: _child.pid };
-    if (checkPermissions && !_permissionsChecked) {
-      state.permissions = await _checkPermissions();
-    }
-    return state;
-  }
-
   if (_starting) {
     return _starting;
   }
@@ -110,63 +95,27 @@ async function _startOnce({ checkPermissions }) {
     );
   }
 
-  console.log(`[emu-cua-driver] spawning: ${bin} mcp`);
-  _child = spawn(bin, ['mcp'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  _initialized = false;
-  _permissionsChecked = false;
-  _stdoutBuf = '';
-
-  _child.stdout.setEncoding('utf8');
-  _child.stdout.on('data', (chunk) => {
-    _stdoutBuf += chunk;
-    _processStdout();
-  });
-
-  _child.stderr.on('data', (chunk) => {
-    console.error(`[emu-cua-driver stderr] ${chunk}`);
-  });
-
-  _child.on('exit', (code, signal) => {
-    console.log(`[emu-cua-driver] exited code=${code} signal=${signal}`);
-    _child = null;
-    _initialized = false;
-    _permissionsChecked = false;
-    _clearPending('emu-cua-driver exited');
-  });
-
-  try {
-    await _initialize();
-    // Spawn the long-running `serve` daemon as a sibling. The daemon owns
-    // the persistent AppKit run loop + per-pid AX cache, so any
-    // `emu-cua-driver call ...` shell-out from the Python backend
-    // auto-forwards to its Unix socket. Without it, each CLI call is a
-    // fresh process: the AX cache is empty (model gets "No cached AX
-    // state for pid X" errors when using element_index) and the agent
-    // cursor overlay flashes once per call and dies with the process.
-    // Failures here are non-fatal — element_index workflows degrade to
-    // "no cached AX state" messages, but pixel/coord clicks still work.
-    _ensureServeStarted(bin)
-      .then(() => _configureAgentCursor(bin))
-      .catch((err) => {
-        console.warn(`[emu-cua-driver] serve daemon start failed: ${err?.message || err}`);
-      });
-    const state = { running: true, pid: _child.pid, binary: bin };
-    if (checkPermissions) {
-      state.permissions = await _checkPermissions();
-    }
-    return state;
-  } catch (err) {
-    stop();
-    throw err;
+  await _ensureServeStarted(bin);
+  if (_cursorConfiguredFor !== bin) {
+    await _configureAgentCursor(bin);
+    _cursorConfiguredFor = bin;
   }
+
+  const state = { running: true, pid: _serveChild?.pid || null, binary: bin };
+  if (checkPermissions && !_permissionsChecked) {
+    state.permissions = await _checkPermissions(bin);
+  }
+  return state;
 }
 
 // ============================================================================
-// Daemon (`serve`) lifecycle — sibling of the stdio MCP child
+// Daemon (`serve`) lifecycle
 // ============================================================================
 
 function _ensureServeStarted(bin) {
-  if (_serveChild && !_serveChild.killed) return Promise.resolve();
+  if (_serveChild && _serveChild.exitCode === null && _serveChild.signalCode === null) {
+    return Promise.resolve();
+  }
   if (_serveStarting) return _serveStarting;
   _serveStarting = _startServeOnce(bin).finally(() => {
     _serveStarting = null;
@@ -177,13 +126,31 @@ function _ensureServeStarted(bin) {
 function _startServeOnce(bin) {
   return new Promise((resolve, reject) => {
     _serveLastBin = bin;
-    // `--no-relaunch` keeps the daemon attached to this process so we can
-    // manage its lifetime; we trust Electron's TCC grants (AX + screen
-    // recording) to cover the daemon since it inherits our identity.
+    if (_isDaemonRunning(bin)) {
+      if (_isDaemonCompatible(bin)) {
+        console.log('[emu-cua-driver] using existing daemon');
+        _ownsServeDaemon = false;
+        resolve();
+        return;
+      }
+      console.warn('[emu-cua-driver] existing daemon is incompatible; restarting it');
+      _stopExistingDaemon(bin);
+    }
+
+    if (_kickstartLaunchAgent(bin)) {
+      console.log('[emu-cua-driver] using launchd-managed daemon');
+      _ownsServeDaemon = false;
+      resolve();
+      return;
+    }
+
+    // `--no-relaunch` keeps the daemon as our child so quitting Emu shuts down
+    // the AX cache and agent cursor instead of leaving a stale socket process.
     console.log(`[emu-cua-driver] spawning daemon: ${bin} serve --no-relaunch`);
     const child = spawn(bin, ['serve', '--no-relaunch'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    _ownsServeDaemon = true;
     let settled = false;
     const settle = (err) => {
       if (settled) return;
@@ -193,18 +160,17 @@ function _startServeOnce(bin) {
 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
-      // Daemon prints "emu-cua-driver daemon started on <socket>" on bind.
-      if (!settled && /daemon started on/i.test(chunk)) settle();
-      // Surface daemon stdout under a clear prefix for diagnostics.
+      if (!settled && /daemon started on/i.test(chunk)) {
+        _ownsServeDaemon = true;
+        settle();
+      }
       process.stdout.write(`[emu-cua-driver:serve] ${chunk}`);
     });
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString();
-      // Idempotent re-start case: another daemon is already listening on
-      // the default socket. Treat as success — CLI calls auto-forward to
-      // whoever owns the socket.
       if (!settled && /daemon is already running/i.test(text)) {
         console.warn(`[emu-cua-driver:serve] ${text.trim()}`);
+        _ownsServeDaemon = false;
         settle();
         return;
       }
@@ -212,7 +178,12 @@ function _startServeOnce(bin) {
     });
     child.on('exit', (code, signal) => {
       console.log(`[emu-cua-driver:serve] exited code=${code} signal=${signal}`);
-      if (_serveChild === child) _serveChild = null;
+      if (_serveChild === child) {
+        _serveChild = null;
+        _ownsServeDaemon = false;
+      }
+      _permissionsChecked = false;
+      _cursorConfiguredFor = null;
       if (!settled) settle(new Error(`serve exited before bind (code=${code} signal=${signal})`));
     });
     child.on('error', (err) => {
@@ -220,9 +191,80 @@ function _startServeOnce(bin) {
     });
 
     _serveChild = child;
-    // Safety timeout — bind should complete in well under a second.
     setTimeout(() => settle(), 5000);
   });
+}
+
+function _isDaemonRunning(bin) {
+  try {
+    const result = spawnSync(bin, ['status'], { timeout: 2000, stdio: 'ignore' });
+    return result.status === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _isDaemonCompatible(bin) {
+  try {
+    const result = spawnSync(
+      bin,
+      ['describe', 'set_agent_cursor_style'],
+      { timeout: 2000, stdio: 'ignore' }
+    );
+    return result.status === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _launchdTarget() {
+  if (process.platform !== 'darwin' || typeof process.getuid !== 'function') return null;
+  return `gui/${process.getuid()}/${DRIVER_LAUNCHD_LABEL}`;
+}
+
+function _sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function _kickstartLaunchAgent(bin) {
+  const target = _launchdTarget();
+  if (!target) return false;
+
+  try {
+    const exists = spawnSync('launchctl', ['print', target], { timeout: 2000, stdio: 'ignore' });
+    if (exists.status !== 0) return false;
+
+    const kicked = spawnSync('launchctl', ['kickstart', target], { timeout: 5000, stdio: 'ignore' });
+    if (kicked.status !== 0) {
+      throw new Error(
+        'emu-cua-driver launchd service is installed but could not be started. '
+        + 'Repair the Emu daemons or grant the required permissions from the permissions card.'
+      );
+    }
+
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (_isDaemonRunning(bin) && _isDaemonCompatible(bin)) return true;
+      _sleepSync(150);
+    }
+    throw new Error(
+      'emu-cua-driver launchd service did not become ready. '
+      + 'Grant Accessibility and Screen Recording from the permissions card, then retry.'
+    );
+  } catch (err) {
+    if (/permissions|launchd service/i.test(err?.message || '')) throw err;
+    return false;
+  }
+
+  return false;
+}
+
+function _stopExistingDaemon(bin) {
+  try {
+    spawnSync(bin, ['stop'], { timeout: 2000, stdio: 'ignore' });
+  } catch (_) {
+    // Best effort: a missing/stopped daemon should not block startup.
+  }
 }
 
 function _stopServe() {
@@ -239,59 +281,76 @@ function _stopServe() {
   }
   _serveChild = null;
   _serveStarting = null;
+  _ownsServeDaemon = false;
 }
 
-// Configure the agent-cursor overlay so it stays pinned for the whole
-// app session — including after the agent stops — and matches Emu's
-// smaller white-with-blue-glow visual treatment. `idle_hide_ms: 0`
-// disables the daemon's idle-hide timer, so the overlay remains visible
-// until the driver/app shuts down.
-// Fire-and-forget — the daemon already defaults to enabled, so a
-// failure here just means slightly less-sticky cursor, not a broken
-// session.
-function _configureAgentCursor(bin) {
-  try {
-    const { execFile } = require('child_process');
-    const calls = [
-      ['set_agent_cursor_motion', {
-        start_handle: 0.42,
-        end_handle: 0.42,
-        arc_size: 0.16,
-        spring: 0.9,
-        glide_duration_ms: 900,
-        dwell_after_click_ms: 250,
-        idle_hide_ms: 0,
-      }],
-      ['set_agent_cursor_style', {
-        gradient_colors: ['#FFFFFF', '#F7FBFF'],
-        bloom_color: '#2F80FF',
-        shape_size: 16,
-      }],
-    ];
+// ============================================================================
+// Driver setup helpers
+// ============================================================================
 
-    for (const [tool, args] of calls) {
-      execFile(
-        bin,
-        ['call', tool, JSON.stringify(args)],
-        { timeout: 5000 },
-        (err) => {
-          if (err) {
-            console.warn(`[emu-cua-driver] ${tool} failed: ${err.message}`);
-          } else {
-            console.log(`[emu-cua-driver] agent cursor configured (${tool})`);
-          }
-        }
-      );
+function _callDriver(bin, args, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { timeout }, (err, stdout, stderr) => {
+      if (err) {
+        err.stderr = stderr;
+        err.stdout = stdout;
+        reject(err);
+        return;
+      }
+      resolve((stdout || '').trim());
+    });
+  });
+}
+
+async function _configureAgentCursor(bin) {
+  const calls = [
+    ['set_agent_cursor_enabled', {
+      enabled: true,
+    }],
+    ['set_agent_cursor_motion', {
+      start_handle: 0.36,
+      end_handle: 0.36,
+      arc_size: 0.28,
+      spring: 0.82,
+      glide_duration_ms: 1150,
+      dwell_after_click_ms: 300,
+      idle_hide_ms: 10000,
+    }],
+    ['set_agent_cursor_style', {
+      gradient_colors: ['#FFFFFF', '#FFFFFF'],
+      bloom_color: '#003B8E',
+      shape_size: 11,
+    }],
+  ];
+
+  await Promise.all(calls.map(async ([tool, args]) => {
+    try {
+      await _callDriver(bin, ['call', tool, JSON.stringify(args)], 5000);
+      console.log(`[emu-cua-driver] agent cursor configured (${tool})`);
+    } catch (err) {
+      console.warn(`[emu-cua-driver] ${tool} failed: ${err?.message || err}`);
     }
-  } catch (err) {
-    console.warn(`[emu-cua-driver] _configureAgentCursor error: ${err?.message || err}`);
-  }
+  }));
+}
+
+async function _checkPermissions(bin) {
+  const output = await _callDriver(
+    bin,
+    ['call', 'check_permissions', JSON.stringify({ prompt: false })],
+    15_000
+  );
+  const missing = _missingPermissions(output);
+  _permissionsChecked = missing.length === 0;
+  return {
+    granted: missing.length === 0,
+    missing,
+    output,
+  };
 }
 
 function _hideAgentCursor(bin) {
   if (!bin) return;
   try {
-    const { execFileSync } = require('child_process');
     execFileSync(
       bin,
       ['call', 'set_agent_cursor_enabled', JSON.stringify({ enabled: false })],
@@ -306,7 +365,6 @@ function _hideAgentCursor(bin) {
 function _requestDaemonStop(bin) {
   if (!bin) return;
   try {
-    const { execFileSync } = require('child_process');
     execFileSync(bin, ['stop'], { timeout: 2000, stdio: 'ignore' });
     console.log('[emu-cua-driver] daemon stop requested');
   } catch (err) {
@@ -316,153 +374,32 @@ function _requestDaemonStop(bin) {
 
 function stop() {
   const bin = _serveLastBin || _resolveBinary(_configuredApp);
-  _hideAgentCursor(bin);
-  _requestDaemonStop(bin);
-  if (_child) {
-    console.log('[emu-cua-driver] stopping');
-    _child.kill();
-    _child = null;
+  if (_ownsServeDaemon) {
+    _hideAgentCursor(bin);
+    _requestDaemonStop(bin);
   }
   _stopServe();
-  _initialized = false;
   _permissionsChecked = false;
+  _cursorConfiguredFor = null;
   _starting = null;
-  _clearPending('emu-cua-driver stopped');
 }
 
-// ============================================================================
-// JSON-RPC Communication
-// ============================================================================
-
-async function callTool(toolName, args = {}, opts = {}) {
-  await _ensureStartedOrThrow({ app: opts.app, checkPermissions: true });
-  return _sendRequest(
-    'tools/call',
-    { name: toolName, arguments: args || {} },
-    REQUEST_TIMEOUT_MS,
-    toolName
-  );
-}
-
-async function _initialize() {
-  await _sendRequest(
-    'initialize',
-    {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: {
-        name: 'emu',
-        version: pkg.version || '0.0.0',
-      },
-    },
-    INITIALIZE_TIMEOUT_MS,
-    'initialize'
-  );
-  _sendNotification('notifications/initialized');
-  _initialized = true;
-}
-
-async function _checkPermissions() {
-  const result = await _sendRequest(
-    'tools/call',
-    { name: 'check_permissions', arguments: { prompt: false } },
-    REQUEST_TIMEOUT_MS,
-    'check_permissions'
-  );
-  const output = _summarizeText(result);
-  const missing = _missingPermissions(output);
-  _permissionsChecked = missing.length === 0;
-  return {
-    granted: missing.length === 0,
-    missing,
-    output,
-  };
-}
-
-function _sendRequest(method, params, timeoutMs, label) {
-  return new Promise((resolve, reject) => {
-    if (!_child) {
-      return reject(new Error('emu-cua-driver not running'));
-    }
-
-    const id = _nextId++;
-    const request = { jsonrpc: '2.0', id, method };
-    if (params !== undefined) request.params = params;
-
-    const timeout = setTimeout(() => {
-      _pending.delete(id);
-      reject(new Error(`emu-cua-driver timeout (${timeoutMs}ms): ${label || method}`));
-    }, timeoutMs);
-
-    _pending.set(id, { resolve, reject, timeout });
-
-    _child.stdin.write(JSON.stringify(request) + '\n', (err) => {
-      if (err) {
-        _pending.delete(id);
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
-  });
-}
-
-function _sendNotification(method, params) {
-  if (!_child) return;
-  const request = { jsonrpc: '2.0', method };
-  if (params !== undefined) request.params = params;
-  _child.stdin.write(JSON.stringify(request) + '\n');
-}
-
-// ============================================================================
-// Stdout Processing (JSON-RPC Response Parsing)
-// ============================================================================
-
-function _processStdout() {
-  const lines = _stdoutBuf.split('\n');
-
-  // Keep the last (possibly incomplete) line in the buffer
-  _stdoutBuf = lines[lines.length - 1];
-
-  // Process all complete lines
-  for (let i = 0; i < lines.length - 1; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    try {
-      const msg = JSON.parse(line);
-
-      // Handle result
-      if (msg.id !== undefined && _pending.has(msg.id)) {
-        const { resolve, reject, timeout } = _pending.get(msg.id);
-        _pending.delete(msg.id);
-        clearTimeout(timeout);
-
-        if (msg.error) {
-          reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        } else {
-          resolve(msg.result);
-        }
-      }
-    } catch (err) {
-      console.error(`[emu-cua-driver] parse error: ${err.message}`);
-    }
+async function recheckPermissions({ app } = {}) {
+  configure({ app });
+  const bin = _serveLastBin || _resolveBinary(_configuredApp);
+  if (!bin) {
+    throw new Error(
+      'emu-cua-driver binary not found. Build/install it from frontend/coworker-mode/emu-driver.'
+    );
   }
-}
 
-function _clearPending(reason) {
-  for (const { reject, timeout } of _pending.values()) {
-    clearTimeout(timeout);
-    reject(new Error(reason));
+  const childAlive = _serveChild && _serveChild.exitCode === null && _serveChild.signalCode === null;
+  if (childAlive || _isDaemonRunning(bin)) {
+    return _checkPermissions(bin);
   }
-  _pending.clear();
-}
 
-function _summarizeText(result) {
-  if (!result?.content) return '';
-  return result.content
-    .filter((item) => item.type === 'text')
-    .map((item) => item.text || '')
-    .join('\n');
+  const state = await _ensureStartedOrThrow({ checkPermissions: true });
+  return state.permissions || { granted: true, missing: [], output: '' };
 }
 
 function _missingPermissions(output) {
@@ -490,6 +427,6 @@ module.exports = {
   configure,
   start,
   ensureStarted,
+  recheckPermissions,
   stop,
-  callTool,
 };

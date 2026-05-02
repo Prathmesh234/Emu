@@ -19,6 +19,7 @@ const { renderPastSession } = require('../components/conversation/PastSessionRen
 const { MacWindow }    = require('../components/chrome/MacWindow');
 const { WindowHeader } = require('../components/chrome/WindowHeader');
 const { Composer }     = require('../components/chrome/Composer');
+const { PermissionsCard } = require('../components/chrome/PermissionsCard');
 const { renderMarkdown } = require('../components/markdown');
 const { createEmuRunner } = require('../components/EmuRunner');
 const { captureScreenshot, fullCapture } = require('../actions');
@@ -35,6 +36,7 @@ let chatContainer, chatWrapper, chatInput, header, historyPanel, winHeader;
 let _historyPanelOpen = false;
 let _viewingPastSession = false;
 let _pastSessionId = null;
+let _permissionsCard = null;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -273,6 +275,45 @@ function removeStatus() {
     // Revert to the live/idle state that syncGeneratingUI will correct on next call
     const generating = store.state.isGenerating || hasActiveGeneration();
     if (winHeader) winHeader.setStatus(generating ? 'working' : 'ready', generating);
+}
+
+function invokeIpc(channel, payload) {
+    if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+        return window.electronAPI.invoke(channel, payload);
+    }
+    return ipcRenderer.invoke(channel, payload);
+}
+
+function showPermissionsCard(missing) {
+    if (!Array.isArray(missing) || missing.length === 0) return;
+
+    if (_permissionsCard) {
+        _permissionsCard.update(missing);
+        return;
+    }
+
+    _permissionsCard = PermissionsCard({
+        missing,
+        onAllow: (kind) => invokeIpc('permissions:open', kind),
+        onRecheck: () => invokeIpc('emu-cua:recheck-permissions'),
+        onDismiss: () => {
+            _permissionsCard = null;
+        },
+    });
+    document.body.appendChild(_permissionsCard.element);
+}
+
+function subscribePermissionsRequired() {
+    const handler = (payload) => {
+        showPermissionsCard(payload?.missing || []);
+    };
+
+    if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+        window.electronAPI.on('emu-cua:permissions-required', handler);
+        return;
+    }
+
+    ipcRenderer.on('emu-cua:permissions-required', (_event, payload) => handler(payload));
 }
 
 // ── Chat selection ───────────────────────────────────────────────────────
@@ -1122,6 +1163,7 @@ function openSettings() {
 function mount(appEl) {
     // Wire up WS handler
     setMessageHandler(handleWsMessage);
+    subscribePermissionsRequired();
 
     // ── MacWindow chrome bar (traffic lights + title + actions) ──────────
     // `header` keeps the same variable name so all existing callers

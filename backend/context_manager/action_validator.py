@@ -6,7 +6,6 @@ the frontend.  Fully decoupled from ContextManager; just takes a session_id
 and an action dict, returns (is_valid, error_message).
 """
 
-import json
 import re
 
 # Desktop action types that should NEVER appear in a "done" final_message.
@@ -53,8 +52,6 @@ class ActionValidator:
       8. Negative / zero-zero coordinates → likely a parsing default.
       9. Wait duration capped at 30s.
      10. Coordinate values must be numbers (reject arrays/strings/nulls).
-     11. Repeated navigate_and_click at same coordinates (±0.01) → reject
-         (clicking the same spot twice in a row with no intervening action).
     """
 
     # Positions within this fraction of screen size are treated as "same spot"
@@ -63,16 +60,15 @@ class ActionValidator:
     # Actions that are legitimately repeated many times — don't throttle.
     # - screenshot: may be spammed while waiting for UI to settle
     # - scroll: large pages may genuinely need many scrolls
-    # - shell_exec: tool calls (cat/ls/grep/etc.) may legitimately chain in a
-    #   row while the model explores the filesystem. Different commands per
-    #   call, so a streak isn't a "stuck in a loop" signal.
-    _NO_THROTTLE = {"screenshot", "scroll", "shell_exec"}
+    # - shell_exec: legacy action name kept here for older sessions; it is now
+    #   a function tool, not a desktop action.
+    # - done: each user request can legitimately end with done, especially in
+    #   coworker mode where all real progress happens via function tools.
+    _NO_THROTTLE = {"screenshot", "scroll", "shell_exec", "done"}
 
     # Max consecutive repetitions of the same action type before we force a
     # strategy change. 4 repeats allowed; the 5th is rejected.
     MAX_CONSECUTIVE_REPEATS = 4
-    MAX_IDENTICAL_COWORKER_TOOL_REPEATS = 2
-
     _COWORKER_INTERACTIVE_TOOLS = {
         "cua_click",
         "cua_right_click",
@@ -113,11 +109,6 @@ class ActionValidator:
         self._history: dict[str, list[str]] = {}
         # Last mouse_move target per session (updated only on valid moves)
         self._last_move_coords: dict[str, tuple[float, float]] = {}
-        # Last navigate_and_click* target per session
-        self._last_click_coords: dict[str, tuple[float, float]] = {}
-        # Coworker-mode tool-call history. The remote action validator does
-        # not see function tools, so track repeated driver primitives here.
-        self._coworker_tool_history: dict[str, list[str]] = {}
         self._coworker_pending_verification: dict[str, str] = {}
 
     def validate(
@@ -299,13 +290,6 @@ class ActionValidator:
         # ── Record action ─────────────────────────────────────────────────────
         if action_type == "mouse_move":
             self._last_move_coords[session_id] = (cx, cy)
-        if action_type in (
-            "navigate_and_click",
-            "navigate_and_right_click",
-            "navigate_and_triple_click",
-        ):
-            self._last_click_coords[session_id] = (cx, cy)
-
         history.append(action_type)
         if len(history) > 10:
             history[:] = history[-10:]
@@ -316,8 +300,6 @@ class ActionValidator:
         """Reset all state for a session."""
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
-        self._last_click_coords.pop(session_id, None)
-        self._coworker_tool_history.pop(session_id, None)
         self._coworker_pending_verification.pop(session_id, None)
 
     def validate_tool_call(
@@ -328,20 +310,6 @@ class ActionValidator:
         agent_mode: str = "remote",
     ) -> tuple[bool, str]:
         """Validate backend function-tool calls before execution."""
-        if agent_mode != "coworker" or name not in self._COWORKER_INTERACTIVE_TOOLS:
-            return True, ""
-
-        signature = self._tool_signature(name, args or {})
-        history = self._coworker_tool_history.setdefault(session_id, [])
-        repeats = sum(1 for item in history[-8:] if item == signature)
-        if repeats >= self.MAX_IDENTICAL_COWORKER_TOOL_REPEATS:
-            return False, (
-                f"`{name}` with the same target arguments has already been "
-                f"used {repeats} times recently. Do not repeat the same "
-                "pixel/element/key action. Re-orient with cua_get_window_state, "
-                "choose a different element/coordinate/keyboard path, or stop "
-                "with a clear limitation."
-            )
         return True, ""
 
     def record_tool_result(
@@ -366,12 +334,6 @@ class ActionValidator:
         if name not in self._COWORKER_INTERACTIVE_TOOLS:
             return
 
-        signature = self._tool_signature(name, args or {})
-        history = self._coworker_tool_history.setdefault(session_id, [])
-        history.append(signature)
-        if len(history) > 12:
-            history[:] = history[-12:]
-
         if ok:
             self._coworker_pending_verification[session_id] = name
 
@@ -395,14 +357,6 @@ class ActionValidator:
             "the UI state first; if it did not change, switch strategy or report "
             "the limitation."
         )
-
-    @staticmethod
-    def _tool_signature(name: str, args: dict) -> str:
-        try:
-            encoded = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        except (TypeError, ValueError):
-            encoded = repr(sorted(args.items())) if isinstance(args, dict) else repr(args)
-        return f"{name}:{encoded}"
 
     @staticmethod
     def validate_done_response(final_message: str | None) -> tuple[bool, str]:

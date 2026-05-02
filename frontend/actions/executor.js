@@ -1,23 +1,22 @@
 // actions/executor.js — Execute a single agent action and notify backend.
 //
 // Extracted from pages/Chat.js. Behavior is identical:
-//   1. Dispatch action via the IPC proxy (branched by agent mode).
+//   1. Dispatch remote-mode actions via the IPC proxy.
 //   2. Update the step card's badge (resolved / failed).
 //   3. POST /action/complete to the backend (best-effort).
 
 const { dispatchAction: dispatchRemote } = require('./actionProxy');
-const { dispatchAction: dispatchCoworker } = require('../cua-driver-commands/actionProxy');
 const store = require('../state/store');
 const api = require('../services/api');
 
 async function executeAction(action, stepEl) {
-    // Branch on agent mode: coworker uses emu-cua-driver MCP, remote uses cliclick/CGEvent
-    const dispatch = store.state.agentMode === 'coworker'
-        ? dispatchCoworker
-        : dispatchRemote;
-
     console.log(`[executeAction] mode=${store.state.agentMode} dispatching ${action.type}`);
-    const result = await dispatch(action);
+    const result = store.state.agentMode === 'coworker' && action.type !== 'done'
+        ? {
+            success: false,
+            error: 'Coworker mode actions must use backend cua_* tools; only done is dispatched by the renderer.',
+        }
+        : await dispatchRemote(action);
     console.log(`[executeAction] result:`, result);
 
     // Mark trace as resolved (hides the blinking caret).

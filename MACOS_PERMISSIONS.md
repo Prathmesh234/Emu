@@ -1,6 +1,6 @@
 # macOS Permissions for Emu
 
-This is the permission flow for the packaged `.dmg` app. Users should drag Emu into `/Applications`, launch it from there, and grant the macOS permissions below when prompted.
+This is the permission flow for the packaged `.dmg` app. Users should drag Emu into `/Applications`, launch it from there, and grant the macOS permissions below when prompted. If Coworker mode detects a missing permission, Emu shows an in-app permission card with an `Allow` button that opens the exact System Settings pane.
 
 ## Required Permissions
 
@@ -8,7 +8,7 @@ This is the permission flow for the packaged `.dmg` app. Users should drag Emu i
 
 Emu needs Screen Recording so the Electron app can capture the current display and send screenshots to the local agent backend.
 
-Grant it in:
+Grant it from Emu's permission card, or manually in:
 
 ```text
 System Settings -> Privacy & Security -> Screen Recording -> Emu
@@ -20,7 +20,7 @@ After enabling it, quit and reopen Emu. macOS usually requires a restart of the 
 
 Emu needs Accessibility so it can move the mouse, click, scroll, type, and send keyboard shortcuts on behalf of the user.
 
-Grant it in:
+Grant it from Emu's permission card, or manually in:
 
 ```text
 System Settings -> Privacy & Security -> Accessibility -> Emu
@@ -57,9 +57,9 @@ python3 -m daemon.install_macos uninstall
 
 1. Drag Emu from the `.dmg` into `/Applications`.
 2. Launch Emu from `/Applications`, not directly from the mounted disk image.
-3. Grant Screen Recording when prompted.
-4. Grant Accessibility when prompted or when the first action fails.
-5. Quit and reopen Emu after changing either permission.
+3. Use Emu's permission card to open Screen Recording and Accessibility when prompted.
+4. If macOS does not refresh the grants immediately, quit and reopen Emu after changing either permission.
+5. If actions fail silently, re-open the relevant pane from Emu settings or the permission card.
 6. Confirm the backend is healthy and the daemon is installed from Emu settings or with the status command above.
 
 ## Notes for Packaging

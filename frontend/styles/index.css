@@ -20,6 +20,7 @@
 @import './chrome/mac-window.css';
 @import './chrome/window-header.css';
 @import './chrome/composer.css';
+@import './chrome/permissions-card.css';
 @import './conversation/turns.css';
 @import './conversation/trace.css';
 @import './conversation/actions.css';

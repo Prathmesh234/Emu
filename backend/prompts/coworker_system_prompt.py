@@ -90,6 +90,11 @@ Never mix `element_index` with `x`/`y`. Element indices are valid only
 for the most recent `cua_get_window_state` for the exact `(pid,
 window_id)`. Snapshot again after menus/sheets open, navigation changes,
 content scrolls, or several turns pass.
+
+If finding the right AX element is hard, switch to pure vision:
+`cua_set_config(key="capture_mode", value="vision")`, snapshot, then
+use screenshot pixel `x` + `y`. Switch back to `som` when you need AX
+indices again.
 </targeting>
 
 <example>
@@ -125,12 +130,12 @@ Posted input is not proof of success. If a click/key returns success but
 the UI does not change, do not repeat it blindly.
 
 If an element-index action is a no-op:
-  • call `cua_get_window_state`
-  • try a sibling/parent control, keyboard path, or pixel coordinate
-  • rediscover windows if the target may be stale
+   • call `cua_get_window_state`
+   • try a sibling/parent control, keyboard path, or pixel coordinate
+   • rediscover windows if the target may be stale
 
-The validator rejects repeated identical interactive `cua_*` calls.
-Treat that as a signal to re-orient or stop.
+If the element remains hard to find, use pure vision with screenshot
+pixels instead of continuing to guess AX indices.
 </anti_loop>
 
 <error_handling>

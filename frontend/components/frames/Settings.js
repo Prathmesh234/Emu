@@ -82,7 +82,7 @@ function Settings({ onClose }) {
 
     const screenCheck = _systemCheckRow('Screen Recording', 'checking…', () => ipcRenderer.invoke('permissions:open', 'screen'));
     const accessibilityCheck = _systemCheckRow('Accessibility', 'checking…', () => ipcRenderer.invoke('permissions:open', 'accessibility'));
-    const daemonCheck = _systemCheckRow('Memory daemon', 'checking…');
+    const daemonCheck = _systemCheckRow('Emu daemons', 'checking…');
     groupChecks.appendChild(screenCheck.row);
     groupChecks.appendChild(accessibilityCheck.row);
     groupChecks.appendChild(daemonCheck.row);
@@ -361,6 +361,13 @@ function _permissionLabel(value) {
 function _daemonLabel(status) {
     if (!status) return 'unknown';
     if (status.platform && status.platform !== 'darwin') return 'not needed';
+    if (status.services) {
+        const memory = status.services.memory || {};
+        const driver = status.services.driver || {};
+        if (memory.loaded && driver.loaded && memory.current && driver.current) return 'loaded';
+        if (memory.loaded || driver.loaded || memory.plistPresent || driver.plistPresent) return 'needs repair';
+        return 'not installed';
+    }
     if (status.loaded && status.current) return 'loaded';
     if (status.loaded) return 'needs repair';
     if (status.plistPresent) return 'installed';

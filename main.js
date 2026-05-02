@@ -21,6 +21,56 @@ console.log(`[emu] EMU_ROOT = ${EMU_ROOT}`);
 
 let mainWindow;
 let borderWindow;
+let lastMissingPermissions = [];
+
+function normalizeMissingPermissions(raw) {
+  const items = Array.isArray(raw) ? raw : [];
+  const result = [];
+  for (const item of items) {
+    const value = String(item || '').toLowerCase();
+    let kind = null;
+    if (value === 'accessibility' || value.includes('access')) {
+      kind = 'accessibility';
+    } else if (value === 'screen' || value.includes('screen')) {
+      kind = 'screen';
+    }
+    if (kind && !result.includes(kind)) result.push(kind);
+  }
+  return result;
+}
+
+function missingPermissionsFromError(message) {
+  const text = String(message || '');
+  const missing = [];
+  if (/accessibility/i.test(text)) missing.push('accessibility');
+  if (/screen recording|screen/i.test(text)) missing.push('screen');
+  return missing.length ? missing : ['accessibility', 'screen'];
+}
+
+function emitPermissionsRequired(rawMissing) {
+  const missing = normalizeMissingPermissions(rawMissing);
+  if (!missing.length) return;
+
+  lastMissingPermissions = missing;
+  const payload = { missing };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win || win.isDestroyed()) continue;
+    const send = () => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('emu-cua:permissions-required', payload);
+      }
+    };
+    if (win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', send);
+    } else {
+      send();
+    }
+  }
+}
+
+function clearMissingPermissions() {
+  lastMissingPermissions = [];
+}
 
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -52,6 +102,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'frontend', 'index.html'));
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (lastMissingPermissions.length) {
+      mainWindow.webContents.send('emu-cua:permissions-required', {
+        missing: lastMissingPermissions,
+      });
+    }
+  });
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
@@ -122,38 +179,37 @@ app.whenReady().then(() => {
   });
 
   emuCuaDriverProcess.configure({ app });
-  ipcMain.handle('emu-cua:ensure-started', async () => (
-    emuCuaDriverProcess.ensureStarted({ app })
-  ));
 
-  // Eagerly spawn the emu-cua-driver MCP child as soon as Electron is
-  // ready, regardless of the persisted agent mode. This pays the
-  // ~spawn + initialize + check_permissions cost once at app start so
-  // the first coworker action never blocks on it. Fire-and-forget:
-  // failures (missing binary, denied AX) are logged here and surface
-  // naturally on the first coworker action via the normal error path.
-  emuCuaDriverProcess.ensureStarted({ app })
+  const daemonInstallPromise = daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
+
+  // Install/repair both LaunchAgents first, then ensure the driver socket is
+  // available. If launchd cannot start it, the process wrapper falls back to
+  // an Emu-owned child so coworker mode can still surface permission errors.
+  Promise.resolve(daemonInstallPromise)
+    .catch((err) => {
+      console.warn(`[daemon-install] install error: ${err?.message || err}`);
+    })
+    .then(() => emuCuaDriverProcess.ensureStarted({ app }))
     .then((result) => {
       if (result?.success) {
         const missing = result?.permissions?.missing || [];
         if (missing.length) {
           console.warn(`[emu-cua-driver] startup ok, missing permissions: ${missing.join(', ')}`);
+          emitPermissionsRequired(missing);
         } else {
+          clearMissingPermissions();
           console.log(`[emu-cua-driver] startup ok (pid=${result.pid})`);
         }
       } else {
         console.warn(`[emu-cua-driver] startup deferred: ${result?.error || 'unknown'}`);
+        if (result?.permissionsRequired) {
+          emitPermissionsRequired(missingPermissionsFromError(result?.error));
+        }
       }
     })
     .catch((err) => {
       console.warn(`[emu-cua-driver] startup error: ${err?.message || err}`);
     });
-
-  // Register emu-cua-driver IPC handlers (co-worker mode commands)
-  require('./frontend/cua-driver-commands').registerAll(ipcMain, {
-      callTool: (toolName, args) => emuCuaDriverProcess.callTool(toolName, args, { app }),
-      getMainWindow: () => mainWindow,
-  });
 
   ipcMain.handle('permissions:status', async () => {
     if (process.platform !== 'darwin') {
@@ -192,6 +248,28 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('emu-cua:recheck-permissions', async () => {
+    try {
+      const result = await emuCuaDriverProcess.recheckPermissions({ app });
+      const missing = normalizeMissingPermissions(result?.missing || []);
+      if (missing.length) {
+        emitPermissionsRequired(missing);
+      } else {
+        clearMissingPermissions();
+      }
+      return { success: true, ...result, missing };
+    } catch (err) {
+      const missing = missingPermissionsFromError(err?.message);
+      emitPermissionsRequired(missing);
+      return {
+        success: false,
+        granted: false,
+        missing,
+        error: err?.message || String(err),
+      };
+    }
+  });
+
   ipcMain.handle('daemon:status', async () => daemonInstaller.getStatus({ app, emuRoot: EMU_ROOT }));
   ipcMain.handle('daemon:repair', async () => daemonInstaller.repair({ app, emuRoot: EMU_ROOT }));
 
@@ -200,9 +278,8 @@ app.whenReady().then(() => {
   // The backend writes .emu/.auth_token on startup; the renderer reads
   // it for every HTTP/WS call. See frontend/services/api.js.
   backendProcess.start({ app, emuRoot: EMU_ROOT });
-  daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
-  // emu-cua-driver is lazy-started on first co-worker action (not here)
-  // but IPC handlers are registered up front for immediate availability.
+  // emu-cua-driver is managed by launchd when available; coworker execution
+  // talks to its daemon socket from the backend rather than through renderer IPC.
   createWindow();
 
   app.on('activate', () => {

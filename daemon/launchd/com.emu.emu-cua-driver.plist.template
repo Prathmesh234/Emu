@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.emu.emu-cua-driver</string>
+
+    <!-- Run the app-bundle executable directly. Avoid /usr/bin/open here:
+         launchd would surface a recurring "open can run in the background"
+         macOS banner and would not supervise the actual daemon process. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{EMU_CUA_DRIVER_BIN}}</string>
+        <string>serve</string>
+        <string>--no-relaunch</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>EMU_ROOT</key>      <string>{{EMU_ROOT}}</string>
+        <key>HOME</key>          <string>{{HOME}}</string>
+        <key>PATH</key>          <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>CUA_DRIVER_NO_RELAUNCH</key> <string>1</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{REPO}}</string>
+
+    <key>RunAtLoad</key>             <true/>
+    <key>KeepAlive</key>             <false/>
+    <key>AbandonProcessGroup</key>   <false/>
+
+    <key>ProcessType</key>           <string>Interactive</string>
+
+    <key>StandardOutPath</key>       <string>{{EMU_ROOT}}/global/daemon/logs/emu-cua-driver.stdout.log</string>
+    <key>StandardErrorPath</key>     <string>{{EMU_ROOT}}/global/daemon/logs/emu-cua-driver.stderr.log</string>
+</dict>
+</plist>

@@ -22,8 +22,11 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 
-const LABEL = 'com.emu.memory-daemon';
-const PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
+const MEMORY_LABEL = 'com.emu.memory-daemon';
+const DRIVER_LABEL = 'com.emu.emu-cua-driver';
+const LABEL = MEMORY_LABEL;
+const PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${MEMORY_LABEL}.plist`);
+const DRIVER_PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${DRIVER_LABEL}.plist`);
 const PACKAGED_MODE_FLAG = process.env.PACKAGED_MODE || '0';
 const PACKAGED_MODE = PACKAGED_MODE_FLAG === '1';
 
@@ -110,28 +113,57 @@ function _runInstallerCommand({ app, emuRoot, command }) {
     });
 }
 
+function _parseServiceStatus(output, label, plistPath) {
+    const marker = `Label:   ${label}`;
+    const start = output.indexOf(marker);
+    const next = start >= 0 ? output.indexOf('\nLabel:   ', start + marker.length) : -1;
+    const section = start >= 0
+        ? output.slice(start, next >= 0 ? next : output.length)
+        : '';
+
+    return {
+        label,
+        plistPath,
+        plistPresent: fs.existsSync(plistPath) || /Plist:\s+.+\(present\)/.test(section),
+        loaded: /Loaded:\s+true/.test(section),
+        current: /Current:\s+true/.test(section),
+    };
+}
+
 function maybeInstall({ app, emuRoot }) {
-    if (process.platform !== 'darwin') return;
+    if (process.platform !== 'darwin') {
+        return Promise.resolve({ ok: true, skipped: true, stdout: 'not macOS', stderr: '' });
+    }
     if (process.env.EMU_SKIP_DAEMON_INSTALL === '1') {
         console.log('[daemon-install] EMU_SKIP_DAEMON_INSTALL=1 — skipping');
-        return;
+        return Promise.resolve({ ok: true, skipped: true, stdout: '', stderr: 'skipped by env' });
     }
     if (app && app.isPackaged && !PACKAGED_MODE) {
         console.log('[daemon-install] packaged mode disabled (PACKAGED_MODE=0) — skipping');
-        return;
+        return Promise.resolve({ ok: true, skipped: true, stdout: '', stderr: 'packaged mode disabled' });
     }
 
-    console.log('[daemon-install] installing/repairing LaunchAgent');
-    _runInstallerCommand({ app, emuRoot, command: 'install' }).then((result) => {
+    console.log('[daemon-install] installing/repairing LaunchAgents');
+    return _runInstallerCommand({ app, emuRoot, command: 'install' }).then((result) => {
         if (result.ok) console.log('[daemon-install] installed OK');
         else console.warn(`[daemon-install] install failed: ${result.stderr || result.code || 'unknown error'}`);
+        return result;
     });
 }
 
 async function getStatus({ app, emuRoot }) {
-    const plistPresent = fs.existsSync(PLIST_PATH);
+    const memoryPlistPresent = fs.existsSync(PLIST_PATH);
+    const driverPlistPresent = fs.existsSync(DRIVER_PLIST_PATH);
     if (process.platform !== 'darwin') {
-        return { ok: true, platform: process.platform, plistPresent, loaded: false, current: false, detail: 'not macOS' };
+        return {
+            ok: true,
+            platform: process.platform,
+            plistPresent: memoryPlistPresent || driverPlistPresent,
+            loaded: false,
+            current: false,
+            services: {},
+            detail: 'not macOS',
+        };
     }
 
     if (app && app.isPackaged && !PACKAGED_MODE) {
@@ -139,22 +171,29 @@ async function getStatus({ app, emuRoot }) {
             ok: true,
             platform: process.platform,
             packagedMode: false,
-            plistPresent,
-            loaded: plistPresent,
+            plistPresent: memoryPlistPresent || driverPlistPresent,
+            loaded: memoryPlistPresent || driverPlistPresent,
             current: false,
+            services: {
+                memory: { label: MEMORY_LABEL, plistPath: PLIST_PATH, plistPresent: memoryPlistPresent, loaded: memoryPlistPresent, current: false },
+                driver: { label: DRIVER_LABEL, plistPath: DRIVER_PLIST_PATH, plistPresent: driverPlistPresent, loaded: driverPlistPresent, current: false },
+            },
             detail: 'packaged daemon install disabled',
         };
     }
 
     const result = await _runInstallerCommand({ app, emuRoot, command: 'status' });
     const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    const memory = _parseServiceStatus(output, MEMORY_LABEL, PLIST_PATH);
+    const driver = _parseServiceStatus(output, DRIVER_LABEL, DRIVER_PLIST_PATH);
     return {
         ok: result.ok,
         platform: process.platform,
         packagedMode: PACKAGED_MODE,
-        plistPresent,
-        loaded: /Loaded:\s+true/.test(output),
-        current: /Current:\s+true/.test(output),
+        plistPresent: memory.plistPresent || driver.plistPresent,
+        loaded: memory.loaded && driver.loaded,
+        current: memory.current && driver.current,
+        services: { memory, driver },
         detail: output.trim() || result.stderr || '',
     };
 }
@@ -163,4 +202,13 @@ async function repair({ app, emuRoot }) {
     return _runInstallerCommand({ app, emuRoot, command: 'install' });
 }
 
-module.exports = { maybeInstall, getStatus, repair, PLIST_PATH, PACKAGED_MODE };
+module.exports = {
+    maybeInstall,
+    getStatus,
+    repair,
+    PLIST_PATH,
+    DRIVER_PLIST_PATH,
+    MEMORY_LABEL,
+    DRIVER_LABEL,
+    PACKAGED_MODE,
+};

@@ -6,8 +6,8 @@ to the foreground. Mode-aware (PLAN §5.1):
 
   * remote / default: existing osascript ``activate`` path. Returns a
     plain status string. Foreground-stealing — fine for remote mode.
-  * coworker:        forwards to the emu-cua-driver ``launch_app`` MCP
-    tool via ``call_driver_tool``. Hidden background launch — NEVER
+  * coworker:        forwards to the emu-cua-driver ``launch_app`` tool
+    via the local daemon. Hidden background launch — NEVER
     raises a window or steals focus. Returns the raw driver JSON
     (``{pid, bundle_id, name, windows: […]}``) so the model can
     immediately address windows by ``window_id`` per the perception
@@ -76,7 +76,7 @@ def _raise_via_osascript(name: str) -> str:
 def _raise_via_driver(name: str, cancel_key: str | None = None) -> str:
     """
     Coworker-mode path — hidden background launch via the driver's
-    ``launch_app`` MCP tool. Returns the driver's structured JSON on
+    ``launch_app`` daemon tool. Returns the driver's structured JSON on
     success so ``_maybe_update_coworker_target`` can parse ``pid`` and
     ``windows[0].window_id`` for the next perception turn.
 
