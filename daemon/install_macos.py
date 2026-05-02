@@ -2,9 +2,10 @@
 install_macos.py — User-space launchd installer for Emu daemons.
 
 Why: without OS scheduling the memory daemon only ticks while the backend is
-alive, and the coworker driver daemon has to be parented by the app process.
-With this installed, launchd manages both the periodic memory daemon and the
-long-running emu-cua-driver daemon through one install/repair command.
+alive. With this installed, launchd manages the periodic memory daemon. The
+coworker driver still runs as a daemon and still requires Accessibility/Screen
+Recording, but it is parented by Emu instead of registered as a macOS
+background item.
 
 Subcommands:
   install         — render plist, write to ~/Library/LaunchAgents, bootstrap it
@@ -31,7 +32,8 @@ from pathlib import Path
 
 MEMORY_LABEL = "com.emu.memory-daemon"
 DRIVER_LABEL = "com.emu.emu-cua-driver"
-SERVICE_LABELS = (MEMORY_LABEL, DRIVER_LABEL)
+SERVICE_LABELS = (MEMORY_LABEL,)
+LEGACY_SERVICE_LABELS = (DRIVER_LABEL,)
 
 # Backwards-compatible default for older call sites that imported LABEL.
 LABEL = MEMORY_LABEL
@@ -182,6 +184,10 @@ def _is_loaded(label: str = MEMORY_LABEL) -> bool:
     return res.returncode == 0
 
 
+def _service_present(label: str) -> bool:
+    return _PLIST_TARGETS[label].exists() or _is_loaded(label)
+
+
 def _render_all() -> dict[str, str]:
     rendered_by_label: dict[str, str] = {}
     for label in SERVICE_LABELS:
@@ -215,6 +221,18 @@ def _install_service(label: str, rendered: str) -> int:
     return 0
 
 
+def _remove_service(label: str) -> None:
+    if _is_loaded(label):
+        res = _launchctl("bootout", f"gui/{_uid()}/{label}")
+        if res.returncode != 0:
+            print(f"[install_macos] bootout warning for {label}: {res.stderr.strip()}", file=sys.stderr)
+
+    target = _PLIST_TARGETS[label]
+    if target.exists():
+        target.unlink()
+        print(f"[install_macos] removed {target}")
+
+
 def _any_plist_exists() -> bool:
     return any(target.exists() for target in _PLIST_TARGETS.values())
 
@@ -227,7 +245,7 @@ def _all_plists_current() -> bool:
     return all(
         _plist_is_current(label, rendered_by_label[label])
         for label in SERVICE_LABELS
-    )
+    ) and not any(_service_present(label) for label in LEGACY_SERVICE_LABELS)
 
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -249,13 +267,15 @@ def install() -> int:
 
     _PLIST_TARGET.parent.mkdir(parents=True, exist_ok=True)
 
-    # Validate every rendered plist before changing launchd state, so a missing
-    # driver binary cannot leave only one daemon repaired.
+    # Validate every active plist before changing launchd state.
     try:
         rendered_by_label = _render_all()
     except Exception as exc:
         print(f"[install_macos] rendered plist is invalid: {exc}", file=sys.stderr)
         return 1
+
+    for label in LEGACY_SERVICE_LABELS:
+        _remove_service(label)
 
     for label in SERVICE_LABELS:
         code = _install_service(label, rendered_by_label[label])
@@ -264,7 +284,7 @@ def install() -> int:
 
     _marker_path().parent.mkdir(parents=True, exist_ok=True)
     _marker_path().write_text("installed\n", encoding="utf-8")
-    print("[install_macos] loaded Emu launchd services")
+    print("[install_macos] loaded Emu memory daemon")
     print(f"[install_macos] logs: {_emu_root()}/global/daemon/logs/")
     return 0
 
@@ -274,17 +294,8 @@ def uninstall() -> int:
         print("[install_macos] not macOS; nothing to do")
         return 0
 
-    for label in SERVICE_LABELS:
-        if _is_loaded(label):
-            res = _launchctl("bootout", f"gui/{_uid()}/{label}")
-            if res.returncode != 0:
-                # Non-fatal: we still want to remove the plist file.
-                print(f"[install_macos] bootout warning for {label}: {res.stderr.strip()}", file=sys.stderr)
-
-        target = _PLIST_TARGETS[label]
-        if target.exists():
-            target.unlink()
-            print(f"[install_macos] removed {target}")
+    for label in (*SERVICE_LABELS, *LEGACY_SERVICE_LABELS):
+        _remove_service(label)
 
     # Leave EMU_ROOT data alone, but clear the install marker so
     # backend.sh's prompt works again.
@@ -326,6 +337,22 @@ def status() -> int:
         if _is_loaded(label):
             res = _launchctl("print", f"gui/{_uid()}/{label}")
             # Print the whole block; it's the canonical launchd truth.
+            print(f"\n--- launchctl print ({label}) ---")
+            print(res.stdout)
+
+    for label in LEGACY_SERVICE_LABELS:
+        if not _service_present(label):
+            continue
+
+        target = _PLIST_TARGETS[label]
+        print("")
+        print(f"Label:   {label}")
+        print(f"Plist:   {target}  {'(present)' if target.exists() else '(missing)'}")
+        print(f"Loaded:  {_is_loaded(label)}")
+        print("Current: false (legacy driver LaunchAgent; removed on install)")
+
+        if _is_loaded(label):
+            res = _launchctl("print", f"gui/{_uid()}/{label}")
             print(f"\n--- launchctl print ({label}) ---")
             print(res.stdout)
 
@@ -371,7 +398,7 @@ def prompt_install() -> int:
         print("  Emu Daemons")
         print(bar)
         print("  The existing daemon install is missing or points at an older location.")
-        print("  Emu can repair it now so launchd manages memory and coworker driver.")
+        print("  Emu can repair it now so launchd manages the memory daemon.")
         print(bar)
         try:
             answer = input("  Repair daemon install now? [Y/n] ").strip().lower()
@@ -398,8 +425,7 @@ def prompt_install() -> int:
     print(bar)
     print("  Run a small background process every 15 minutes that")
     print("  consolidates your session memory into MEMORY.md and")
-    print("  daily logs, and keep the coworker driver daemon available")
-    print("  through macOS launchd (no sudo required).")
+    print("  daily logs through macOS launchd (no sudo required).")
     print()
     print("  Scope: reads/writes only inside .emu/")
     print("  Logs:  .emu/global/daemon/logs/tick.jsonl")

@@ -182,9 +182,9 @@ app.whenReady().then(() => {
 
   const daemonInstallPromise = daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
 
-  // Install/repair both LaunchAgents first, then ensure the driver socket is
-  // available. If launchd cannot start it, the process wrapper falls back to
-  // an Emu-owned child so coworker mode can still surface permission errors.
+  // Install/repair the memory LaunchAgent first. The installer also removes
+  // the legacy driver LaunchAgent; emu-cua-driver now runs as an Emu-owned
+  // child so the permission flow remains without macOS background-item banners.
   Promise.resolve(daemonInstallPromise)
     .catch((err) => {
       console.warn(`[daemon-install] install error: ${err?.message || err}`);
@@ -278,8 +278,8 @@ app.whenReady().then(() => {
   // The backend writes .emu/.auth_token on startup; the renderer reads
   // it for every HTTP/WS call. See frontend/services/api.js.
   backendProcess.start({ app, emuRoot: EMU_ROOT });
-  // emu-cua-driver is managed by launchd when available; coworker execution
-  // talks to its daemon socket from the backend rather than through renderer IPC.
+  // Coworker execution talks to the emu-cua-driver daemon socket from the
+  // backend rather than through renderer IPC.
   createWindow();
 
   app.on('activate', () => {

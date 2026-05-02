@@ -2,8 +2,8 @@
 //
 // Lifecycle owner for the emu-cua-driver `serve` daemon.
 // The Python coworker harness talks to this daemon socket directly; Electron
-// makes sure it is reachable, configures the cursor overlay, and only shuts
-// down a fallback child daemon if this process had to spawn one.
+// makes sure it is reachable, configures the cursor overlay, checks
+// permissions, and shuts down the child daemon it owns.
 
 const path = require('path');
 const fs = require('fs');
@@ -18,7 +18,6 @@ let _configuredApp = null;
 let _permissionsChecked = false;
 let _cursorConfiguredFor = null;
 let _ownsServeDaemon = false;
-const DRIVER_LAUNCHD_LABEL = 'com.emu.emu-cua-driver';
 
 // ============================================================================
 // Binary Resolution
@@ -137,13 +136,6 @@ function _startServeOnce(bin) {
       _stopExistingDaemon(bin);
     }
 
-    if (_kickstartLaunchAgent(bin)) {
-      console.log('[emu-cua-driver] using launchd-managed daemon');
-      _ownsServeDaemon = false;
-      resolve();
-      return;
-    }
-
     // `--no-relaunch` keeps the daemon as our child so quitting Emu shuts down
     // the AX cache and agent cursor instead of leaving a stale socket process.
     console.log(`[emu-cua-driver] spawning daemon: ${bin} serve --no-relaunch`);
@@ -215,48 +207,6 @@ function _isDaemonCompatible(bin) {
   } catch (_) {
     return false;
   }
-}
-
-function _launchdTarget() {
-  if (process.platform !== 'darwin' || typeof process.getuid !== 'function') return null;
-  return `gui/${process.getuid()}/${DRIVER_LAUNCHD_LABEL}`;
-}
-
-function _sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function _kickstartLaunchAgent(bin) {
-  const target = _launchdTarget();
-  if (!target) return false;
-
-  try {
-    const exists = spawnSync('launchctl', ['print', target], { timeout: 2000, stdio: 'ignore' });
-    if (exists.status !== 0) return false;
-
-    const kicked = spawnSync('launchctl', ['kickstart', target], { timeout: 5000, stdio: 'ignore' });
-    if (kicked.status !== 0) {
-      throw new Error(
-        'emu-cua-driver launchd service is installed but could not be started. '
-        + 'Repair the Emu daemons or grant the required permissions from the permissions card.'
-      );
-    }
-
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      if (_isDaemonRunning(bin) && _isDaemonCompatible(bin)) return true;
-      _sleepSync(150);
-    }
-    throw new Error(
-      'emu-cua-driver launchd service did not become ready. '
-      + 'Grant Accessibility and Screen Recording from the permissions card, then retry.'
-    );
-  } catch (err) {
-    if (/permissions|launchd service/i.test(err?.message || '')) throw err;
-    return false;
-  }
-
-  return false;
 }
 
 function _stopExistingDaemon(bin) {

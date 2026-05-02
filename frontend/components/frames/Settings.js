@@ -363,9 +363,8 @@ function _daemonLabel(status) {
     if (status.platform && status.platform !== 'darwin') return 'not needed';
     if (status.services) {
         const memory = status.services.memory || {};
-        const driver = status.services.driver || {};
-        if (memory.loaded && driver.loaded && memory.current && driver.current) return 'loaded';
-        if (memory.loaded || driver.loaded || memory.plistPresent || driver.plistPresent) return 'needs repair';
+        if (memory.loaded && memory.current) return 'loaded';
+        if (memory.loaded || memory.plistPresent) return 'needs repair';
         return 'not installed';
     }
     if (status.loaded && status.current) return 'loaded';

@@ -1,6 +1,6 @@
 /**
- * frontend/process/daemonInstaller.js — Auto-install the macOS memory
- * daemon LaunchAgent on app startup if it isn't installed yet.
+ * frontend/process/daemonInstaller.js — Auto-install the macOS memory daemon
+ * LaunchAgent on app startup if it isn't installed yet.
  *
  * Dev mode (source checkout):
  *   Runs `python3 -m daemon.install_macos install` from the repo root
@@ -26,6 +26,8 @@ const MEMORY_LABEL = 'com.emu.memory-daemon';
 const DRIVER_LABEL = 'com.emu.emu-cua-driver';
 const LABEL = MEMORY_LABEL;
 const PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${MEMORY_LABEL}.plist`);
+// Legacy: the coworker driver now runs as an Emu-owned child process so macOS
+// does not show an "App Background Activity" banner for emu-cua-driver.
 const DRIVER_PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${DRIVER_LABEL}.plist`);
 const PACKAGED_MODE_FLAG = process.env.PACKAGED_MODE || '0';
 const PACKAGED_MODE = PACKAGED_MODE_FLAG === '1';
@@ -143,7 +145,7 @@ function maybeInstall({ app, emuRoot }) {
         return Promise.resolve({ ok: true, skipped: true, stdout: '', stderr: 'packaged mode disabled' });
     }
 
-    console.log('[daemon-install] installing/repairing LaunchAgents');
+    console.log('[daemon-install] installing/repairing memory LaunchAgent');
     return _runInstallerCommand({ app, emuRoot, command: 'install' }).then((result) => {
         if (result.ok) console.log('[daemon-install] installed OK');
         else console.warn(`[daemon-install] install failed: ${result.stderr || result.code || 'unknown error'}`);
@@ -171,12 +173,12 @@ async function getStatus({ app, emuRoot }) {
             ok: true,
             platform: process.platform,
             packagedMode: false,
-            plistPresent: memoryPlistPresent || driverPlistPresent,
-            loaded: memoryPlistPresent || driverPlistPresent,
+            plistPresent: memoryPlistPresent,
+            loaded: memoryPlistPresent,
             current: false,
             services: {
                 memory: { label: MEMORY_LABEL, plistPath: PLIST_PATH, plistPresent: memoryPlistPresent, loaded: memoryPlistPresent, current: false },
-                driver: { label: DRIVER_LABEL, plistPath: DRIVER_PLIST_PATH, plistPresent: driverPlistPresent, loaded: driverPlistPresent, current: false },
+                driver: { label: DRIVER_LABEL, plistPath: DRIVER_PLIST_PATH, plistPresent: driverPlistPresent, loaded: false, current: false, legacy: true },
             },
             detail: 'packaged daemon install disabled',
         };
@@ -190,10 +192,10 @@ async function getStatus({ app, emuRoot }) {
         ok: result.ok,
         platform: process.platform,
         packagedMode: PACKAGED_MODE,
-        plistPresent: memory.plistPresent || driver.plistPresent,
-        loaded: memory.loaded && driver.loaded,
-        current: memory.current && driver.current,
-        services: { memory, driver },
+        plistPresent: memory.plistPresent,
+        loaded: memory.loaded,
+        current: memory.current,
+        services: { memory, driver: { ...driver, legacy: true } },
         detail: output.trim() || result.stderr || '',
     };
 }
