@@ -264,7 +264,7 @@ async function _configureAgentCursor(bin) {
       spring: 0.82,
       glide_duration_ms: 1150,
       dwell_after_click_ms: 300,
-      idle_hide_ms: 10000,
+      idle_hide_ms: 20000,
     }],
     ['set_agent_cursor_style', {
       gradient_colors: ['#FFFFFF', '#FFFFFF'],
