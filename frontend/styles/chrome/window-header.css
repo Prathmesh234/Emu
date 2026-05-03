@@ -145,8 +145,8 @@
 
 /* Status pill: dot + text */
 .window-header-status {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);     /* 13px → design shows 14px; using sm for consistency */
   color: var(--ink-55);
   display: flex;

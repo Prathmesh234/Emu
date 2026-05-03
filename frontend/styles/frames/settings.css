@@ -4,9 +4,9 @@
  * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
  * Design source: Emu-handoff.zip → project/frames/frames-b.jsx > F_Settings
  *
- * Grouped row layout: each section has an italic serif label, then a list
- * of rows (key = body, value = italic serif in --ink-55, underlined if
- * clickable). Rendered as a centered modal over the main window.
+ * Grouped row layout: section labels, row labels, values, and controls all
+ * use the shared sans UI font. Rendered as a centered modal over the main
+ * window.
  */
 
 .settings-overlay {
@@ -45,8 +45,8 @@
 }
 
 .settings-title {
-  font-family: var(--font-serif);
-  font-weight: 400;
+  font-family: var(--font-sans);
+  font-weight: 500;
   font-size: var(--size-2xl);     /* 28px — matches design h2 */
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -75,8 +75,9 @@
 }
 
 .settings-section-label {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
   font-size: var(--size-sm);       /* 13px */
   color: var(--ink-55);
   margin: 18px 0 6px;
@@ -100,8 +101,8 @@
 }
 
 .settings-row-value {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);       /* 13px → matches design 14px */
   color: var(--ink-55);
   cursor: default;
@@ -121,8 +122,8 @@
 
 .settings-row-select,
 .settings-row-input {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);
   color: var(--ink-55);
   background: transparent;
@@ -144,7 +145,7 @@
 
 .settings-row-input::placeholder {
   color: var(--ink-30);
-  font-style: italic;
+  font-style: normal;
 }
 
 .settings-save-row {
@@ -154,8 +155,8 @@
 }
 
 .settings-save-status {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);
   color: var(--ink-55);
   flex: 1;
@@ -165,8 +166,8 @@
 .settings-save-status.err { color: rgba(180, 60, 40, 0.75); }
 
 .settings-save-btn {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);
   color: var(--ink);
   background: transparent;

@@ -385,9 +385,32 @@ async function callTool(toolName, args = {}, { app } = {}) {
 
 function _missingPermissions(output) {
   const missing = [];
-  if (/Accessibility:\s*NOT granted/i.test(output)) missing.push('accessibility');
-  if (/Screen Recording:\s*NOT granted/i.test(output)) missing.push('screen');
+  if (_permissionLineIsMissing(output, 'Accessibility')) missing.push('accessibility');
+  if (_permissionLineIsMissing(output, 'Screen Recording')) missing.push('screen');
   return missing;
+}
+
+function _permissionLineIsMissing(output, label) {
+  const text = String(output || '');
+  const line = text
+    .split(/\r?\n/)
+    .find((item) => new RegExp(label, 'i').test(item));
+  if (!line) return false;
+  return /not\s*granted|denied|not.?determined|restricted|missing|unauthori[sz]ed|requires|disabled|false/i.test(line);
+}
+
+function _isDriverBinaryMissing(message) {
+  return /binary not found|build\/install|install it from/i.test(String(message || ''));
+}
+
+function _looksLikePermissionOrDaemonAccessFailure(message) {
+  const text = String(message || '');
+  if (_isDriverBinaryMissing(text)) return false;
+  return (
+    !text ||
+    /permission|accessibility|screen recording|screen capture|not authorized|not authorised/i.test(text) ||
+    /emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text)
+  );
 }
 
 function _startupError(err) {
@@ -396,7 +419,7 @@ function _startupError(err) {
     success: false,
     running: false,
     error: message,
-    permissionsRequired: /permission|Accessibility|Screen Recording/i.test(message),
+    permissionsRequired: _looksLikePermissionOrDaemonAccessFailure(message),
   };
 }
 

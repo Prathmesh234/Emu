@@ -4,7 +4,7 @@
  * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
  * Design source: Emu-handoff.zip → project/frames/chrome.jsx > Composer
  *
- * Replaces the old rounded-border ChatInput with a minimal, serif-driven
+ * Replaces the old rounded-border ChatInput with a minimal token-driven
  * composer. Top border only. Two rows: optional hint + input + verb button.
  *
  * States: idle | working | done | confirm | disabled
@@ -23,8 +23,8 @@
 /* ── Hint row (visible only when hint text is set) ──────────────────────── */
 
 .composer-hint {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);   /* 13px */
   color: var(--ink-55);
   display: flex;
@@ -54,9 +54,7 @@
   gap: 18px;
 }
 
-/* Typed text uses Inter Tight (matches user-turn text and the rest of
- * the app). Only the empty-state placeholder uses serif italic, per the
- * design's editorial hint feel. No border, no background. */
+/* Typed text uses Inter Tight to match the rest of the app. */
 .composer-input {
   flex: 1;
   font-family: var(--font-sans);
@@ -75,10 +73,9 @@
   max-height: 160px;
 }
 
-/* Placeholder only — serif italic "Ask anything…" matches the handoff hint */
 .composer-input::placeholder {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   color: var(--ink-30);
 }
 
@@ -91,8 +88,8 @@
 /* ── Verb button (send / stop) ──────────────────────────────────────────── */
 
 .composer-btn {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-base); /* 15px */
   color: var(--ink-55);
   background: none;
@@ -131,8 +128,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-sm);
   color: var(--ink-55);
   background: var(--paper);

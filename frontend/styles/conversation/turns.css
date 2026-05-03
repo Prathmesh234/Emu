@@ -4,7 +4,7 @@
  * Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
  * Design source: Emu-handoff.zip → project/frames/chrome.jsx > You, Emu
  *
- * Both turn types share a label (italic serif 13px, --ink-55) sitting
+ * Both turn types share a label (sans 13px, --ink-55) sitting
  * above the content block. "You" = large 19px text. "Emu" = 17px body
  * with a flex-column body area that accumulates trace lines + done text.
  */
@@ -12,8 +12,9 @@
 /* ── Shared label ────────────────────────────────────────────────────── */
 
 .turn-label {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
   font-size: var(--size-sm);      /* 13px */
   color: var(--ink-55);
   margin-bottom: 8px;

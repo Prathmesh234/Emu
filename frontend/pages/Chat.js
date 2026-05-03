@@ -38,6 +38,7 @@ let _historyPanelOpen = false;
 let _viewingPastSession = false;
 let _pastSessionId = null;
 let _permissionsCard = null;
+const DEFAULT_COWORKER_MISSING_PERMISSIONS = ['accessibility', 'screen'];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -265,8 +266,71 @@ function invokeIpc(channel, payload) {
     return ipcRenderer.invoke(channel, payload);
 }
 
+function normalizeMissingPermissions(raw) {
+    const items = Array.isArray(raw) ? raw : [];
+    const result = [];
+    for (const item of items) {
+        const value = String(item || '').toLowerCase();
+        let kind = null;
+        if (value === 'accessibility' || value.includes('access')) {
+            kind = 'accessibility';
+        } else if (value === 'screen' || value.includes('screen')) {
+            kind = 'screen';
+        }
+        if (kind && !result.includes(kind)) result.push(kind);
+    }
+    return result;
+}
+
+function missingPermissionsFromText(text) {
+    const value = String(text || '');
+    const missing = [];
+    if (/accessibility/i.test(value)) missing.push('accessibility');
+    if (/screen recording|screen capture|screen/i.test(value)) missing.push('screen');
+    return missing;
+}
+
+function isDriverBinaryMissing(text) {
+    return /binary not found|build\/install|install it from/i.test(String(text || ''));
+}
+
+function shouldShowPermissionsForDriverFailure(resultOrError) {
+    const text = typeof resultOrError === 'string'
+        ? resultOrError
+        : [
+            resultOrError?.error,
+            resultOrError?.output,
+            resultOrError?.message,
+        ].filter(Boolean).join('\n');
+    if (isDriverBinaryMissing(text)) return false;
+    if (resultOrError?.permissionsRequired) return true;
+    if (resultOrError?.success === false || resultOrError?.granted === false) return true;
+    return /permission|accessibility|screen recording|screen capture|not authorized|not authorised|emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text);
+}
+
+function missingPermissionsFromDriverFailure(resultOrError) {
+    const explicit = normalizeMissingPermissions(
+        resultOrError?.missing || resultOrError?.permissions?.missing || []
+    );
+    if (explicit.length) return explicit;
+
+    const text = typeof resultOrError === 'string'
+        ? resultOrError
+        : [
+            resultOrError?.error,
+            resultOrError?.output,
+            resultOrError?.message,
+        ].filter(Boolean).join('\n');
+    const inferred = missingPermissionsFromText(text);
+    if (inferred.length) return inferred;
+    return shouldShowPermissionsForDriverFailure(resultOrError)
+        ? DEFAULT_COWORKER_MISSING_PERMISSIONS
+        : [];
+}
+
 function showPermissionsCard(missing) {
-    if (!Array.isArray(missing) || missing.length === 0) return;
+    missing = normalizeMissingPermissions(missing);
+    if (missing.length === 0) return;
 
     if (_permissionsCard) {
         _permissionsCard.update(missing);
@@ -282,6 +346,25 @@ function showPermissionsCard(missing) {
         },
     });
     document.body.appendChild(_permissionsCard.element);
+}
+
+async function checkCoworkerPermissionsOnMount() {
+    try {
+        const result = await invokeIpc('emu-cua:recheck-permissions');
+        const missing = missingPermissionsFromDriverFailure(result);
+        if (_permissionsCard) {
+            _permissionsCard.update(missing);
+        } else if (missing.length) {
+            showPermissionsCard(missing);
+        }
+    } catch (err) {
+        const missing = missingPermissionsFromDriverFailure(err);
+        if (missing.length) {
+            showPermissionsCard(missing);
+        } else {
+            console.warn('[permissions] coworker permission check failed:', err?.message || err);
+        }
+    }
 }
 
 function subscribePermissionsRequired() {
@@ -1068,6 +1151,9 @@ async function handleWsMessage(data) {
                     if (container) container.appendChild(wrap);
                     else root.appendChild(wrap);
                 } else if (data.event === 'cua_driver_call' || data.event === 'raise_app') {
+                    if (data.permissions_required || data.missing_permissions) {
+                        showPermissionsCard(data.missing_permissions || data.missing || []);
+                    }
                     // Coworker-mode tool calls (cua_click, cua_type_text,
                     // raise_app, etc). Show one trace line per call so the
                     // user can see what the agent is actually doing — same
@@ -1228,6 +1314,7 @@ function mount(appEl) {
     newChat();
     chatInput.textarea.focus();
     initSession();
+    setTimeout(checkCoworkerPermissionsOnMount, 250);
 }
 
 module.exports = { mount, newChat, selectChat };

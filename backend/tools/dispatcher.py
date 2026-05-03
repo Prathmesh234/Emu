@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from utilities.connection import ConnectionManager
 from context_manager import ContextManager
 from workspace import write_session_file, read_session_file, list_session_files
@@ -74,6 +75,22 @@ def _maybe_update_coworker_target(
     except Exception:
         # Tracking is opportunistic; never let it break tool dispatch.
         pass
+
+
+def _missing_permissions_from_driver_error(text: str) -> list[str]:
+    value = str(text or "")
+    missing: list[str] = []
+    if re.search(r"accessibility", value, re.IGNORECASE):
+        missing.append("accessibility")
+    if re.search(r"screen recording|screen capture", value, re.IGNORECASE):
+        missing.append("screen")
+    if not missing and re.search(
+        r"permission|not authori[sz]ed|emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket",
+        value,
+        re.IGNORECASE,
+    ):
+        missing.extend(["accessibility", "screen"])
+    return missing
 
 
 def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
@@ -362,13 +379,18 @@ async def execute_agent_tool(
         _maybe_update_coworker_target(
             context_manager, session_id, name, args, result.get("json")
         )
-        await manager.send(session_id, {
+        missing_permissions = _missing_permissions_from_driver_error(result.get("error", ""))
+        event_payload = {
             "type": "tool_event",
             "event": "cua_driver_call",
             "tool": name,
             "ok": bool(result.get("ok")),
             "args": json.dumps(args, ensure_ascii=False)[:300],
-        })
+        }
+        if missing_permissions:
+            event_payload["permissions_required"] = True
+            event_payload["missing_permissions"] = missing_permissions
+        await manager.send(session_id, event_payload)
         text = format_driver_result_for_model(name, result)
         screenshot = driver_screenshot_for_context(result)
         if screenshot:

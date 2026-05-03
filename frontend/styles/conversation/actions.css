@@ -7,7 +7,7 @@
  * Three button variants per the design:
  *   primary   — filled ink bg, paper text (Confirm, Allow, Accept)
  *   secondary — ink border, transparent bg (Take over, Deny)
- *   ghost     — no border, ink-55 color, serif italic (cancel, abandon)
+ *   ghost     — no border, ink-55 color (cancel, abandon)
  *
  * The existing class names (.step-confirm-btn.allow / .deny / .chosen)
  * are preserved so Chat.js querySelector logic needs no changes.
@@ -75,15 +75,15 @@
   cursor: default;
 }
 
-/* ── Ghost (text-only, serif italic) ──────────────────────────────────── */
+/* ── Ghost (text-only) ────────────────────────────────────────────────── */
 
 .action-btn-ghost {
   padding: 9px 8px;
   border: none;
   background: transparent;
   color: var(--ink-55);
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
   font-size: var(--size-base);    /* 15px */
   cursor: pointer;
   transition: color 0.15s;
@@ -124,8 +124,9 @@
 }
 
 .file-dialog-title {
-  font-family: var(--font-serif);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
   font-size: var(--size-base);
   color: var(--ink);
 }

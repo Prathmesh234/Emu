@@ -22,6 +22,7 @@ console.log(`[emu] EMU_ROOT = ${EMU_ROOT}`);
 let mainWindow;
 let borderWindow;
 let lastMissingPermissions = [];
+const DEFAULT_DRIVER_MISSING_PERMISSIONS = ['accessibility', 'screen'];
 
 function normalizeMissingPermissions(raw) {
   const items = Array.isArray(raw) ? raw : [];
@@ -44,7 +45,21 @@ function missingPermissionsFromError(message) {
   const missing = [];
   if (/accessibility/i.test(text)) missing.push('accessibility');
   if (/screen recording|screen/i.test(text)) missing.push('screen');
-  return missing.length ? missing : ['accessibility', 'screen'];
+  return missing.length ? missing : DEFAULT_DRIVER_MISSING_PERMISSIONS;
+}
+
+function isDriverBinaryMissing(message) {
+  return /binary not found|build\/install|install it from/i.test(String(message || ''));
+}
+
+function shouldPromptForDriverPermissions(message) {
+  const text = String(message || '');
+  if (isDriverBinaryMissing(text)) return false;
+  return (
+    !text ||
+    /permission|accessibility|screen recording|screen capture|not authorized|not authorised/i.test(text) ||
+    /emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text)
+  );
 }
 
 function emitPermissionsRequired(rawMissing) {
@@ -206,13 +221,16 @@ app.whenReady().then(() => {
         }
       } else {
         console.warn(`[emu-cua-driver] startup deferred: ${result?.error || 'unknown'}`);
-        if (result?.permissionsRequired) {
+        if (result?.permissionsRequired || shouldPromptForDriverPermissions(result?.error)) {
           emitPermissionsRequired(missingPermissionsFromError(result?.error));
         }
       }
     })
     .catch((err) => {
       console.warn(`[emu-cua-driver] startup error: ${err?.message || err}`);
+      if (shouldPromptForDriverPermissions(err?.message || err)) {
+        emitPermissionsRequired(missingPermissionsFromError(err?.message || err));
+      }
     });
 
   ipcMain.handle('permissions:status', async () => {
@@ -263,11 +281,15 @@ app.whenReady().then(() => {
       }
       return { success: true, ...result, missing };
     } catch (err) {
-      const missing = missingPermissionsFromError(err?.message);
-      emitPermissionsRequired(missing);
+      const shouldPrompt = shouldPromptForDriverPermissions(err?.message || err);
+      const missing = shouldPrompt ? missingPermissionsFromError(err?.message) : [];
+      if (shouldPrompt) {
+        emitPermissionsRequired(missing);
+      }
       return {
         success: false,
         granted: false,
+        permissionsRequired: shouldPrompt,
         missing,
         error: err?.message || String(err),
       };
