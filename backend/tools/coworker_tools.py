@@ -153,7 +153,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "urls": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional file:// or http(s):// URLs handed to the app. Preferred for browser navigation: normalize bare domains with https:// and pass URLs here instead of typing into the address bar and pressing Return. For Finder, a folder URL opens a backgrounded Finder window rooted there.",
+                "description": "Optional file:// or http(s):// URLs handed to the app. Preferred for browser navigation and search: normalize bare domains with https://, or build a search URL such as https://www.google.com/search?q=... / YouTube /results?search_query=..., and pass it here instead of Cmd+L, typing the address bar, or pressing Return. For Finder, a folder URL opens a backgrounded Finder window rooted there.",
             },
             "electron_debugging_port": {
                 "type": "integer",
@@ -349,10 +349,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         (
             "Insert text into the target pid. Tries AXSetAttribute"
             "(kAXSelectedText) first (standard Cocoa text fields/views) "
-            "and silently falls back to per-character CGEvent.postToPid "
-            "synthesis when the AX write is rejected. If the AX path "
-            "reports success but a web/Electron field verifies unchanged, "
-            "retry the same field with cua_type_text_chars. "
+            "and falls back to per-character CGEvent.postToPid synthesis "
+            "when the AX write is rejected or Chromium silently accepts it "
+            "without updating the field. If visible verification still shows "
+            "no effect, retry the same field with cua_type_text_chars. "
             "Does NOT synthesize Return/Tab — use cua_press_key / "
             "cua_hotkey for those. For web/browser search or text "
             "fields, pass element_index + window_id from the latest "
@@ -378,9 +378,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "cua_type_text_chars",
         (
             "Force per-character Unicode CGEvent typing to the target pid. "
-            "Use this for web/Electron inputs when cua_type_text reports "
-            "success but verification shows the field did not update or "
-            "input handlers did not fire. Optional element_index + window_id "
+            "Use this as the explicit fallback for web/Electron inputs when "
+            "cua_type_text verifies as ineffective or input handlers did not "
+            "fire. Optional element_index + window_id "
             "pre-focuses the field first; otherwise characters go to the "
             "pid's current focus. Does NOT synthesize Return/Tab — use "
             "cua_press_key / cua_hotkey for those."
@@ -429,9 +429,12 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "pageup, pagedown, f1-f12, letters, digits. Optional "
             "`modifiers` array (cmd/shift/option/ctrl/fn). Optional "
             "element_index + window_id pre-focuses the element via "
-            "AXSetAttribute(kAXFocused, true). For submitting web/browser "
-            "inputs, pass the same element_index + window_id used for "
-            "cua_type_text. For true combos prefer cua_hotkey for clarity."
+            "AXSetAttribute(kAXFocused, true). For submitting web fields, "
+            "first verify text landed, then pass the same element_index + "
+            "window_id used for cua_type_text. Do not use Return to commit "
+            "browser URL/search navigation; use cua_launch_app urls/search "
+            "URLs instead. If one Return no-ops, do not repeat it. For true "
+            "combos prefer cua_hotkey for clarity."
         ),
         {
             "pid": _PID,
