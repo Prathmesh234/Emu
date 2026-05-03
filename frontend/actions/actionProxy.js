@@ -19,6 +19,7 @@ const { captureScreenshot, getScaleFactors, getScreenDimensions, getDisplayOffse
 const { keyPress, typeText } = require('./keyboard');
 const { shellExec }      = require('./exec');
 const { ipcRenderer }    = require('electron');
+const { formatActionTrace } = require('../services/traceLabels');
 
 // Live display dimensions, preferring main-process query. Avoids
 // stale cached values from the last screenshot (first-action case,
@@ -292,7 +293,7 @@ async function dispatchAction(action) {
         return { success: false, ipc: null, description: `Unknown: ${action.type}` };
     }
 
-    const description = entry.describe(action);
+    const description = formatActionTrace(action);
 
     if (!entry.dispatch) {
         return { success: true, ipc: entry.ipc, description, needsSpecialHandling: true };
@@ -323,7 +324,7 @@ async function dispatchAction(action) {
  */
 function describeAction(action) {
     const entry = ACTION_MAP[action.type];
-    return entry ? entry.describe(action) : `Unknown action: ${action.type}`;
+    return entry ? formatActionTrace(action) : `Unknown action: ${action.type}`;
 }
 
 /**

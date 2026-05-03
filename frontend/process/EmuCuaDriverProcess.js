@@ -144,9 +144,14 @@ function _startServeOnce(bin) {
     });
     _ownsServeDaemon = true;
     let settled = false;
+    let readyTimer = null;
     const settle = (err) => {
       if (settled) return;
       settled = true;
+      if (readyTimer) {
+        clearTimeout(readyTimer);
+        readyTimer = null;
+      }
       err ? reject(err) : resolve();
     };
 
@@ -183,7 +188,15 @@ function _startServeOnce(bin) {
     });
 
     _serveChild = child;
-    setTimeout(() => settle(), 5000);
+    readyTimer = setTimeout(() => {
+      if (_isDaemonRunning(bin)) {
+        settle();
+        return;
+      }
+      try { child.kill('SIGTERM'); } catch (_) {}
+      settle(new Error('serve did not become ready within 5000ms'));
+    }, 5000);
+    if (readyTimer.unref) readyTimer.unref();
   });
 }
 

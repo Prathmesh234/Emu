@@ -153,7 +153,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "urls": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional file:// or http(s):// URLs handed to the launched app via application(_:open:). For Finder, a folder URL opens a backgrounded Finder window rooted there.",
+                "description": "Optional file:// or http(s):// URLs handed to the app. Preferred for browser navigation: normalize bare domains with https:// and pass URLs here instead of typing into the address bar and pressing Return. For Finder, a folder URL opens a backgrounded Finder window rooted there.",
             },
             "electron_debugging_port": {
                 "type": "integer",
@@ -978,6 +978,13 @@ def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
         guidance.append(
             "A successful tool result only means the input was posted/accepted; "
             "verify the visible or AX state changed before reporting success."
+        )
+
+    if ok and name in {"cua_press_key", "cua_hotkey"} and "return" in lowered:
+        guidance.append(
+            "If this Return was meant to commit a browser address-bar URL "
+            "and the page did not navigate, do not retry Return; use "
+            "cua_launch_app(..., urls=[...]) with the requested URL(s)."
         )
 
     if "axstatictext" in lowered:

@@ -18,6 +18,7 @@
 
 const { TurnEmu } = require('./TurnEmu');
 const { StepCard, FileCard, SkillCard } = require('../index');
+const { formatToolTrace } = require('../../services/traceLabels');
 
 function renderPastSession(chatWrapper, messages, addMessage) {
     if (!messages || messages.length === 0) return;
@@ -108,7 +109,7 @@ function renderPastSession(chatWrapper, messages, addMessage) {
             // no completion badge. Matches the Finished-frame aesthetic.
             const toolWrap = document.createElement('div');
             toolWrap.className = 'trace resolved';
-            toolWrap.textContent = `used ${toolName || 'tool'}`;
+            toolWrap.textContent = formatToolTrace(toolName || 'tool', meta.args || '{}');
             container.appendChild(toolWrap);
             return;
         }

@@ -87,6 +87,34 @@ def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
     """
     normalized = dict(args)
 
+    int_keys = {
+        "pid",
+        "window_id",
+        "element_index",
+        "amount",
+        "count",
+        "delay_ms",
+        "duration_ms",
+        "quality",
+    }
+    float_keys = {"x", "y", "start_x", "start_y", "end_x", "end_y"}
+
+    for key in int_keys:
+        value = normalized.get(key)
+        if isinstance(value, str) and value.strip():
+            try:
+                normalized[key] = int(value)
+            except ValueError:
+                pass
+
+    for key in float_keys:
+        value = normalized.get(key)
+        if isinstance(value, str) and value.strip():
+            try:
+                normalized[key] = float(value)
+            except ValueError:
+                pass
+
     def _drop_empty(*keys: str) -> None:
         for key in keys:
             value = normalized.get(key)
@@ -320,6 +348,12 @@ async def execute_agent_tool(
     # accept the friendlier alias ``list_running_apps`` which maps onto the
     # driver's ``list_apps`` tool.
     elif name == "list_running_apps" or name in COWORKER_DRIVER_TOOL_NAMES:
+        if agent_mode != "coworker":
+            return (
+                f"ERROR: '{name}' is only available in coworker mode. "
+                "The current mode is remote, so nothing was executed. "
+                "Use remote desktop action JSON instead."
+            )
         args = _normalize_coworker_driver_args(name, args)
         driver_tool = "list_apps" if name == "list_running_apps" else name[len("cua_"):]
         result = await asyncio.to_thread(

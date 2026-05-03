@@ -7,7 +7,8 @@ that the agent always sees a tidy workspace). Performs three tasks:
     1) Deletes session folders that have no ``logs/`` subdirectory
        (considered "empty" — nothing for the agent to summarise).
     2) Deletes session folders older than SESSION_MAX_AGE_DAYS days.
-    3) Trims ``stderr.log``, ``stdout.log``, ``tick.jsonl``, and any
+    3) Keeps only the SESSION_KEEP_RECENT newest session folders.
+    4) Trims ``stderr.log``, ``stdout.log``, ``tick.jsonl``, and any
        other files under ``.emu/global/daemon/logs/`` to the last
        ``MAX_LOG_LINES`` lines.
 
@@ -40,6 +41,7 @@ from . import policy
 
 # ── Config ───────────────────────────────────────────────────────────────
 SESSION_MAX_AGE_DAYS = 30
+SESSION_KEEP_RECENT = 15
 MAX_LOG_LINES = 20
 
 # Filenames under global/daemon/logs/ that should ALWAYS be trimmed even if
@@ -118,11 +120,15 @@ def _save_index_atomic(index_path: Path, data: dict) -> None:
             pass
 
 
-# ── Task 1+2: session folder cleanup ─────────────────────────────────────
-def _prune_sessions(sessions_dir: Path) -> tuple[int, int]:
-    """Delete empty and stale session folders. Returns (empty, stale) counts."""
+# ── Task 1+2+3: session folder cleanup ───────────────────────────────────
+def _prune_sessions(sessions_dir: Path) -> tuple[int, int, int]:
+    """
+    Delete empty/stale/excess session folders.
+
+    Returns (empty, stale, excess) counts.
+    """
     if not sessions_dir.is_dir() or not _safe_under_root(sessions_dir):
-        return (0, 0)
+        return (0, 0, 0)
 
     index_path = sessions_dir / "index.json"
     index = _load_index(index_path)
@@ -132,14 +138,16 @@ def _prune_sessions(sessions_dir: Path) -> tuple[int, int]:
     removed_ids: set[str] = set()
     empty_count = 0
     stale_count = 0
+    excess_count = 0
 
-    for entry in sessions_dir.iterdir():
-        if not entry.is_dir():
-            continue
-        # Never touch anything that's a symlink out of the tree.
-        if not _safe_under_root(entry):
-            continue
+    def _session_dirs() -> list[Path]:
+        dirs: list[Path] = []
+        for entry in sessions_dir.iterdir():
+            if entry.is_dir() and _safe_under_root(entry):
+                dirs.append(entry)
+        return dirs
 
+    for entry in _session_dirs():
         session_id = entry.name
         logs_dir = entry / "logs"
 
@@ -160,6 +168,20 @@ def _prune_sessions(sessions_dir: Path) -> tuple[int, int]:
                 removed_ids.add(session_id)
                 stale_count += 1
 
+    # Rule 3: hard cap — keep only the N newest remaining session folders.
+    remaining = []
+    for entry in _session_dirs():
+        try:
+            remaining.append((entry.stat().st_mtime, entry))
+        except OSError:
+            continue
+    remaining.sort(key=lambda item: item[0], reverse=True)
+    for _, entry in remaining[SESSION_KEEP_RECENT:]:
+        session_id = entry.name
+        if _rm_tree_safe(entry):
+            removed_ids.add(session_id)
+            excess_count += 1
+
     # Trim index.json — drop entries for folders we removed, AND drop
     # entries whose folder no longer exists on disk (drift self-heal).
     if index:
@@ -171,7 +193,7 @@ def _prune_sessions(sessions_dir: Path) -> tuple[int, int]:
         if len(index) != before:
             _save_index_atomic(index_path, index)
 
-    return (empty_count, stale_count)
+    return (empty_count, stale_count, excess_count)
 
 
 # ── Task 3: log trimming ─────────────────────────────────────────────────
@@ -252,6 +274,7 @@ def run_cleanup() -> dict:
     summary = {
         "empty_sessions": 0,
         "stale_sessions": 0,
+        "excess_sessions": 0,
         "logs_trimmed": 0,
         "tmp_files_removed": 0,
     }
@@ -259,9 +282,10 @@ def run_cleanup() -> dict:
         sessions_dir = policy.EMU_ROOT / "sessions"
         logs_dir = policy.EMU_ROOT / "global" / "daemon" / "logs"
 
-        empty, stale = _prune_sessions(sessions_dir)
+        empty, stale, excess = _prune_sessions(sessions_dir)
         summary["empty_sessions"] = empty
         summary["stale_sessions"] = stale
+        summary["excess_sessions"] = excess
 
         summary["logs_trimmed"] = _trim_daemon_logs(logs_dir)
         summary["tmp_files_removed"] = _sweep_tmp_files(sessions_dir, logs_dir)
@@ -270,6 +294,7 @@ def run_cleanup() -> dict:
             print(
                 f"[daemon/cleanup] empty={summary['empty_sessions']} "
                 f"stale={summary['stale_sessions']} "
+                f"excess={summary['excess_sessions']} "
                 f"logs_trimmed={summary['logs_trimmed']} "
                 f"tmp_removed={summary['tmp_files_removed']}",
                 file=sys.stderr,

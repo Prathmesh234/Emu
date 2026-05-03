@@ -8,6 +8,7 @@
 // (or pixel coordinates as fallback for canvas apps).
 
 const { ipcRenderer } = require('electron');
+const { formatActionTrace } = require('../services/traceLabels');
 
 const ACTION_TIMEOUT_MS = 15_000;
 
@@ -269,7 +270,7 @@ async function dispatchAction(action) {
         return { success: false, ipc: null, description: `Unknown: ${action.type}` };
     }
 
-    const description = entry.describe(action);
+    const description = formatActionTrace(action);
 
     if (!entry.dispatch) {
         return { success: true, ipc: entry.ipc, description, needsSpecialHandling: true };

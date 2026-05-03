@@ -26,6 +26,7 @@ const { captureScreenshot, fullCapture } = require('../actions');
 const { executeAction } = require('../actions/executor');
 const { captureForStep } = require('../services/captureForStep');
 const { createWindowManager } = require('../services/windowManager');
+const { formatToolTrace, hasDedicatedToolEvent } = require('../services/traceLabels');
 const store = require('../state/store');
 const api = require('../services/api');
 const { initWebSocket, setMessageHandler } = require('../services/websocket');
@@ -66,31 +67,7 @@ function scrollToBottom() {
 // (coords, element_index, key, text), keeping pid/window_id off the line so
 // it stays readable when several calls fire in a row.
 function _formatCuaCall(tool, argsJson, ok) {
-    const name = String(tool || '').replace(/^cua_/, '');
-    let argsObj = {};
-    try { argsObj = argsJson ? JSON.parse(argsJson) : {}; } catch (_) {}
-
-    if (argsObj.element_index !== undefined) {
-        delete argsObj.x;
-        delete argsObj.y;
-        delete argsObj.count;
-        delete argsObj.modifier;
-        delete argsObj.from_zoom;
-    }
-
-    const keys = ['element_index', 'x', 'y', 'key', 'keys', 'text', 'direction', 'amount', 'app_name', 'bundle_id'];
-    const parts = [];
-    for (const k of keys) {
-        if (argsObj[k] !== undefined) {
-            const v = argsObj[k];
-            if (v === '' || (Array.isArray(v) && v.length === 0)) continue;
-            const s = typeof v === 'string' ? `"${v.length > 40 ? v.slice(0, 40) + '…' : v}"` : JSON.stringify(v);
-            parts.push(`${k}: ${s}`);
-        }
-    }
-    const sig = parts.length ? `{${parts.join(', ')}}` : '';
-    const mark = ok === false ? ' ✗' : '';
-    return `using ${name}(${sig})${mark}`;
+    return formatToolTrace(tool, argsJson, { ok });
 }
 
 function syncGeneratingUI(generating) {
@@ -263,12 +240,16 @@ function ensureAssistantBody() {
 // Design change (Phase 4): status messages now drive the WindowHeader pill
 // instead of appending a visible bubble to the chat area. This matches the
 // design's quiet aesthetic — status lives in the chrome, not the conversation.
-function showStatus(text) {
-    if (winHeader) winHeader.setStatus(text, true);
+function statusLooksLive(text) {
+    return !/(failed|error|lost|unreachable|paused|stopped|rejected|denied)/i.test(String(text || ''));
 }
 
-function updateStatus(text) {
-    if (winHeader) winHeader.setStatus(text, true);
+function showStatus(text, live = statusLooksLive(text)) {
+    if (winHeader) winHeader.setStatus(text, live);
+}
+
+function updateStatus(text, live = statusLooksLive(text)) {
+    if (winHeader) winHeader.setStatus(text, live);
 }
 
 function removeStatus() {
@@ -757,6 +738,7 @@ async function handleWsMessage(data) {
             if (!store.state.isGenerating) break;
             const message = data.message || '';
             if (!message.startsWith('[tool]')) break;
+            if (!message.includes('[TOOL REJECTED]')) break;
 
             const root = ensureAssistantBody();
             if (!root) break;
@@ -764,9 +746,11 @@ async function handleWsMessage(data) {
             if (typing) typing.remove();
 
             const wrap = document.createElement('div');
-            wrap.className = 'trace resolved';
-            const compact = message.replace(/\s+/g, ' ').trim();
-            wrap.textContent = compact.length > 220 ? compact.slice(0, 220) + '…' : compact;
+            wrap.className = 'trace resolved trace-error';
+            const match = message.match(/^\[tool\]\s+([^(]+)\((.*?)\)\s+→/);
+            wrap.textContent = match
+                ? formatToolTrace(match[1], match[2], { ok: false })
+                : 'Tool rejected';
             root.appendChild(wrap);
             scrollToBottom();
             break;
@@ -1043,13 +1027,10 @@ async function handleWsMessage(data) {
                         root.appendChild(skillCard.element);
                     }
                 } else if (data.event === 'hermes_invoked') {
-                    // Generic tool trace — matches the replay-path style
-                    // ("used <tool_name>") used for any tool call without
-                    // a dedicated card. Tag it so hermes_done can update it.
                     const toolWrap = document.createElement('div');
                     toolWrap.className = 'trace resolved hermes-trace';
                     toolWrap.dataset.hermes = 'running';
-                    toolWrap.textContent = 'using hermes agent…';
+                    toolWrap.textContent = 'Launch Hermes';
                     if (container) {
                         container.appendChild(toolWrap);
                     } else {
@@ -1064,8 +1045,8 @@ async function handleWsMessage(data) {
                     const card = cards.length ? cards[cards.length - 1] : null;
                     const status = data.status || 'completed';
                     const label = status === 'completed'
-                        ? 'hermes agent finished'
-                        : `hermes agent ${status}`;
+                        ? 'Hermes finished'
+                        : `Hermes ${status}`;
                     if (card) {
                         card.dataset.hermes = status;
                         card.textContent = label;
@@ -1080,9 +1061,10 @@ async function handleWsMessage(data) {
                         else root.appendChild(wrap);
                     }
                 } else if (data.event === 'tool_call_started') {
+                    if (hasDedicatedToolEvent(data.tool)) break;
                     const wrap = document.createElement('div');
                     wrap.className = 'trace resolved';
-                    wrap.textContent = _formatCuaCall(data.tool, data.args, true).replace(/^using /, 'starting ');
+                    wrap.textContent = formatToolTrace(data.tool, data.args);
                     if (container) container.appendChild(wrap);
                     else root.appendChild(wrap);
                 } else if (data.event === 'cua_driver_call' || data.event === 'raise_app') {
@@ -1093,7 +1075,7 @@ async function handleWsMessage(data) {
                     const wrap = document.createElement('div');
                     wrap.className = 'trace resolved';
                     const label = data.event === 'raise_app'
-                        ? `raise_app(${data.app_name || ''})`
+                        ? formatToolTrace('raise_app', { app_name: data.app_name })
                         : _formatCuaCall(data.tool, data.args, data.ok);
                     wrap.textContent = label;
                     if (container) container.appendChild(wrap);

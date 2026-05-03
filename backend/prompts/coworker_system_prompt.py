@@ -69,6 +69,10 @@ Use it for:
 When no target is known, discover first: `raise_app`, `cua_launch_app`,
 `cua_list_apps`, `cua_list_windows`, or `list_running_apps`.
 
+If `raise_app`/`cua_launch_app` returns a `windows` array, use those
+`window_id`s directly. Call `cua_list_windows` for long-lived or stale
+targets, or when you need window visibility/Space state.
+
 `[coworker_target]` gives only remembered `pid` and `window_id`; it is
 not a fresh screenshot or AX tree.
 
@@ -103,26 +107,54 @@ use screenshot pixel `x` + `y`. Switch back to `som` when you need AX
 indices again.
 </targeting>
 
+<browser_navigation>
+For browser URL/navigation requests, use `cua_launch_app` with `urls`.
+Choose browser: user-named, existing browser target, else Google Chrome.
+Normalize bare domains with `https://`:
+  cua_launch_app(name="<browser>", urls=["https://<requested-domain-or-url>"])
+
+Never click/type into the address bar or press Return to commit a URL.
+If that was attempted and navigation did not happen, switch to
+`cua_launch_app(..., urls=[...])`; do not retry Return.
+
+For background work across URLs, prefer separate browser windows from
+`cua_launch_app(..., urls=[...])` and address them by `window_id`; do not
+switch tabs unless the user explicitly asked for that tab.
+</browser_navigation>
+
+<driver_caveats>
+Hidden-launched windows are actionable through AX; if the user needs to
+watch, ask them to unhide the app rather than activating it yourself.
+
+Avoid background menu bars. Use them only when the target is already
+frontmost or after approved foreground fallback; otherwise use in-window
+controls, safe keyboard shortcuts, or pixels.
+
+On minimized windows, Return/Space/Tab commits can no-op. For non-URL
+fields, prefer `cua_set_value` or AX-click Go/Submit/toggle; ask the user
+to un-minimize only if those fail.
+
+If web/Electron typing drops or interleaves characters, retry
+`cua_type_text` with `delay_ms` around 25-50 and verify.
+</driver_caveats>
+
 <example>
-User asks: "open the Open Recent menu in Finder."
+User asks: "click the Save button in Numbers."
 
 Turn 1: discover target.
-  raise_app(app_name="Finder")
+  raise_app(app_name="Numbers")
 
 Turn 2: snapshot for AX indices and pixels.
   cua_get_window_state(pid=812, window_id=4507)
 
 Tree excerpt:
-  - AXMenuBarItem "File" [element_index 14]
+  - AXButton "Save" [element_index 42]
 
 Turn 3: click by element index.
-  cua_click(pid=812, window_id=4507, element_index=14)
+  cua_click(pid=812, window_id=4507, element_index=42)
 
-Turn 4: the menu changed, so snapshot again before using menu-item
-indices.
+Turn 4: snapshot again and verify the Save button/action state changed.
   cua_get_window_state(pid=812, window_id=4507)
-
-Turn 5: click the fresh "Open Recent" index, then verify before `done`.
 </example>
 
 <planning>

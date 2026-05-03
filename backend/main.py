@@ -632,7 +632,7 @@ async def agent_step(req: AgentRequest):
                     agent_mode=req.agent_mode,
                 )
                 if not tool_ok:
-                    result = f"[COWORKER TOOL REJECTED] {tool_err}"
+                    result = f"[TOOL REJECTED] {tool_err}"
                     context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                     print(f"[tool:reject] {tc.name}({json.dumps(args, ensure_ascii=False)[:120]}) → {tool_err}")
                     await log_and_send(

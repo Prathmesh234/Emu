@@ -310,6 +310,16 @@ class ActionValidator:
         agent_mode: str = "remote",
     ) -> tuple[bool, str]:
         """Validate backend function-tool calls before execution."""
+        if agent_mode != "coworker" and (
+            name == "list_running_apps" or name.startswith("cua_")
+        ):
+            return False, (
+                f"`{name}` is only available in coworker mode. The current "
+                "mode is remote, so do not call emu-cua-driver tools. Use "
+                "remote desktop action JSON such as screenshot, "
+                "navigate_and_click, scroll, type_text, key_press, wait, or "
+                "done."
+            )
         return True, ""
 
     def record_tool_result(

@@ -118,6 +118,10 @@ desktop interaction must use function tools available in this request:
   - Browser DOM: `cua_page` when AX is sparse and page/DOM data is needed.
   - Finish: raw `done` JSON only when complete, blocked, or asking one question.
 
+For browser URL/navigation requests, use `cua_launch_app(..., urls=[...])`;
+normalize bare domains with `https://`, choose user-named/existing/Chrome
+browser, and do not click/type the address bar plus Return.
+
 If the prior remote task was stopped, resume from the user's goal and the useful
 observations in history, but first rebuild coworker targeting with discovery and
 fresh `cua_get_window_state` before using any `element_index`. Remote
