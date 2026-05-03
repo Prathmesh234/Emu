@@ -105,10 +105,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "list_running_apps",
         (
             "Enumerate running regular macOS apps. Returns name, pid, "
-            "bundle_id, and front_window_id for each. Use this to discover "
-            "the pid/window_id of an app the user names that may already "
-            "be running, BEFORE calling element-indexed cua_* tools. "
-            "Internally routed to the driver's list_apps."
+            "bundle_id, and front_window_id for each. Use for broad "
+            "discovery (what is running/frontmost/installed). When the user "
+            "names a target app, prefer cua_launch_app because it is "
+            "idempotent and returns windows."
         ),
         {},
     ),
@@ -116,7 +116,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     # ── Discovery ─────────────────────────────────────────────────────────
     _fn(
         "cua_list_apps",
-        "Same as list_running_apps but the driver-namespaced form. Returns running regular apps with pid, name, bundle_id, front_window_id. No params.",
+        "Driver-namespaced app discovery. Returns running regular apps with pid, name, bundle_id, front_window_id. Use for broad discovery; prefer cua_launch_app for a named target app.",
         {},
     ),
     _fn(
@@ -204,7 +204,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "element map is unchanged). Optional `javascript` runs in the "
             "co-located browser tab (Chromium / Safari only; requires "
             "Allow-JavaScript-from-Apple-Events). Capture mode (som / "
-            "vision / ax) is set persistently via cua_set_config."
+            "vision / ax; default som) is set persistently via "
+            "cua_set_config. If a snapshot unexpectedly lacks tree_markdown, "
+            "check cua_get_config before assuming the app exposes no AX tree."
         ),
         {
             "pid": _PID,
@@ -1033,9 +1035,10 @@ def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
     if "disabled" in lowered or "axenabled = false" in lowered:
         guidance.append(
             "Disabled menu/items in a backgrounded app are not usable through "
-            "foreground menu navigation. Do not activate the app or use "
-            "AppleScript as a workaround; choose an in-window driver action or "
-            "report the limitation."
+            "foreground menu navigation. Do not silently activate the app or "
+            "use AppleScript as a workaround; choose an in-window driver "
+            "action, or ask for explicit foreground fallback if the action "
+            "genuinely requires the app to be frontmost."
         )
 
     if not guidance:
