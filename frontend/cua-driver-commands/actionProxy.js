@@ -25,7 +25,8 @@ const ACTION_MAP = {
         ipc: 'emu-cua:screenshot',
         dispatch: async (a) => ipcRenderer.invoke('emu-cua:screenshot', {
             window_id: a.window_id,
-            return_image: true,
+            format: 'jpeg',
+            quality: 80,
         }),
         describe: () => 'Capture target window',
     },

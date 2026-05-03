@@ -24,9 +24,12 @@ function PermissionsCard({
 } = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'permissions-overlay';
+    overlay.tabIndex = -1;
 
     const card = document.createElement('div');
     card.className = 'permissions-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'false');
     overlay.appendChild(card);
 
     const header = document.createElement('div');
@@ -42,7 +45,9 @@ function PermissionsCard({
 
     const title = document.createElement('h2');
     title.className = 'permissions-title';
-    title.textContent = 'Enable coworker mode';
+    title.id = 'permissions-card-title';
+    title.textContent = 'Enable Emu Coworker Mode';
+    card.setAttribute('aria-labelledby', title.id);
     headerText.appendChild(title);
 
     const subtitle = document.createElement('p');
@@ -91,15 +96,16 @@ function PermissionsCard({
             return;
         }
 
-        title.textContent = 'Enable coworker mode';
+        title.textContent = 'Enable Emu Coworker Mode';
         subtitle.textContent = 'Emu needs these permissions to control apps on your Mac. Permissions are only used while Coworker mode is running.';
 
-        currentMissing.forEach((kind) => {
+        currentMissing.forEach((kind, index) => {
             const spec = PERMISSION_COPY[kind];
             if (!spec) return;
 
             const row = document.createElement('div');
             row.className = 'permissions-row';
+            row.setAttribute('role', 'group');
             if (waiting.has(kind)) row.classList.add('waiting');
             if (errors.has(kind)) row.classList.add('errored');
 
@@ -114,7 +120,9 @@ function PermissionsCard({
 
             const rowTitle = document.createElement('div');
             rowTitle.className = 'permissions-row-title';
+            rowTitle.id = `permissions-row-${kind}-${index}`;
             rowTitle.textContent = spec.title;
+            row.setAttribute('aria-labelledby', rowTitle.id);
             copy.appendChild(rowTitle);
 
             const rowDescription = document.createElement('div');
@@ -138,7 +146,7 @@ function PermissionsCard({
             button.className = 'permissions-button';
             button.type = 'button';
             button.disabled = waiting.has(kind);
-            button.textContent = waiting.has(kind) ? 'waiting' : 'allow';
+            button.textContent = waiting.has(kind) ? 'Waiting' : 'Allow';
             button.addEventListener('click', () => allow(kind));
             row.appendChild(button);
 
@@ -236,8 +244,19 @@ function PermissionsCard({
         if (event.target === overlay) close();
     });
     closeButton.addEventListener('click', close);
+    overlay.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+        }
+    });
 
     render();
+    requestAnimationFrame(() => {
+        if (!closed && document.body.contains(overlay)) {
+            overlay.focus({ preventScroll: true });
+        }
+    });
 
     return {
         element: overlay,

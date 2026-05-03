@@ -179,6 +179,10 @@ app.whenReady().then(() => {
   });
 
   emuCuaDriverProcess.configure({ app });
+  require('./frontend/cua-driver-commands').registerAll(ipcMain, {
+    callTool: (name, args) => emuCuaDriverProcess.callTool(name, args, { app }),
+    onPermissionsRequired: emitPermissionsRequired,
+  });
 
   const daemonInstallPromise = daemonInstaller.maybeInstall({ app, emuRoot: EMU_ROOT });
 

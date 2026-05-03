@@ -1,11 +1,10 @@
-# cua-driver — Claude Code skill
+# Emu coworker driver docs
 
-A [Claude Code](https://code.claude.com) skill that teaches Claude to
-drive native macOS apps via the
-[`cua-driver`](https://github.com/trycua/cua/tree/main/libs/cua-driver)
-CLI — snapshot an app's accessibility tree, click/type/scroll by
-`element_index`, and verify via re-snapshot. Backgrounded-first: no
-focus steal, no cursor warp, no Space follow.
+This folder is the operator/developer knowledge base for Emu's coworker mode.
+The integrated runtime uses the Emu-branded `emu-cua-driver` fork in
+`frontend/coworker-mode/emu-driver/` to drive native macOS apps in the
+background without stealing the user's foreground app, moving the real cursor,
+or switching Spaces.
 
 ## What the skill covers
 
@@ -22,33 +21,34 @@ focus steal, no cursor warp, no Space follow.
 - Canvas/viewport apps (Blender, Unity, GHOST, Qt, wxWidgets) —
   HID-tap fallback when AX is empty.
 
-See `SKILL.md` for the main body.
+See `SKILL.md` for the main skill body and `../coworker-mode/PLAN.md` for the
+current integration status.
 
 ## Prerequisites
 
 1. **macOS 14 or newer** — the driver depends on SkyLight private SPIs
    that were stabilized in Sonoma.
-2. **`cua-driver` CLI + `CuaDriver.app`** — installable one-liner:
+2. **`emu-cua-driver` CLI + `EmuCuaDriver.app`** — build from this repo:
    ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
+   npm run build:driver
    ```
-   Or from a clone of `trycua/cua`:
+   Or from the nested driver directly:
    ```bash
-   cd libs/cua-driver
-   scripts/install-local.sh   # builds + installs + symlinks for dev use
+   cd frontend/coworker-mode/emu-driver
+   scripts/build-app.sh debug
    ```
    The driver runs as an `.app` bundle because macOS TCC grants are
-   tied to a stable bundle id (`com.trycua.driver`). The CLI symlink
-   lets Claude invoke tools via plain shell.
-3. **TCC grants on `CuaDriver.app`** — **Accessibility** and
-   **Screen Recording** in System Settings → Privacy & Security.
+   tied to a stable bundle id (`com.emu.cuadriver`). Electron starts
+   `emu-cua-driver serve --no-relaunch` and the backend/renderer call
+   through that long-lived daemon path.
+3. **TCC grants** — **Accessibility** and **Screen Recording** in
+   System Settings → Privacy & Security. Emu shows a permission card
+   with direct `Allow` links when either grant is missing.
    Verify with:
    ```bash
-   cua-driver check_permissions
+   frontend/coworker-mode/emu-driver/.build/EmuCuaDriver.app/Contents/MacOS/emu-cua-driver call check_permissions '{"prompt":false}'
    ```
-   Both fields must be `true`. If not, the app appears in the
-   relevant panes of System Settings after first use; toggle it on
-   there.
+   Both fields must be granted before real background interaction works.
 
 ## Install
 
@@ -58,20 +58,20 @@ The skill is two drop-in directories.
 
 ```bash
 mkdir -p ~/.claude/skills
-cp -R Skills/cua-driver ~/.claude/skills/
+cp -R frontend/coworker-mode/emu-driver/Skills/cua-driver ~/.claude/skills/emu-cua-driver
 ```
 
 Or symlink if you want edits-in-place:
 
 ```bash
-ln -s "$PWD/Skills/cua-driver" ~/.claude/skills/cua-driver
+ln -s "$PWD/frontend/coworker-mode/emu-driver/Skills/cua-driver" ~/.claude/skills/emu-cua-driver
 ```
 
 **Project scope** (committed alongside a specific repo):
 
 ```bash
 mkdir -p .claude/skills
-cp -R /path/to/cua/libs/cua-driver/Skills/cua-driver .claude/skills/
+cp -R frontend/coworker-mode/emu-driver/Skills/cua-driver .claude/skills/emu-cua-driver
 ```
 
 ## Invoking the skill
@@ -82,7 +82,7 @@ Save button in Numbers", "navigate to trycua.com in Chrome". You can
 also invoke it explicitly:
 
 ```
-/cua-driver
+/emu-cua-driver
 ```
 
 ## Files
@@ -96,15 +96,15 @@ also invoke it explicitly:
 
 ## Troubleshooting
 
-- `cua-driver: command not found` → re-run the installer or add
-  `.build/CuaDriver.app/Contents/MacOS/` to `$PATH`.
+- `emu-cua-driver: command not found` → run `npm run build:driver`; packaged
+  builds copy the binary to `Emu.app/Contents/Resources/emu-cua-driver/`.
 - `No cached AX state for pid X window_id W` → element_index was
   reused across turns, or across different windows of the same app.
   Call `get_window_state({pid, window_id})` first in the same turn,
   with the same window_id you're about to act against.
 - Empty `tree_markdown` → `capture_mode` is set to `vision`, which
   skips the AX walk by design. Flip back to the default `som`
-  (`cua-driver config set capture_mode som`) to get the tree.
+  (`emu-cua-driver config set capture_mode som`) to get the tree.
   Tiny screenshot → likely a stale window capture. See "Behavior
   matrix" in SKILL.md for the full mode table.
 - System-alert beep when pressing Return on a minimized Chrome
@@ -114,13 +114,11 @@ also invoke it explicitly:
 
 ## Updates
 
-The skill evolves alongside the driver. To update:
+The skill evolves alongside the driver. To update an external Claude Code copy:
 
 ```bash
-cd /path/to/cua && git pull
-# if you copied: re-copy
-cp -R libs/cua-driver/Skills/cua-driver ~/.claude/skills/
-# if you symlinked: nothing needed
+cd frontend/coworker-mode/emu-driver
+cp -R Skills/cua-driver ~/.claude/skills/emu-cua-driver
 ```
 
 ## License

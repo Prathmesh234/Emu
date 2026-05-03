@@ -5,16 +5,36 @@
 // the MCP result to a format the frontend understands.
 
 function registerAll(ipcMain, deps) {
-    const { callTool } = deps;
+    const { callTool, onPermissionsRequired } = deps;
 
     // Helper: wrap a tool name and return IPC handler
     const wrap = (toolName) => async (_event, args) => {
         try {
             const result = await callTool(toolName, args);
-            return { success: !result?.isError, output: _summarize(result), base64: _extractBase64(result) };
+            const output = _summarize(result);
+            const missing = _missingPermissionsFromResult(result, output);
+            if (missing.length && typeof onPermissionsRequired === 'function') {
+                onPermissionsRequired(missing);
+            }
+            return {
+                success: !result?.isError,
+                output,
+                base64: _extractBase64(result),
+                permissionsRequired: missing.length > 0,
+                missing,
+            };
         } catch (err) {
             console.error(`[emu-cua-driver IPC] ${toolName} error:`, err.message);
-            return { success: false, error: err.message };
+            const missing = _missingPermissionsFromText(err?.message || '');
+            if (missing.length && typeof onPermissionsRequired === 'function') {
+                onPermissionsRequired(missing);
+            }
+            return {
+                success: false,
+                error: err.message,
+                permissionsRequired: missing.length > 0,
+                missing,
+            };
         }
     };
 
@@ -52,6 +72,19 @@ function _extractBase64(result) {
     if (!result?.content) return null;
     const imgBlock = result.content.find(c => c.type === 'image');
     return imgBlock?.data ?? null;
+}
+
+function _missingPermissionsFromResult(result, output) {
+    if (!result?.isError) return [];
+    return _missingPermissionsFromText(output);
+}
+
+function _missingPermissionsFromText(text) {
+    const value = String(text || '');
+    const missing = [];
+    if (/accessibility/i.test(value)) missing.push('accessibility');
+    if (/screen recording|screen capture|screen/i.test(value)) missing.push('screen');
+    return missing;
 }
 
 module.exports = { registerAll };

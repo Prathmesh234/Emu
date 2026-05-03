@@ -352,6 +352,24 @@ async function recheckPermissions({ app } = {}) {
   return state.permissions || { granted: true, missing: [], output: '' };
 }
 
+async function callTool(toolName, args = {}, { app } = {}) {
+  configure({ app });
+  const state = await _ensureStartedOrThrow({ checkPermissions: true });
+  const bin = state.binary || _serveLastBin || _resolveBinary(_configuredApp);
+  if (!bin) {
+    throw new Error(
+      'emu-cua-driver binary not found. Build/install it from frontend/coworker-mode/emu-driver.'
+    );
+  }
+
+  const output = await _callDriverRawResult(
+    bin,
+    ['call', toolName, JSON.stringify(args || {}), '--raw', '--compact'],
+    30_000
+  );
+  return _parseToolResult(output, toolName);
+}
+
 function _missingPermissions(output) {
   const missing = [];
   if (/Accessibility:\s*NOT granted/i.test(output)) missing.push('accessibility');
@@ -369,6 +387,37 @@ function _startupError(err) {
   };
 }
 
+function _callDriverRawResult(bin, args, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { timeout }, (err, stdout, stderr) => {
+      if (stdout && stdout.trim()) {
+        resolve(stdout.trim());
+        return;
+      }
+      if (err) {
+        err.stderr = stderr;
+        err.stdout = stdout;
+        reject(err);
+        return;
+      }
+      resolve('');
+    });
+  });
+}
+
+function _parseToolResult(output, toolName) {
+  if (!output) {
+    throw new Error(`emu-cua-driver ${toolName} returned no output`);
+  }
+  try {
+    return JSON.parse(output);
+  } catch (err) {
+    throw new Error(
+      `emu-cua-driver ${toolName} returned invalid JSON: ${err?.message || err}`
+    );
+  }
+}
+
 // ============================================================================
 // Exports
 // ============================================================================
@@ -378,5 +427,6 @@ module.exports = {
   start,
   ensureStarted,
   recheckPermissions,
+  callTool,
   stop,
 };

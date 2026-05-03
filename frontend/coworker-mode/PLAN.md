@@ -2,7 +2,7 @@
 
 **Goal:** Wire the forked `emu-cua-driver` Swift binary (at `frontend/coworker-mode/emu-driver/`) into Emu's coworker mode, end-to-end, so the model can drive native macOS apps in the background while the user keeps focus.
 
-This is the canonical implementation roadmap. It supersedes the loose checklists in `coworker-driver/SPEC.md §14`, `coworker-driver/SUMMARY.md`, and `frontend/COWORKER_MODE_SETUP.md`. Status flags below are reconciled against the current tree on `claude/macos-linux-compatibility-Kmd2Z`.
+This is the canonical implementation roadmap. It supersedes the old loose setup and summary checklists; stale standalone setup/summary docs were removed after the current README files were updated. Status flags below are reconciled against the current tree on `claude/macos-linux-compatibility-Kmd2Z`.
 
 ---
 
@@ -13,27 +13,23 @@ This is the canonical implementation roadmap. It supersedes the loose checklists
 |---|---|---|
 | Fork | `frontend/coworker-mode/emu-driver/` | Separate git repo, upstream `trycua/cua` tracked. 172 files copied. |
 | Driver binary | `emu-cua-driver` / `EmuCuaDriver.app` | Phase 1 complete: product/app/runtime surfaces are Emu-branded while Swift target/module names stay upstream-compatible. |
-| Frontend process | `frontend/process/EmuCuaDriverProcess.js` | Spawn + JSON-RPC stdio pump, lifecycle stubs, expects binary named `emu-cua-driver`. |
+| Frontend process | `frontend/process/EmuCuaDriverProcess.js` | Starts Electron-owned `emu-cua-driver serve --no-relaunch`, configures cursor/permissions, and exposes driver calls for renderer IPC. |
 | Frontend IPC | `frontend/cua-driver-commands/{index.js,actionProxy.js}` | `emu-cua:*` channels registered, `ACTION_MAP` covers click family + scroll + type + hotkey + screenshot + window-state + launch + list-apps. |
 | Executor branch | `frontend/actions/executor.js` | Branches on `store.state.agentMode === 'coworker'`. |
 | Main process | `main.js` | Loads `EmuCuaDriverProcess`, registers IPC, calls `.stop()` on `will-quit`. |
 | Mode toggle | `frontend/state/store.js`, `frontend/components/chrome/WindowHeader.js`, `frontend/services/api.js` | Existing toggle defaults to `"coworker"`, persists to `localStorage`, locks while generating, and sends `agent_mode` in `/agent/step`. **Do not redesign.** |
 | Backend request | `backend/models/request.py` | `agent_mode: Literal["coworker","remote"]` field, default `"coworker"`. |
 | Backend context | `backend/context_manager/context.py` | `set_agent_mode()` + propagation to `AgentRequest.agent_mode`. |
+| Capture path | `frontend/services/captureForStep.js`, `frontend/cua-driver-commands/*` | Coworker per-step capture prefers target-window screenshots via `emu-cua:screenshot`, with desktop capture fallback. |
+| Permissions UX | `main.js`, `preload.js`, `frontend/components/chrome/PermissionsCard.js` | Missing TCC grants trigger a non-blocking Emu-styled card with direct System Settings links and polling rechecks. |
+| Packaging config | `package.json` | `build:driver`, `pack`, and `dist` scripts build the release driver first; electron-builder copies it to `Resources/emu-cua-driver/emu-cua-driver`. |
 | Docs | `coworker-driver/SPEC.md`, `SKILL.md`, `WEB_APPS.md`, `TESTS.md`, `RECORDING.md`, `emu-driver/UPSTREAM_CHANGES.md` | Complete; repo/fork operations are consolidated into `UPSTREAM_CHANGES.md`. |
 
-### 🔲 Missing / Incomplete
+### 🔲 Remaining / Manual validation
 | Layer | Gap |
 |---|---|
-| Lazy start | `main.js` claims "emu-cua-driver is lazy-started on first co-worker action" but no code path actually calls `emuCuaDriverProcess.start({ app })`. IPC will fail with `emu-cua-driver not running`. |
-| Backend prompt | `backend/prompts/system_prompt.py` has no `agent_mode` parameter. `emu_coworker_system_prompt.py` doesn't exist. The model is told nothing about the new tool surface. |
-| Backend tools | `raise_app.py` returns plain strings (no `{pid, windows: [...]}`) — coworker mode needs structured output to seed `pid`/`window_id`. `list_running_apps` tool not created. `dispatcher.py` doesn't register it. |
-| Action model | `backend/models/actions.py` `Action` has no `pid`, `window_id`, or `element_index` fields. Frontend `actionProxy` reads them but model can never populate them. |
-| Capture path | `frontend/services/captureForStep.js` not created. Per-step screenshots in coworker mode should come from `emu-cua:screenshot` (target window only), not `desktopCapturer`. |
-| MCP handshake | `EmuCuaDriverProcess.start()` does not send MCP `initialize`; some servers tolerate this, but the spec requires the initialize envelope before `tools/call`. |
-| Packaging | `electron-builder` config has no `extraResources` entry for the bundled `emu-cua-driver` binary. |
-| Permissions | No coworker-specific check; relies on Emu's existing AX/Screen Recording grants inheriting to the child. Untested. |
-| Tests | `Tests/integration/*` exists in fork but no Emu-side smoke test ties the loop together. |
+| Phase 7 smoke | T1–T4 and failure probes still need to be run on a clean macOS install with real TCC prompts and documented in `frontend/coworker-driver/TESTS.md`. |
+| Release signing | Public-DMG hardened runtime / notarization entitlements remain intentionally deferred; current pack flow uses ad-hoc signing for v1 dev packaging. |
 
 ---
 
@@ -42,8 +38,8 @@ This is the canonical implementation roadmap. It supersedes the loose checklists
 ```
 ┌─────────────────────────── Electron main ───────────────────────────┐
 │                                                                     │
-│  EmuCuaDriverProcess  ── spawn ──▶  emu-cua-driver mcp  (stdio)     │
-│       ▲                                  │ (JSON-RPC 2.0)           │
+│  EmuCuaDriverProcess  ── spawn ──▶  emu-cua-driver serve --no-relaunch │
+│       ▲                                  │ daemon socket / CLI call │
 │       │ callTool(name, args)             ▼                          │
 │       │                            macOS AX / SkyLight / CGEvent    │
 │       │                                                             │
@@ -61,7 +57,7 @@ This is the canonical implementation roadmap. It supersedes the loose checklists
 │  AgentRequest.agent_mode = "coworker"                               │
 │  build_system_prompt(agent_mode="coworker") ──▶ coworker prompt     │
 │  Tool dispatcher: raise_app (JSON), list_running_apps (new)         │
-│  Action model: pid, window_id, element_index optional fields        │
+│  Tool args carry pid/window_id/element_index for cua_* calls        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,7 +70,7 @@ This is the canonical implementation roadmap. It supersedes the loose checklists
 
 ## 2. Phases and Deliverables
 
-The plan is split into **8 phases**. Phases 1–3 are blockers (binary + branding + lazy start). Phases 4–6 light up the model surface. Phase 7 is QA. Phase 8 is packaging/release.
+The plan is split into **9 phases**. Phases 1–3 are blockers (binary + branding + lifecycle). Phases 4–6 light up the model surface. Phase 7 is QA. Phase 8 is permissions UX. Phase 9 is packaging/release.
 
 ### Phase 1 — Build & Brand the Binary
 **Status:** ✅ Finished.
@@ -394,7 +390,7 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 6.1 ~~`Action` field extension~~ — **SKIPPED.** Single-channel design means `pid`/`window_id`/`element_index` belong on tool-call args, not the Action model. No pydantic root validator needed.
 
 6.2 `frontend/services/captureForStep.js` — new, ~30 lines. Single function `captureForStep()`:
-   - If `store.state.agentMode === 'coworker'` and `store.state.coworkerTarget` has `pid && window_id`, invoke `emu-cua:screenshot` with `{pid, window_id}` and return `{success, base64, error}`.
+   - If `store.state.agentMode === 'coworker'` and `store.state.coworkerTarget` has `pid && window_id`, invoke `emu-cua:screenshot` with the target `window_id` (the screenshot tool does not take `pid`) and return `{success, base64, error}`.
    - Else fall through to the existing `captureScreenshot()` (desktopCapturer / native screencapture).
    - On coworker capture failure, fall back to remote capture once with a warning, so a stale window never wedges the loop.
 
@@ -438,8 +434,16 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 7.6 Full functional-spec regression after smoke: run through `frontend/coworker-driver/TESTS.md` and document the result matrix in that file (or a dedicated test-results section), including the 13 natural-language app tests and the failure-mode probes.
 
 ### Phase 8 — User Experience Refinement
-**Status:** 🔲 Not started.
+**Status:** ✅ Finished (2026-05-02) — missing Accessibility / Screen Recording grants now surface through an Emu-styled, non-blocking renderer card.
 **Outcome:** When `emu-cua-driver` reports a missing TCC permission, the user sees an in-app permission widget that opens the exact System Settings pane on click — they never have to navigate Settings manually.
+
+**Completed (2026-05-02):**
+- ✅ `frontend/components/chrome/PermissionsCard.js` renders the modal-style card with Emu typography, two permission rows, inline SVG glyphs, `Allow` buttons, waiting state, auto-dismiss, outside-click dismissal, Esc dismissal, and dialog/group ARIA wiring.
+- ✅ `frontend/styles/chrome/permissions-card.css` is imported from `frontend/styles/index.css` and uses existing Emu tokens rather than custom colors or spacing primitives.
+- ✅ `main.js` emits `emu-cua:permissions-required` after eager driver startup and after renderer-side driver IPC calls that return permission failures.
+- ✅ `preload.js` exposes the receive allowlist for `emu-cua:permissions-required` and invoke allowlist entries for permission rechecks and target-window screenshots.
+- ✅ `frontend/pages/Chat.js` subscribes once at mount, lazy-instantiates the card, wires `Allow` to `permissions:open`, and wires polling to `emu-cua:recheck-permissions`.
+- ✅ `EmuCuaDriverProcess.recheckPermissions()` is public and reuses the daemon when available, or starts it before checking.
 
 8.1 New component `frontend/components/chrome/PermissionsCard.js`
 - Centered modal-style card (Emu Design System v1: serif title, soft border, dark-mode aware), sized comfortably for two permission rows. Reuses existing tokens from `style.css` (no new color or spacing primitives).
@@ -487,24 +491,25 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 - Crash the driver mid-session, then run a coworker action while AX is denied → card re-appears, action fails with the existing error path.
 
 ### Phase 9 — Packaging & Release
-**Outcome:** A built Emu DMG includes `emu-cua-driver`; first-run users can use coworker mode without separate installs.
+**Status:** ✅ Finished for v1 dev packaging (2026-05-02); notarized public-DMG signing remains deferred per §5.
+**Outcome:** A built Emu app/DMG includes `emu-cua-driver`; first-run users can use coworker mode without separate installs.
 
-8.1 `electron-builder` config — add `extraResources`:
+9.1 ✅ `electron-builder` config — `package.json` now adds `extraResources`:
 ```json
 "extraResources": [
   { "from": "frontend/coworker-mode/emu-driver/.build/release/emu-cua-driver",
     "to": "emu-cua-driver/emu-cua-driver" }
 ]
 ```
-8.2 Pre-build hook: ensure the fork's spec-compatible build command (`npm run build`, wrapping `swift build -c release` if needed) runs before `electron-builder pack`. Add an Emu-root `npm run build:driver` script that delegates to it.
-8.3 Notarization: ad-hoc sign the bundled `emu-cua-driver` for v1 (matches upstream); defer hardened/notarized signing to Phase 2 (UPSTREAM_CHANGES §4).
-8.4 `EmuCuaDriverProcess._resolveBinary` priority order is already correct (bundled → `~/.local/bin` → fallback). Verify the bundled path matches the `extraResources` `to:`.
-8.5 First-run UX: if `_resolveBinary` returns null and user toggles coworker, show a dialog with "Build dev binary" or "Install via curl" links pointing at `frontend/coworker-mode/emu-driver/scripts/install-local.sh`.
-8.6 Document helper ownership for dev/release:
+9.2 ✅ Pre-build hook: root `npm run build:driver` delegates to `frontend/coworker-mode/emu-driver/scripts/build-app.sh release`; `npm run pack` and `npm run dist` run it before `electron-builder`.
+9.3 ✅ Notarization posture: current v1 pack flow uses ad-hoc signing; hardened/notarized signing stays deferred to the public-DMG phase.
+9.4 ✅ `EmuCuaDriverProcess._resolveBinary` packaged path (`process.resourcesPath/emu-cua-driver/emu-cua-driver`) matches the `extraResources.to` path.
+9.5 ✅ First-run missing-binary UX is covered by the existing startup failure/permission card path plus the per-action error surface; no separate toggle-time dialog was added to preserve the Phase 3 UI freeze.
+9.6 ✅ Document helper ownership for dev/release:
 - Emu memory daemon remains launchd-owned and unchanged.
-- `emu-cua-driver mcp` is Electron-main-owned, lazy-started, app-lifetime only.
-- `emu-cua-driver serve` exists but is optional and **not used by Emu** because the long-lived MCP child already preserves app/window state.
-8.7 Public-DMG deferred entitlements from the spec: when hardened runtime/notarization is enabled, re-sign embedded `emu-cua-driver` with `disable-library-validation`, `allow-dyld-environment-variables`, and `automation.apple-events` entitlements before sealing the DMG.
+- `emu-cua-driver serve --no-relaunch` is Electron-main-owned and app-lifetime only; the backend and renderer IPC paths call through its daemon socket / CLI forwarding so AX element state stays warm.
+- `emu-cua-driver mcp` remains available for external MCP clients, but Emu does not use it for the integrated coworker path.
+9.7 Public-DMG deferred entitlements from the spec: when hardened runtime/notarization is enabled, re-sign embedded `emu-cua-driver` with `disable-library-validation`, `allow-dyld-environment-variables`, and `automation.apple-events` entitlements before sealing the DMG.
 
 ---
 
@@ -513,8 +518,8 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 1. **Binary invocation surface for backend tools** — Python MCP client vs shelling out to `emu-cua-driver call`? *Default: shell out for v1.*
 2. **Mode default in fresh sessions** — spec and current code default to `"coworker"`. Do not flip this in implementation unless the product decision changes.
 3. **Single child vs per-session children** — `EmuCuaDriverProcess` keeps one global child. Is that fine for multiple concurrent sessions? *Yes for v1; cua-driver is stateless per call. Element-index cache is per `(pid, window_id)` so cross-session collisions are unlikely.*
-4. **`element_index` validation** — should backend reject `Action` with `element_index` set but no `pid`/`window_id`? *Yes; add a pydantic root validator in 6.1.*
-5. **Horizontal scroll conflict** — resolve the spec's §2 vs §6.1 disagreement before final QA: keep current mapped implementation or treat as deferred/no-op.
+4. **`element_index` validation** — resolved by the Phase-4 single-channel pivot: `element_index` lives on `cua_*` tool arguments, not renderer `Action`, so no Action-model validator is needed.
+5. **Horizontal scroll conflict** — resolved as deferred/no-op in renderer coworker actions; the model uses `cua_scroll(direction="left"|"right")`.
 
 ---
 

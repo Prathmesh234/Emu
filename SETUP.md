@@ -7,6 +7,7 @@ This guide is the practical setup path for running Emu locally.
 - Node.js 18+
 - Python 3.12+
 - `uv` package manager
+- Swift toolchain / Xcode Command Line Tools for coworker driver builds
 
 Install `uv`:
 
@@ -25,7 +26,9 @@ Then grant permissions:
 - Accessibility
 - Screen Recording
 
-For the packaged `.dmg` app flow and exact System Settings paths, see `MACOS_PERMISSIONS.md`.
+Coworker mode uses the bundled `emu-cua-driver` and shows an in-app permission
+card if either grant is missing. For the packaged `.dmg` app flow and exact
+System Settings paths, see `MACOS_PERMISSIONS.md`.
 
 ## Quick start
 
@@ -140,6 +143,29 @@ cd ..
 npm install
 npm start
 ```
+
+## Coworker driver and packaging
+
+Build the Emu-branded driver before validating coworker mode or packaging:
+
+```bash
+npm run build:driver
+```
+
+Package a local app directory:
+
+```bash
+npm run pack
+```
+
+The Electron pack flow copies the release binary to:
+
+```text
+Emu.app/Contents/Resources/emu-cua-driver/emu-cua-driver
+```
+
+`EmuCuaDriverProcess` resolves binaries in this order: packaged resource,
+repo build, `~/.local/bin/emu-cua-driver`, then `/Applications/EmuCuaDriver.app`.
 
 ## Troubleshooting
 

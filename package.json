@@ -8,9 +8,31 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development EMU_SKIP_DAEMON_INSTALL=1 electron ."
+    "dev": "NODE_ENV=development EMU_SKIP_DAEMON_INSTALL=1 electron .",
+    "build:driver": "frontend/coworker-mode/emu-driver/scripts/build-app.sh release",
+    "pack": "npm run build:driver && electron-builder --dir",
+    "dist": "npm run build:driver && electron-builder"
   },
-  "dependencies": {
-    "electron": "^40.6.1"
+  "build": {
+    "appId": "com.emu.desktop",
+    "productName": "Emu",
+    "files": [
+      "**/*",
+      "!**/.git/**",
+      "!**/.emu/**",
+      "!**/.env",
+      "!**/*.zip",
+      "!frontend/coworker-mode/emu-driver/.build/**"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend/coworker-mode/emu-driver/.build/release/emu-cua-driver",
+        "to": "emu-cua-driver/emu-cua-driver"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^40.6.1",
+    "electron-builder": "^26.0.12"
   }
 }

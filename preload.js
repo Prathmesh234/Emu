@@ -34,6 +34,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'window:maximize',
     'permissions:status',
     'permissions:open',
+    'emu-cua:screenshot',
     'emu-cua:recheck-permissions',
     'daemon:status',
     'daemon:repair',

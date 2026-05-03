@@ -8,6 +8,7 @@ Emu is a desktop automation agent that combines screen understanding, LLM planni
 - Provider auto-detection with broad model support.
 - Async Hermes Agent delegation for heavy terminal/code tasks.
 - macOS memory daemon (launchd) for background memory curation.
+- Coworker mode via bundled `emu-cua-driver` for background macOS app control.
 - Auth-token protected backend API (`X-Emu-Token`).
 - Session artifacts and memory stored under `.emu/`.
 
@@ -62,6 +63,24 @@ Current detection chain includes:
 - Modal fallback
 
 Reference: `backend/providers/registry.py`.
+
+### 4. Coworker mode
+
+Coworker mode is the default agent mode. Electron owns a long-lived
+`emu-cua-driver serve --no-relaunch` child process, while the backend calls
+`cua_*` tools to snapshot target windows and dispatch input without stealing the
+user's foreground app.
+
+Useful commands:
+
+```bash
+npm run build:driver   # build frontend/coworker-mode/emu-driver
+npm run pack           # build driver, then create dist/mac-*/Emu.app
+npm run dist           # build driver, then run electron-builder release flow
+```
+
+If Accessibility or Screen Recording is missing, Emu shows an in-app permission
+card with `Allow` buttons that open the exact System Settings panes.
 
 ## Launch commands
 
@@ -144,7 +163,8 @@ Fix:
 
 - Grant Accessibility and Screen Recording permissions.
 - Restart app after granting permissions.
-- For the packaged `.dmg` flow, see `MACOS_PERMISSIONS.md`.
+- In coworker mode, use the permission card when it appears; for the packaged
+  `.dmg` flow, see `MACOS_PERMISSIONS.md`.
 
 ### Modal deployment fails
 
@@ -177,6 +197,8 @@ Fix:
 
 - `backend/`: FastAPI agent harness, providers, tools, prompts.
 - `frontend/`: Electron renderer UI, actions, services, store, styles.
+- `frontend/coworker-mode/emu-driver/`: nested `emu-cua-driver` Swift driver.
+- `frontend/coworker-driver/`: coworker mode specs, runbooks, and skill docs.
 - `daemon/`: memory daemon runtime, policy, state, launchd installer.
 - `backend.sh` / `frontend.sh`: one-command startup scripts.
 
@@ -184,9 +206,9 @@ Fix:
 
 - `SETUP.md`
 - `DOCUMENTATION.md`
+- `MACOS_PERMISSIONS.md`
 - `backend/BACKEND.md`
 - `frontend/FRONTEND.md`
 - `daemon/DESIGN.md`
-- `HARNESS_IMPROVEMENTS.md`
-- `FRONTEND_REDESIGN.md`
-- `MACOS_PERMISSIONS.md`
+- `frontend/coworker-mode/PLAN.md`
+- `frontend/coworker-driver/README.md`

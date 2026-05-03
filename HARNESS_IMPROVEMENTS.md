@@ -23,27 +23,16 @@ The Emu harness is a **runtime evaluation framework** centered on the `/agent/st
 
 | Dimension | Emu Harness | Claude Code Harness |
 |---|---|---|
-| **Test definition** | No DSL, no test cases. `test.py` is a one-off VLM probe script — single request, no session, no assertions | `QueryEngine` accepts structured `QueryEngineConfig` with `maxTurns`, `maxBudgetUsd`, `jsonSchema` for structured output enforcement, and yields typed `SDKMessage` results |
+| **Test definition** | No DSL and no committed evaluation cases yet; the old one-off VLM probe script was removed because it had no session loop or assertions | `QueryEngine` accepts structured `QueryEngineConfig` with `maxTurns`, `maxBudgetUsd`, `jsonSchema` for structured output enforcement, and yields typed `SDKMessage` results |
 | **Fixtures** | System prompt dynamically built from workspace at runtime; no caching | `vcr.ts`: SHA1-hash-keyed fixture files, dehydration/hydration of paths and timestamps, auto-record on first run, fail-in-CI-if-missing guard |
 | **Reproducibility** | Non-deterministic — relies on live model calls every time | VCR replay with `withVCR()` / `withStreamingVCR()` / `withFixture()` ensures byte-identical replay in CI |
 | **Schema** | Implicit — Pydantic `AgentResponse` validates at parse-time but no per-tool input schema | Zod schemas per tool (`inputSchema: Input`), `validateInput()` method, and `outputSchema` for type-safe tool results |
 
 ### Gap: No fixture/replay system
 
-**`backend/test.py`** fires a live request every invocation:
-```python
-def send_request(image_uri: str, task: str) -> None:
-    payload = {
-        "model": "Qwen/Qwen3.5-35B-A3B",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": image_uri}},
-                {"type": "text", "text": task},
-            ]},
-        ],
-    }
-```
+Emu still has no deterministic fixture/replay layer for live model calls. The
+old `backend/test.py` one-off probe was removed during cleanup because it did
+not exercise a session loop, define assertions, or produce pass/fail results.
 
 Claude Code's `vcr.ts` wraps all API calls with deterministic fixture management:
 ```typescript
@@ -322,7 +311,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
 
 #### 2. Formal Test Case Definitions with pytest
 
-**Why**: `test.py` is a one-off script — no suite, no assertions, no pass/fail criteria.
+**Why**: Emu still needs a real suite with assertions and pass/fail criteria.
 
 ```python
 # backend/tests/test_harness.py
