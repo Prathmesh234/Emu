@@ -76,7 +76,9 @@ class ActionValidator:
         "cua_press_key",
         "cua_hotkey",
         "cua_type_text",
+        "cua_type_text_chars",
         "cua_set_value",
+        "cua_scroll",
         "cua_drag",
     }
 

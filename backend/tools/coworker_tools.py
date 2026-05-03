@@ -348,11 +348,14 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Insert text into the target pid. Tries AXSetAttribute"
             "(kAXSelectedText) first (standard Cocoa text fields/views) "
             "and silently falls back to per-character CGEvent.postToPid "
-            "synthesis when the AX write is rejected — covers "
-            "Chromium / Electron inputs that ignore kAXSelectedText. "
+            "synthesis when the AX write is rejected. If the AX path "
+            "reports success but a web/Electron field verifies unchanged, "
+            "retry the same field with cua_type_text_chars. "
             "Does NOT synthesize Return/Tab — use cua_press_key / "
-            "cua_hotkey for those. Optional element_index + window_id "
-            "pre-focuses the element. Optional `delay_ms` paces the "
+            "cua_hotkey for those. For web/browser search or text "
+            "fields, pass element_index + window_id from the latest "
+            "cua_get_window_state; bare pid typing only works when "
+            "focus is already correct. Optional `delay_ms` paces the "
             "CGEvent fallback (default 30ms; ignored on the AX path)."
         ),
         {
@@ -366,6 +369,31 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
                 "maximum": 200,
                 "description": "Milliseconds between successive characters on the CGEvent fallback path (autocomplete/IME pacing). Default 30. Ignored when AX write succeeds.",
             },
+        },
+        ["pid", "text"],
+    ),
+    _fn(
+        "cua_type_text_chars",
+        (
+            "Force per-character Unicode CGEvent typing to the target pid. "
+            "Use this for web/Electron inputs when cua_type_text reports "
+            "success but verification shows the field did not update or "
+            "input handlers did not fire. Optional element_index + window_id "
+            "pre-focuses the field first; otherwise characters go to the "
+            "pid's current focus. Does NOT synthesize Return/Tab — use "
+            "cua_press_key / cua_hotkey for those."
+        ),
+        {
+            "pid": _PID,
+            "text": {"type": "string"},
+            "delay_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Milliseconds between characters. Default 30; use 25-50 for web inputs with autocomplete.",
+            },
+            "element_index": _ELEMENT_INDEX,
+            "window_id": _WID_OPTIONAL,
         },
         ["pid", "text"],
     ),
@@ -399,8 +427,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "pageup, pagedown, f1-f12, letters, digits. Optional "
             "`modifiers` array (cmd/shift/option/ctrl/fn). Optional "
             "element_index + window_id pre-focuses the element via "
-            "AXSetAttribute(kAXFocused, true). For true combos prefer "
-            "cua_hotkey for clarity."
+            "AXSetAttribute(kAXFocused, true). For submitting web/browser "
+            "inputs, pass the same element_index + window_id used for "
+            "cua_type_text. For true combos prefer cua_hotkey for clarity."
         ),
         {
             "pid": _PID,
@@ -971,7 +1000,7 @@ def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
         )
         return "\n[driver guidance] " + " ".join(guidance)
 
-    if name not in {"cua_click", "cua_right_click", "cua_double_click", "cua_press_key", "cua_hotkey", "cua_type_text", "cua_set_value"}:
+    if name not in {"cua_click", "cua_right_click", "cua_double_click", "cua_press_key", "cua_hotkey", "cua_type_text", "cua_type_text_chars", "cua_set_value"}:
         return ""
 
     if ok:

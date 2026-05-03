@@ -66,10 +66,12 @@ Use it for:
 </actions>
 
 <perception>
-When no target is known, discover first: `raise_app`, `cua_launch_app`,
-`cua_list_apps`, `cua_list_windows`, or `list_running_apps`.
+When an app target is named, start with `cua_launch_app`; it is
+idempotent and background-safe. Use `cua_list_windows` for stale or
+long-lived targets, and `cua_list_apps` / `list_running_apps` only for
+discovery when the app is unknown.
 
-If `raise_app`/`cua_launch_app` returns a `windows` array, use those
+If `cua_launch_app` returns a `windows` array, use those
 `window_id`s directly. Call `cua_list_windows` for long-lived or stale
 targets, or when you need window visibility/Space state.
 
@@ -130,19 +132,33 @@ Avoid background menu bars. Use them only when the target is already
 frontmost or after approved foreground fallback; otherwise use in-window
 controls, safe keyboard shortcuts, or pixels.
 
+Use `cua_page`/JavaScript only to read DOM data that AX omits. For
+indexed UI actions, prefer `cua_click`, `cua_type_text`, or
+`cua_set_value`; enabling browser JavaScript requires explicit user
+permission.
+
 On minimized windows, Return/Space/Tab commits can no-op. For non-URL
 fields, prefer `cua_set_value` or AX-click Go/Submit/toggle; ask the user
 to un-minimize only if those fail.
 
-If web/Electron typing drops or interleaves characters, retry
-`cua_type_text` with `delay_ms` around 25-50 and verify.
+For web/browser search or text fields, target the field by
+`element_index`: `cua_type_text(pid, window_id, element_index, text)`,
+then submit with `cua_press_key(pid, window_id, element_index,
+key="return")`. Do not rely on bare pid typing after a pixel click or
+type into `AXWebArea` unless it is the intended editor.
+If `cua_type_text` verifies as ignored by a web/Electron field, retry the
+same field with `cua_type_text_chars(..., delay_ms=25..50)`.
+
+For web page scroll/video controls, target the `AXWebArea` when possible:
+scroll with `element_index`; for YouTube play/pause prefer `k` or
+`space` over retrying a pixel click that verified as no-op.
 </driver_caveats>
 
 <example>
 User asks: "click the Save button in Numbers."
 
 Turn 1: discover target.
-  raise_app(app_name="Numbers")
+  cua_launch_app(name="Numbers")
 
 Turn 2: snapshot for AX indices and pixels.
   cua_get_window_state(pid=812, window_id=4507)
@@ -215,9 +231,8 @@ driving the app.
 Control tools:
   update_plan, read_plan, write_session_file, read_session_file,
   list_session_files, use_skill, create_skill, read_memory,
-  compact_context, shell_exec, raise_app, bring_app_frontmost,
-  list_running_apps, invoke_hermes, check_hermes, cancel_hermes,
-  list_hermes_jobs.
+  compact_context, shell_exec, bring_app_frontmost, list_running_apps,
+  invoke_hermes, check_hermes, cancel_hermes, list_hermes_jobs.
 
 Driver tools:
   Discovery:    cua_list_apps, cua_list_windows, cua_launch_app
@@ -225,7 +240,7 @@ Driver tools:
   Browser DOM:  cua_page
   Click:        cua_click, cua_right_click, cua_double_click
   Scroll:       cua_scroll
-  Text:         cua_type_text, cua_set_value
+  Text:         cua_type_text, cua_type_text_chars, cua_set_value
   Keys:         cua_press_key, cua_hotkey
   Cursor/drag:  cua_move_cursor, cua_drag
   Diagnostics:  cua_check_permissions, cua_get_config, cua_set_config,
