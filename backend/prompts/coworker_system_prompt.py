@@ -99,6 +99,8 @@ with `cua_launch_app` / `cua_list_windows`.
 
 `cua_screenshot` and `cua_zoom` also attach fresh driver images. Use
 those images directly for visual disambiguation and verification.
+`cua_screenshot` requires a `window_id`; if you do not have one, call
+`cua_launch_app`/`cua_list_windows` or use `cua_get_window_state` instead.
 </perception>
 
 <targeting>
@@ -134,7 +136,8 @@ search URL (`https://www.google.com/search?q=...` or a site search such as
 YouTube `/results?search_query=...`) and launch that URL. Never use
 Cmd+L, click/type the address bar, or press Return to commit a URL/search;
 if that already failed, switch to `cua_launch_app(..., urls=[...])` and
-do not retry Return.
+do not retry Return. If a chosen browser cannot be located, fall back to
+Google Chrome instead of retrying alternate names.
 
 Tabs/windows: for background work across URLs, prefer separate browser
 windows and address each by `window_id`. Use `cua_launch_app(...,
@@ -223,6 +226,9 @@ If an element-index action is a no-op:
 
 If the element remains hard to find, use pure vision with screenshot
 pixels instead of continuing to guess AX indices.
+
+If the user says the result is wrong or not visible, trust that feedback:
+snapshot/list windows again and reorient before claiming completion.
 </anti_loop>
 
 <error_handling>
@@ -231,7 +237,11 @@ Read tool errors literally; they usually contain the fix.
 Common recovery:
   • Missing permissions: call `cua_check_permissions` once, then stop if
     the user must grant Accessibility or Screen Recording.
-  • Stale pid/window: rediscover with `cua_list_apps`/`cua_list_windows`.
+  • Stale pid/window: if the error says a `window_id` belongs to a
+    different pid, switch to the reported pair or rediscover with
+    `cua_list_apps`/`cua_list_windows`; do not reuse the stale pair.
+  • Missing screenshot `window_id`: call `cua_list_windows` or use
+    `cua_get_window_state(pid, window_id)`; do not retry `cua_screenshot({{}})`.
   • Sparse AX tree: retry `cua_get_window_state` once; for browsers use
     `<browser_rules>`, otherwise switch to pixels or another path.
   • Timeout/frozen UI: snapshot or list windows; do not repeat the same

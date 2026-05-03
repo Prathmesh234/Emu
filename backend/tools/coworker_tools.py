@@ -180,15 +180,17 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "cua_screenshot",
         (
             "Capture via ScreenCaptureKit. Returns a base64 image content "
-            "block. ALL params optional. Without window_id captures the "
-            "full main display; with window_id captures just that window. "
-            "Requires the Screen Recording TCC grant."
+            "block for one target window. window_id is required; get it "
+            "from cua_launch_app or cua_list_windows. For AX + screenshot "
+            "together, prefer cua_get_window_state. Requires the Screen "
+            "Recording TCC grant."
         ),
         {
             "format": {"type": "string", "enum": ["png", "jpeg"], "description": "Image format. Default png."},
             "quality": {"type": "integer", "minimum": 1, "maximum": 95, "description": "JPEG quality 1–95; ignored for png."},
-            "window_id": {"type": "integer", "description": "Optional CGWindowID to capture just that window."},
+            "window_id": {"type": "integer", "description": "Required CGWindowID to capture."},
         },
+        ["window_id"],
     ),
     _fn(
         "cua_get_window_state",
