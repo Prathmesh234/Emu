@@ -13,6 +13,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   padding: 28px 40px 0;
+  column-gap: 12px;
   flex-shrink: 0;
 }
 
@@ -22,6 +23,7 @@
   align-items: baseline;
   gap: 12px;
   justify-self: start;
+  min-width: 0;
 }
 
 /* Center group: mode switch only */
@@ -31,6 +33,7 @@
   justify-content: center;
   gap: 14px;
   justify-self: center;
+  min-width: 0;
 }
 
 .window-header-sidebar-btn {
@@ -65,6 +68,7 @@
   letter-spacing: -0.2px;
   color: var(--ink);
   line-height: 1;
+  white-space: nowrap;
 }
 
 /* Agent mode toggle: liquid-glass segmented switch centered in the header */
@@ -153,6 +157,11 @@
   align-items: center;
   gap: 10px;
   justify-self: end;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .window-status-dot {
@@ -169,4 +178,20 @@
 .window-status-dot.live {
   background: var(--ink);
   animation: emuPulse 1.8s ease-in-out infinite;
+}
+
+@media (max-width: 560px) {
+  .window-header {
+    padding: 22px 24px 0;
+    column-gap: 8px;
+  }
+
+  .window-mode-toggle {
+    width: 132px;
+  }
+
+  .window-mode-option {
+    font-size: 11px;
+    padding: 0 6px;
+  }
 }

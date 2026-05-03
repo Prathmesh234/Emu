@@ -482,8 +482,15 @@ async function continuePastSession(oldSessionId) {
         initWebSocket(newSessionId);
         enableInput();
         refreshHistory();
+        return true;
     } catch (err) {
         console.warn('[continuePastSession] failed:', err.message);
+        showStatus('Could not continue that session.');
+        setTimeout(() => {
+            if (!hasActiveGeneration()) removeStatus();
+        }, 2500);
+        enableInput();
+        return false;
     }
 }
 
@@ -595,7 +602,12 @@ async function sendMessage() {
         chatInput.textarea.value = '';
         chatInput.sendBtn.disabled = true;
         if (oldId) {
-            await continuePastSession(oldId);
+            const continued = await continuePastSession(oldId);
+            if (!continued) {
+                chatInput.textarea.value = pendingText;
+                chatInput.sendBtn.disabled = false;
+                return;
+            }
         } else {
             _viewingPastSession = false;
         }

@@ -90,17 +90,22 @@
 .settings-row {
   display: flex;
   align-items: center;
+  gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid var(--ink-08);
 }
 
 .settings-row-label {
   flex: 1;
+  min-width: 0;
   font-size: var(--size-base);     /* 15px */
   color: var(--ink);
 }
 
 .settings-row-value {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
   font-family: var(--font-sans);
   font-style: normal;
   font-size: var(--size-sm);       /* 13px → matches design 14px */
@@ -131,7 +136,8 @@
   border-bottom: 1px solid var(--ink-22);
   padding: 2px 4px 2px 0;
   outline: none;
-  min-width: 160px;
+  width: min(180px, 46%);
+  min-width: 0;
   transition: color 0.12s, border-color 0.12s;
 }
 
@@ -160,6 +166,7 @@
   font-size: var(--size-sm);
   color: var(--ink-55);
   flex: 1;
+  min-width: 0;
 }
 
 .settings-save-status.ok  { color: var(--ink-55); }
@@ -186,4 +193,29 @@
 .settings-save-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+@media (max-width: 560px) {
+  .settings-dialog {
+    width: min(520px, 94vw);
+  }
+
+  .settings-header {
+    padding: 22px 24px 12px;
+  }
+
+  .settings-body {
+    padding: 0 24px 24px;
+  }
+
+  .settings-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .settings-row-value,
+  .settings-row-select,
+  .settings-row-input {
+    margin-left: auto;
+  }
 }

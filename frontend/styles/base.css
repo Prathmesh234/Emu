@@ -48,12 +48,10 @@ body {
   min-height: 100%;
 }
 
-/* Thin scrollbars throughout — consistent with design.
- * Horizontal scrollbars are hidden globally (height: 0) — scrolling still
- * works via trackpad/shift-wheel, but no solid bar is rendered along the
- * bottom edge of panels, code blocks, etc. */
-::-webkit-scrollbar               { width: 6px; height: 0; }
-::-webkit-scrollbar:horizontal    { height: 0; }
+/* Thin scrollbars throughout — consistent with design. Keep horizontal
+ * scrollbars visible so long paths/code are discoverable instead of clipped. */
+::-webkit-scrollbar               { width: 6px; height: 6px; }
+::-webkit-scrollbar:horizontal    { height: 6px; }
 ::-webkit-scrollbar:vertical      { width: 6px; }
 ::-webkit-scrollbar-track         { background: transparent; }
 ::-webkit-scrollbar-thumb         { background: var(--ink-14); border-radius: 6px; }

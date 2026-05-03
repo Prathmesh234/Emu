@@ -219,7 +219,7 @@
 }
 
 .history-item-continue-btn:hover {
-  background: var(--ink-15, rgba(0,0,0,0.12));
+  background: var(--ink-14);
   color: var(--ink);
 }
 
