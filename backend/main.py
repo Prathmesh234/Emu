@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import os
 import secrets
 import sys
@@ -314,6 +315,59 @@ def _update_env_file(updates: dict) -> None:
     env_path.write_text("\n".join(new_lines) + "\n")
 
 
+def _normalize_model_option(option: dict) -> dict:
+    model_id = str(option.get("id", "")).strip()
+    if not model_id:
+        return {}
+    label = str(option.get("label") or model_id).strip()
+    description = str(option.get("description") or "").strip()
+    parameters = str(option.get("parameters") or "").strip()
+    source = str(option.get("source") or "").strip()
+    normalized = {
+        "id": model_id,
+        "label": label,
+        "description": description,
+        "parameters": parameters,
+        "vision": bool(option.get("vision", True)),
+        "source": source,
+    }
+    for optional_key in ("context", "pricing", "modalities", "released"):
+        if optional_key in option:
+            normalized[optional_key] = option[optional_key]
+    return normalized
+
+
+def _get_provider_model_options(provider: str) -> list[dict]:
+    """Load the provider-owned curated model catalog, if it exists."""
+    try:
+        from providers.registry import _PROVIDER_MAP
+        module_path = _PROVIDER_MAP.get(provider)
+        if not module_path:
+            return []
+        catalog = importlib.import_module(f"{module_path}.models")
+        raw_options = (
+            catalog.get_model_options()
+            if hasattr(catalog, "get_model_options")
+            else getattr(catalog, "MODEL_OPTIONS", [])
+        )
+    except ModuleNotFoundError:
+        return []
+    except Exception as exc:
+        print(f"[settings] Failed to load model catalog for {provider}: {exc}")
+        return []
+
+    normalized = [_normalize_model_option(opt) for opt in raw_options if isinstance(opt, dict)]
+    return [opt for opt in normalized if opt]
+
+
+def _provider_current_model(provider: str) -> str:
+    cfg = _PROVIDER_SETTINGS.get(provider, {})
+    model_env = cfg.get("model_env")
+    if model_env:
+        return os.environ.get(model_env, cfg.get("default_model", ""))
+    return cfg.get("default_model", "")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -347,22 +401,44 @@ async def get_provider_settings():
         "api_key_preview": masked,
         "providers": list(_PROVIDER_SETTINGS.keys()),
         "default_models": {k: v["default_model"] for k, v in _PROVIDER_SETTINGS.items()},
+        "model_options": _get_provider_model_options(provider),
+    }
+
+
+@app.get("/settings/provider/models")
+async def get_provider_models(provider: str | None = None):
+    """Return curated model options for a provider."""
+    selected_provider = (provider or os.environ.get("EMU_PROVIDER", _provider_name)).strip().lower()
+    if selected_provider not in _PROVIDER_SETTINGS:
+        return JSONResponse(status_code=400, content={"detail": f"Unknown provider: {selected_provider}"})
+
+    return {
+        "provider": selected_provider,
+        "model": _provider_current_model(selected_provider),
+        "default_model": _PROVIDER_SETTINGS[selected_provider].get("default_model", ""),
+        "models": _get_provider_model_options(selected_provider),
+        "policy": "provider-curated vision-capable model catalog",
     }
 
 
 @app.post("/settings/provider")
 async def save_provider_settings(req: ProviderSettingsRequest):
     """Persist new provider/model/API key to .env and hot-reload the provider."""
-    import importlib
-
     global call_model, is_ready, ensure_ready, _provider_name, compact_model
 
     provider = req.provider.strip().lower()
     if provider not in _PROVIDER_SETTINGS:
         return JSONResponse(status_code=400, content={"detail": f"Unknown provider: {provider}"})
 
+    current_provider = os.environ.get("EMU_PROVIDER", _provider_name).strip().lower()
     cfg = _PROVIDER_SETTINGS[provider]
-    model = req.model.strip() or cfg["default_model"]
+    requested_model = req.model.strip()
+    if requested_model:
+        model = requested_model
+    elif provider == current_provider:
+        model = _provider_current_model(provider) or cfg["default_model"]
+    else:
+        model = cfg["default_model"]
     api_key = req.api_key.strip()
 
     # Update environment in-process

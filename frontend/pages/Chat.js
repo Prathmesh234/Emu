@@ -84,6 +84,7 @@ function syncGeneratingUI(generating) {
     if (winHeader) {
         winHeader.setStatus(generating ? 'working' : 'ready', generating);
         winHeader.setModeDisabled(generating);
+        if (winHeader.setModelDisabled) winHeader.setModelDisabled(generating);
     }
     // Disable the dangerous mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);

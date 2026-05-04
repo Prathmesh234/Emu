@@ -64,29 +64,29 @@ async function start({ app } = {}) {
   return ensureStarted({ app });
 }
 
-async function ensureStarted({ app, checkPermissions = true } = {}) {
+async function ensureStarted({ app, checkPermissions = true, forcePermissionCheck = false } = {}) {
   try {
-    const state = await _ensureStartedOrThrow({ app, checkPermissions });
+    const state = await _ensureStartedOrThrow({ app, checkPermissions, forcePermissionCheck });
     return { success: true, ...state };
   } catch (err) {
     return _startupError(err);
   }
 }
 
-async function _ensureStartedOrThrow({ app, checkPermissions = true } = {}) {
+async function _ensureStartedOrThrow({ app, checkPermissions = true, forcePermissionCheck = false } = {}) {
   configure({ app });
 
   if (_starting) {
     return _starting;
   }
 
-  _starting = _startOnce({ checkPermissions }).finally(() => {
+  _starting = _startOnce({ checkPermissions, forcePermissionCheck }).finally(() => {
     _starting = null;
   });
   return _starting;
 }
 
-async function _startOnce({ checkPermissions }) {
+async function _startOnce({ checkPermissions, forcePermissionCheck }) {
   const bin = _resolveBinary(_configuredApp);
   if (!bin) {
     throw new Error(
@@ -101,7 +101,7 @@ async function _startOnce({ checkPermissions }) {
   }
 
   const state = { running: true, pid: _serveChild?.pid || null, binary: bin };
-  if (checkPermissions && !_permissionsChecked) {
+  if (checkPermissions && (forcePermissionCheck || !_permissionsChecked)) {
     state.permissions = await _checkPermissions(bin);
   }
   return state;

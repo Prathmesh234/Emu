@@ -12,6 +12,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // Auth token path resolves via EMU_ROOT so it works in both source-checkout
 // and packaged-DMG layouts.
 const TOKEN_PATH = authTokenPath();
+let pendingProviderSettingsSave = null;
+let providerSettingsSaveQueue = Promise.resolve();
 
 function getToken() {
     try {
@@ -62,6 +64,9 @@ async function createSession() {
 }
 
 async function postStep({ sessionId, userMessage, base64Screenshot, agentMode }) {
+    if (pendingProviderSettingsSave) {
+        await pendingProviderSettingsSave;
+    }
     // Do not abort agent steps from the renderer. Coworker mode can run long
     // server-side tool chains while progress streams over WebSocket; aborting
     // this fetch only drops the UI back to "send" while the backend continues.
@@ -166,15 +171,36 @@ async function getProviderSettings() {
     return res.json();
 }
 
-async function saveProviderSettings({ provider, model, apiKey }) {
-    const res = await fetchWithTimeout(`${BACKEND_URL}/settings/provider`, {
-        method: 'POST',
+async function getProviderModelOptions(provider) {
+    const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    const res = await fetchWithTimeout(`${BACKEND_URL}/settings/provider/models${suffix}`, {
         headers: authHeaders(),
-        body: JSON.stringify({ provider, model, api_key: apiKey }),
     }, 10_000);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `Failed to save provider settings: ${res.status}`);
-    return data;
+    if (!res.ok) throw new Error(`Failed to get provider models: ${res.status}`);
+    return res.json();
 }
 
-module.exports = { BACKEND_URL, createSession, continueSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages, getProviderSettings, saveProviderSettings };
+async function saveProviderSettings({ provider, model, apiKey }) {
+    const request = providerSettingsSaveQueue.catch(() => {}).then(async () => {
+        const res = await fetchWithTimeout(`${BACKEND_URL}/settings/provider`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ provider, model, api_key: apiKey }),
+        }, 10_000);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `Failed to save provider settings: ${res.status}`);
+        return data;
+    });
+
+    pendingProviderSettingsSave = request;
+    providerSettingsSaveQueue = request.catch(() => {});
+    try {
+        return await request;
+    } finally {
+        if (pendingProviderSettingsSave === request) {
+            pendingProviderSettingsSave = null;
+        }
+    }
+}
+
+module.exports = { BACKEND_URL, createSession, continueSession, postStep, notifyActionComplete, stopAgent, compactContext, fetchSessionHistory, fetchSessionMessages, getProviderSettings, getProviderModelOptions, saveProviderSettings };

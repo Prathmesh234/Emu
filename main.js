@@ -208,7 +208,7 @@ app.whenReady().then(() => {
     .catch((err) => {
       console.warn(`[daemon-install] install error: ${err?.message || err}`);
     })
-    .then(() => emuCuaDriverProcess.ensureStarted({ app }))
+    .then(() => emuCuaDriverProcess.ensureStarted({ app, forcePermissionCheck: true }))
     .then((result) => {
       if (result?.success) {
         const missing = result?.permissions?.missing || [];

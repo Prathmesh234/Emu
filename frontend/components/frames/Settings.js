@@ -1,6 +1,6 @@
 // components/frames/Settings.js — Settings modal
 //
-// Part of the Emu Design System v1 refactor (see FRONTEND_REDESIGN.md).
+// Part of the Emu Design System v1 refactor.
 // Design source: Emu-handoff.zip → project/frames/frames-b.jsx > F_Settings
 //
 // Grouped rows (Account / Behavior / Appearance) in a centered modal.
@@ -115,19 +115,14 @@ function Settings({ onClose }) {
     group3.appendChild(themeRow.row);
     body.appendChild(group3);
 
-    // Section: Model
-    body.appendChild(_section('Model'));
+    // Section: Provider
+    body.appendChild(_section('Provider'));
     const group4 = _group();
 
     const providerRow = _row('Provider', '');
     const providerSelect = _select([]);
     providerRow.val.replaceWith(providerSelect);
     group4.appendChild(providerRow.row);
-
-    const modelRow = _row('Model', '');
-    const modelInput = _input('text', '');
-    modelRow.val.replaceWith(modelInput);
-    group4.appendChild(modelRow.row);
 
     const keyRow = _row('API Key', '');
     const keyInput = _input('password', '');
@@ -148,9 +143,7 @@ function Settings({ onClose }) {
     body.appendChild(group4);
 
     // Populate provider select and pre-fill current values
-    let _defaultModels = {};
     getProviderSettings().then((data) => {
-        _defaultModels = data.default_models || {};
         const providers = data.providers || [];
         providers.forEach((p) => {
             const opt = document.createElement('option');
@@ -159,7 +152,6 @@ function Settings({ onClose }) {
             if (p === data.provider) opt.selected = true;
             providerSelect.appendChild(opt);
         });
-        modelInput.value = data.model || '';
         // Don't pre-fill API key — user must re-enter to change it
         if (data.api_key_set) keyInput.placeholder = data.api_key_preview || '••••••••';
     }).catch(() => {
@@ -169,8 +161,6 @@ function Settings({ onClose }) {
     });
 
     providerSelect.addEventListener('change', () => {
-        const selected = providerSelect.value;
-        modelInput.value = _defaultModels[selected] || '';
         keyInput.value = '';
         keyInput.placeholder = '';
         saveStatus.textContent = '';
@@ -178,17 +168,19 @@ function Settings({ onClose }) {
 
     saveBtn.addEventListener('click', async () => {
         const provider = providerSelect.value;
-        const model = modelInput.value.trim();
         const apiKey = keyInput.value.trim();
         saveBtn.disabled = true;
         saveStatus.textContent = 'saving…';
         saveStatus.className = 'settings-save-status';
         try {
-            await saveProviderSettings({ provider, model, apiKey });
-            saveStatus.textContent = 'saved';
+            const result = await saveProviderSettings({ provider, model: '', apiKey });
+            saveStatus.textContent = 'saved; next request will use it';
             saveStatus.className = 'settings-save-status ok';
             keyInput.value = '';
             if (apiKey) keyInput.placeholder = '••••••••';
+            window.dispatchEvent(new CustomEvent('emu-provider-settings-changed', {
+                detail: { provider: result.provider || provider, model: result.model || '', source: 'settings' },
+            }));
         } catch (err) {
             saveStatus.textContent = err.message || 'error';
             saveStatus.className = 'settings-save-status err';
