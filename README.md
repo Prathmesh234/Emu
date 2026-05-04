@@ -17,7 +17,7 @@ Emu is a desktop automation agent that combines screen understanding, LLM planni
 ### 1. Memory daemon
 
 - Daemon runs out-of-process on macOS via launchd.
-- Tick interval is 15 minutes (see `daemon/launchd/com.emu.memory-daemon.plist.template`).
+- Tick interval is 2 minutes (see `daemon/launchd/com.emu.memory-daemon.plist.template`).
 - Command entrypoint is `daemon/launchd/run.sh`.
 - Installer CLI: `python3 -m daemon.install_macos <command>`.
 
@@ -83,6 +83,9 @@ If Accessibility or Screen Recording is missing, Emu shows an in-app permission
 card with `Allow` buttons that open the exact System Settings panes.
 
 ## Launch commands
+
+For setup agents, use `install_emu_skill/INSTALL_EMU.MD` as the canonical
+installation runbook. The commands below are the normal local development path.
 
 Recommended startup uses two terminals.
 
@@ -198,16 +201,16 @@ Fix:
 - `backend/`: FastAPI agent harness, providers, tools, prompts.
 - `frontend/`: Electron renderer UI, actions, services, store, styles.
 - `frontend/coworker-mode/emu-driver/`: nested `emu-cua-driver` Swift driver.
-- `frontend/coworker-driver/`: coworker mode specs, runbooks, and skill docs.
+- `frontend/coworker-driver/`: coworker mode operator docs and skill runbooks.
 - `daemon/`: memory daemon runtime, policy, state, launchd installer.
 - `backend.sh` / `frontend.sh`: one-command startup scripts.
 
 ## Additional docs
 
-- `SETUP.md`
+- `install_emu_skill/INSTALL_EMU.MD`
 - `DOCUMENTATION.md`
 - `MACOS_PERMISSIONS.md`
-- `backend/BACKEND.md`
+- `backend/BACKEND.MD`
 - `frontend/FRONTEND.md`
 - `daemon/DESIGN.md`
 - `frontend/coworker-mode/PLAN.md`

@@ -23,7 +23,7 @@ This is the canonical implementation roadmap. It supersedes the old loose setup 
 | Capture path | `frontend/services/captureForStep.js`, `frontend/cua-driver-commands/*` | Coworker per-step capture prefers target-window screenshots via `emu-cua:screenshot`, with desktop capture fallback. |
 | Permissions UX | `main.js`, `preload.js`, `frontend/components/chrome/PermissionsCard.js` | Missing TCC grants trigger a non-blocking Emu-styled card with direct System Settings links and polling rechecks. |
 | Packaging config | `package.json` | `build:driver`, `pack`, and `dist` scripts build the release driver first; electron-builder copies it to `Resources/emu-cua-driver/emu-cua-driver`. |
-| Docs | `coworker-driver/SPEC.md`, `SKILL.md`, `WEB_APPS.md`, `TESTS.md`, `RECORDING.md`, `emu-driver/UPSTREAM_CHANGES.md` | Complete; repo/fork operations are consolidated into `UPSTREAM_CHANGES.md`. |
+| Docs | `coworker-driver/README.md`, `SKILL.md`, `WEB_APPS.md`, `TESTS.md`, `RECORDING.md`, `emu-driver/UPSTREAM_CHANGES.md` | Complete; repo/fork operations are consolidated into `UPSTREAM_CHANGES.md`. |
 
 ### 🔲 Remaining / Manual validation
 | Layer | Gap |
@@ -563,7 +563,7 @@ The integration is "done" when **all** of these are true:
 
 ## 7. References
 
-- Spec: `frontend/coworker-driver/SPEC.md` (§14 = roadmap)
+- Overview: `frontend/coworker-driver/README.md`
 - Skill: `frontend/coworker-driver/SKILL.md`
 - Tests: `frontend/coworker-driver/TESTS.md`
 - Web apps: `frontend/coworker-driver/WEB_APPS.md`

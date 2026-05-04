@@ -13,13 +13,20 @@ Frontend is an Electron renderer app under `frontend/` with modular UI, service,
 - `actions/`: desktop action bridge (renderer -> main process handlers).
 - `process/psProcess.js`: persistent shell process manager.
 
-## Action execution path
+## Action execution paths
+
+Remote mode uses renderer-dispatched desktop actions:
 
 1. Backend returns desktop action payload.
 2. Frontend maps action type in `actions/actionProxy.js`.
 3. Renderer invokes IPC handler.
 4. Main process executes OS command path and returns result.
 5. Frontend posts action completion back to backend.
+
+Coworker mode uses backend-dispatched `cua_*` function tools instead. The
+renderer allows only `done` Action JSON in coworker mode; native interaction is
+routed through `backend/tools/coworker_tools.py` and the Electron-owned
+`emu-cua-driver` process.
 
 ## Action modules
 
@@ -41,13 +48,13 @@ The store tracks:
 - message timeline
 - side panel and UI mode flags
 
-## UI redesign status
+## Styling
 
-The frontend styling/layout is being aligned to the redesign specification in `FRONTEND_REDESIGN.md` with:
+The frontend uses tokenized styles under `frontend/styles/`:
 
-- tokenized styles in `frontend/styles/`
-- chrome/conversation/frame CSS separation
-- cleaner state-driven frame rendering
+- shared tokens and base styles
+- chrome, conversation, frame, and sidebar CSS groups
+- state-driven rendering from `pages/Chat.js` and `state/store.js`
 
 ## Startup
 

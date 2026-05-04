@@ -10,6 +10,9 @@ Emu has three major pieces:
 - FastAPI backend (`backend/main.py`)
 - Optional macOS memory daemon (`daemon/` via launchd)
 
+For installation and setup-agent instructions, see
+`install_emu_skill/INSTALL_EMU.MD`.
+
 ## Request/response loop
 
 1. User sends message in frontend.
