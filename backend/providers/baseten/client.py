@@ -18,7 +18,7 @@ import uuid
 from openai import OpenAI
 
 from models import Action, AgentRequest, AgentResponse, MessageRole, ToolCallInfo, safe_build_action
-from providers.agent_tools import get_agent_tools_openai, AGENT_TOOL_NAMES
+from providers.agent_tools import get_agent_tools_openai, get_agent_tool_names
 
 # -- Configuration -----------------------------------------------------------
 
@@ -48,7 +48,7 @@ def call_model(agent_req: AgentRequest) -> AgentResponse:
     )
     elapsed_ms = int((time.time() - start) * 1000)
 
-    return _parse_response(resp, elapsed_ms)
+    return _parse_response(resp, elapsed_ms, agent_req.agent_mode)
 
 
 def is_ready() -> bool:
@@ -108,7 +108,7 @@ def _build_messages(req: AgentRequest) -> tuple[str, list[dict]]:
 
 # -- Response parser ---------------------------------------------------------
 
-def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
+def _parse_response(resp, elapsed_ms: int, agent_mode: str = "remote") -> AgentResponse:
     choice = resp.choices[0] if resp.choices else None
     message = choice.message if choice else None
     content = message.content or "" if message else ""
@@ -147,7 +147,7 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     # on the harness — a post-trained model should learn to use the function-calling
     # API for tools and reserve JSON text responses for desktop actions only.
     action_type = raw_action.get("type", "")
-    if action_type in AGENT_TOOL_NAMES:
+    if action_type in get_agent_tool_names(agent_mode):
         args = {k: v for k, v in raw_action.items() if k != "type"}
         for key in (
             "content", "skill_name", "filename", "target", "date", "focus",

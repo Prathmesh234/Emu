@@ -2,7 +2,7 @@
 
 > Status: implemented and running in production code. This document remains
 > design-oriented, but the core system is now live: a launchd-driven background
-> daemon that runs `python -m daemon.run` at fixed intervals (currently 15 minutes in
+> daemon that runs `python -m daemon.run` at fixed intervals (currently every 2 minutes in
 > the launchd template) and curates `.emu/` memory files using strict path
 > policy constraints.
 >
@@ -17,7 +17,7 @@
 
 ## 1. Purpose
 
-Run the **Emu Memory Daemon** unattended on the user's Mac. Every 15 minutes it
+Run the **Emu Memory Daemon** unattended on the user's Mac. Every 2 minutes it
 wakes, scans `.emu/sessions/`, and curates the workspace memory files
 (`AGENTS.md`, `MEMORY.md`, daily logs, etc.) per the rules in
 `backend/prompts/daemon.md`.
@@ -157,7 +157,7 @@ the Emu app at install time.
     <key>Label</key>
     <string>com.emu.memory-daemon</string>
 
-    <!-- Every 15 minutes. launchd coalesces missed ticks across sleep. -->
+    <!-- Every 2 minutes. launchd coalesces missed ticks across sleep. -->
     <key>StartInterval</key>
     <integer>120</integer>
 
@@ -189,7 +189,7 @@ the Emu app at install time.
     <key>LowPriorityIO</key>         <true/>
     <key>ProcessType</key>           <string>Background</string>
 
-    <!-- Do not auto-restart; every 5 min is restart enough. -->
+    <!-- Do not auto-restart; the 2-minute StartInterval is restart enough. -->
     <key>KeepAlive</key>             <false/>
     <key>RunAtLoad</key>             <false/>
     <key>AbandonProcessGroup</key>   <false/>
@@ -207,7 +207,7 @@ the Emu app at install time.
 
 Notes:
 - `StartInterval=120` handles sleep/wake more gracefully than calendar intervals.
-- `RunAtLoad=false` — fire on the next 5-min tick, not on install.
+- `RunAtLoad=false` — fire on the next 2-minute tick, not on install.
 - `KeepAlive=false` — don't respawn a crash loop tightly.
 - `EnvironmentVariables` carries `EMU_ROOT` and `EMU_DAEMON_PROVIDER`. The
   **API key is not in the plist**; the daemon fetches it from Keychain (see §8).
@@ -609,7 +609,7 @@ The app re-runs `installMemoryDaemon` to refresh the plist (paths inside the
 `launchctl unload && load` cleanly hot-swaps.
 
 The user sees a single checkbox in preferences: **"Run memory daemon in
-background every 15 minutes."** That toggle calls install/uninstall above.
+background every 2 minutes."** That toggle calls install/uninstall above.
 
 ---
 

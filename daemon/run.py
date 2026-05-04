@@ -1,8 +1,8 @@
 """
 run.py — Emu Memory Daemon entrypoint.
 
-Invoked every EMU_DAEMON_INTERVAL_SECONDS (default 300) by the in-process
-ticker in backend/main.py. Exposes main() which is the single-tick body.
+Invoked by the macOS launchd template every 2 minutes. Exposes main(), which is
+the single-tick body.
 
 NOTE: For now the daemon runs the single fixed DAEMON_PROMPT. In the future
 we may support attached "skills" per Hermes's model (extra prompt fragments

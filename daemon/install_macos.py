@@ -423,7 +423,7 @@ def prompt_install() -> int:
     print(bar)
     print("  Emu Daemons")
     print(bar)
-    print("  Run a small background process every 15 minutes that")
+    print("  Run a small background process every 2 minutes that")
     print("  consolidates your session memory into MEMORY.md and")
     print("  daily logs through macOS launchd (no sudo required).")
     print()

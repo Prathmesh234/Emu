@@ -1,8 +1,11 @@
 # Co-worker Mode — Functional Spec
 
-**Status:** Approved design, ready to implement.
+**Status:** Historical implementation sketch. The shipped architecture pivoted to
+single-channel backend `cua_*` function tools; use
+`frontend/coworker-mode/PLAN.md` and the current source as the authoritative
+reference.
 **Owner:** TBD
-**Last updated:** 2026-04-29
+**Last updated:** 2026-05-04
 
 ## References
 
@@ -18,10 +21,11 @@
 
 Add a **co-worker** mode to Emu where the model still drives Emu's existing harness end-to-end, but the **physical actuation** of mouse/keyboard/screenshots happens via the [`cua-driver`](https://github.com/trycua/cua/tree/main/libs/cua-driver) Swift binary instead of `cliclick`/`CGEvent`/`desktopCapturer`. This lets the model click/type/scroll on a target window **without moving the user's cursor or stealing focus**, so the user can keep working in another window while the agent runs.
 
-When the toggle is on, **only two things change** vs. today's `remote` mode:
+When the toggle is on, the current implementation differs from `remote` mode in
+two main places:
 
 1. **The system prompt** — backend selects a co-worker prompt instead of the default one, based on `agent_mode` already in the request payload.
-2. **The execution layer** — frontend dispatcher routes to a new `frontend/cua-driver-commands/` folder instead of `frontend/actions/`, based on the same `agent_mode`.
+2. **The tool layer** — backend exposes `cua_*` function tools and dispatches them directly to `emu-cua-driver`; the renderer rejects non-`done` coworker Action JSON.
 
 **Everything else stays identical.** Same chat UI, same side-panel trace cards, same step badges, same Stop button (`POST /agent/stop`), same border window, same session/WebSocket plumbing. No menu-bar pill, no global hotkey, no overlay, no separate timeline.
 
@@ -401,157 +405,22 @@ The emu-cua-driver child is **lazy-started** the first time a co-worker action i
 
 ---
 
-## 6. The new `frontend/cua-driver-commands/` folder
+## 6. The `frontend/cua-driver-commands/` folder
 
-Mirror the existing `frontend/actions/` shape — one file per action, each exporting `{ <fn>, register }`, plus an `index.js` barrel.
+Current architecture after the Phase-4 pivot: coworker mode is single-channel.
+The model uses backend function tools (`cua_click`, `cua_type_text`,
+`cua_get_window_state`, etc.) for interaction, and those tools are dispatched
+server-side by `backend/tools/dispatcher.py` through
+`tools.coworker_tools.call_driver_tool()`.
 
-### 6.1 Action map (v1 only)
+`frontend/actions/executor.js` therefore rejects every non-`done` Action JSON
+while in coworker mode instead of routing it through a renderer-side coworker
+action dispatcher. This prevents stale remote actions from bypassing the
+backend `pid`/`window_id`/`element_index` contract.
 
-| Backend `ActionType` | cua-driver tool | Args mapping |
-|---|---|---|
-| `screenshot` | `screenshot` | `{ window_id? }` (session-scoped target) |
-| `left_click` | `click` | `{ pid, element_index }` or `{ pid, x, y }` (pixel fallback) |
-| `right_click` | `right_click` | same |
-| `double_click` | `double_click` | same |
-| `triple_click` | *not in v1* | — |
-| `navigate_and_click` | folded into `left_click` (no separate "navigate" — cua-driver clicks where the model says, no cursor move) | — |
-| `navigate_and_right_click` | folded into `right_click` | — |
-| `navigate_and_triple_click` | *not in v1* | — |
-| `mouse_move` | *not in v1* (no shared cursor) | — |
-| `relative_mouse_move` | *not in v1* | — |
-| `drag`, `relative_drag` | *not in v1* | — |
-| `scroll` | `scroll` | `{ pid, direction, amount, element_index?, window_id? }` |
-| `horizontal_scroll` | `scroll` with horizontal direction | same |
-| `type_text` | `type_text` | `{ pid, text, element_index? }` |
-| `key_press` | `hotkey` | `{ pid, keys: [<modifiers>..., <key>] }` |
-| `wait` | (renderer-side `setTimeout` — unchanged) | — |
-| `shell_exec` | (renderer shellExec — unchanged) | — |
-| `done` | (no-op — unchanged) | — |
-
-### 6.2 The dispatcher branch
-
-Modify `frontend/actions/executor.js` to read mode and pick a dispatcher. **This is the only file in `frontend/actions/` that we touch.**
-
-```js
-// frontend/actions/executor.js — modified
-const { dispatchAction: dispatchRemote } = require('./actionProxy');
-const { dispatchAction: dispatchCoworker } = require('../cua-driver-commands/actionProxy');
-const store = require('../state/store');
-const api = require('../services/api');
-
-async function executeAction(action, stepEl) {
-    const dispatch = store.state.agentMode === 'coworker'
-        ? dispatchCoworker
-        : dispatchRemote;
-    console.log(`[executeAction] mode=${store.state.agentMode} dispatching ${action.type}`);
-    const result = await dispatch(action);
-    // ... rest is byte-identical to today (badge update + notifyActionComplete)
-}
-```
-
-### 6.3 `frontend/cua-driver-commands/actionProxy.js` (sibling of `frontend/actions/actionProxy.js`)
-
-Same shape: `ACTION_MAP` keyed on backend `ActionType` strings, each entry's `dispatch()` calls into `emuCuaDriverProcess.callTool(...)` via IPC.
-
-```js
-// frontend/cua-driver-commands/actionProxy.js
-const { ipcRenderer } = require('electron');
-
-const ACTION_MAP = {
-    screenshot: {
-        label: 'Screenshot', icon: '📸', ipc: 'emu-cua:screenshot',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:screenshot', { window_id: a.window_id }),
-        describe: () => 'Capture window screenshot',
-    },
-    left_click: {
-        label: 'Left Click', icon: '🖱️', ipc: 'emu-cua:click',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:click', _clickArgs(a)),
-        describe: (a) => a.element_index != null
-            ? `Left click on element [${a.element_index}]`
-            : `Left click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
-    },
-    right_click: {
-        label: 'Right Click', icon: '🖱️', ipc: 'emu-cua:right-click',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:right-click', _clickArgs(a)),
-        describe: () => 'Right click',
-    },
-    double_click: {
-        label: 'Double Click', icon: '🖱️', ipc: 'emu-cua:double-click',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:double-click', _clickArgs(a)),
-        describe: () => 'Double click',
-    },
-    // navigate_and_click → just left_click (no cursor move in co-worker mode)
-    navigate_and_click: {
-        label: 'Click', icon: '🖱️', ipc: 'emu-cua:click',
-        dispatch: async (a) => ipcRenderer.invoke('emu-cua:click', _clickArgs(a)),
-        describe: (a) => a.element_index != null
-            ? `Click element [${a.element_index}]`
-            : `Click at (${a.coordinates?.x}, ${a.coordinates?.y})`,
-    },
-    navigate_and_right_click: { /* same pattern */ },
-    scroll: {
-        label: 'Scroll', icon: '📜', ipc: 'emu-cua:scroll',
-        dispatch: (a) => ipcRenderer.invoke('emu-cua:scroll', {
-            pid: a.pid,
-            direction: a.direction,
-            amount: a.amount || 3,
-            element_index: a.element_index,
-            window_id: a.window_id,
-        }),
-        describe: (a) => `Scroll ${a.direction} ${a.amount || 3}`,
-    },
-    horizontal_scroll: { /* same with direction left/right */ },
-    type_text: {
-        label: 'Type', icon: '⌨️', ipc: 'emu-cua:type',
-        dispatch: (a) => ipcRenderer.invoke('emu-cua:type', {
-            pid: a.pid,
-            text: a.text,
-            element_index: a.element_index,
-        }),
-        describe: (a) => `Type "${a.text}"`,
-    },
-    key_press: {
-        label: 'Key Press', icon: '⌨️', ipc: 'emu-cua:hotkey',
-        dispatch: (a) => ipcRenderer.invoke('emu-cua:hotkey', {
-            pid: a.pid,
-            keys: [...(a.modifiers || []), a.key],
-        }),
-        describe: (a) => `Press ${[...(a.modifiers || []), a.key].join('+')}`,
-    },
-    // wait, shell_exec, done, memory_read — copy from actions/actionProxy.js verbatim
-    // (these don't touch the actuator).
-};
-
-function _clickArgs(a) {
-    // Element-indexed first, pixel fallback only when element_index is absent.
-    if (a.element_index != null) {
-        return { pid: a.pid, element_index: a.element_index, window_id: a.window_id };
-    }
-    return {
-        pid: a.pid,
-        x: a.coordinates?.x ?? a.x,
-        y: a.coordinates?.y ?? a.y,
-        window_id: a.window_id,
-    };
-}
-
-// dispatchAction + withTimeout + describeAction are copied byte-identical
-// from frontend/actions/actionProxy.js (only ACTION_MAP differs).
-async function dispatchAction(action) {
-    const entry = ACTION_MAP[action.type];
-    if (!entry) return { success: false, ipc: null, description: `Unknown: ${action.type}` };
-    const description = entry.describe(action);
-    if (!entry.dispatch) return { success: true, ipc: entry.ipc, description };
-    try {
-        const result = await entry.dispatch(action);
-        return { success: result?.success !== false, ipc: entry.ipc, description, output: result?.output ?? null };
-    } catch (err) {
-        return { success: false, ipc: entry.ipc, description, error: err.message };
-    }
-}
-
-module.exports = { ACTION_MAP, dispatchAction };
-```
+`frontend/cua-driver-commands/actionProxy.js` was removed as dead code. The
+remaining `frontend/cua-driver-commands/index.js` registers IPC handlers for
+target-window capture, permissions UI, and operator-facing calls.
 
 ### 6.4 `frontend/cua-driver-commands/index.js` — IPC registration
 
@@ -961,7 +830,6 @@ To eliminate ambiguity: every one of these stays byte-identical between modes.
 **New files:**
 - `frontend/process/EmuCuaDriverProcess.js`
 - `frontend/cua-driver-commands/index.js`
-- `frontend/cua-driver-commands/actionProxy.js`
 - `frontend/services/captureForStep.js`
 - `backend/prompts/emu_coworker_system_prompt.py`
 - `backend/tools/list_running_apps.py`

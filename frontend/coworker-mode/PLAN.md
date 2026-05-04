@@ -14,7 +14,7 @@ This is the canonical implementation roadmap. It supersedes the old loose setup 
 | Fork | `frontend/coworker-mode/emu-driver/` | Separate git repo, upstream `trycua/cua` tracked. 172 files copied. |
 | Driver binary | `emu-cua-driver` / `EmuCuaDriver.app` | Phase 1 complete: product/app/runtime surfaces are Emu-branded while Swift target/module names stay upstream-compatible. |
 | Frontend process | `frontend/process/EmuCuaDriverProcess.js` | Starts Electron-owned `emu-cua-driver serve --no-relaunch`, configures cursor/permissions, and exposes driver calls for renderer IPC. |
-| Frontend IPC | `frontend/cua-driver-commands/{index.js,actionProxy.js}` | `emu-cua:*` channels registered, `ACTION_MAP` covers click family + scroll + type + hotkey + screenshot + window-state + launch + list-apps. |
+| Frontend IPC | `frontend/cua-driver-commands/index.js` | `emu-cua:*` channels registered for target-window capture and operator/renderer IPC helpers. Interactive coworker work is dispatched server-side through backend `cua_*` function tools. |
 | Executor branch | `frontend/actions/executor.js` | Branches on `store.state.agentMode === 'coworker'`. |
 | Main process | `main.js` | Loads `EmuCuaDriverProcess`, registers IPC, calls `.stop()` on `will-quit`. |
 | Mode toggle | `frontend/state/store.js`, `frontend/components/chrome/WindowHeader.js`, `frontend/services/api.js` | Existing toggle defaults to `"coworker"`, persists to `localStorage`, locks while generating, and sends `agent_mode` in `/agent/step`. **Do not redesign.** |
@@ -47,10 +47,9 @@ This is the canonical implementation roadmap. It supersedes the old loose setup 
 └──────────────────────────────────┬──────────────────────────────────┘
                                    │
 ┌─────────────────────── Renderer (Chat page) ────────────────────────┐
-│  executor.js ──▶ cua-driver-commands/actionProxy.js                 │
-│       │            (ACTION_MAP keyed by action.type)                │
+│  executor.js rejects non-done coworker Action JSON                  │
 │       │                                                             │
-│       └─▶ POST /action/complete to backend                          │
+│       └─▶ POST /action/complete to backend for done/failure feedback │
 └─────────────────────────────────────────────────────────────────────┘
                                    ▲
 ┌──────────────────────────── Backend ────────────────────────────────┐
@@ -385,7 +384,7 @@ Unlike remote mode (which has TWO output channels — function-calls for control
 **Status:** ✅ Finished (2026-04-30) — coworker capture flows through emu-cua-driver target-window screenshots; remote path unchanged.
 **Outcome:** Per-step screenshots in coworker mode flow from the target window via `emu-cua:screenshot`, not the whole desktop. Frontend knows the active `(pid, window_id)` because the backend surfaces it on `/agent/step`.
 
-**Architectural note (post-Phase-4 pivot):** Coworker mode is single-channel — every interactive primitive is a function-tool call dispatched server-side via `call_driver_tool`. Real desktop actions (`cua_click`, `cua_type_text`, …) never travel through the renderer's `cua-driver-commands/actionProxy.js`; only `screenshot`/`wait`/`done` ever reach it. That makes the original §6.1 (extending `Action` with `pid`/`window_id`/`element_index`) **dead weight** and we are skipping it. The model addresses targets via tool-call arguments parsed by `coworker_tools.COWORKER_DRIVER_TOOLS_OPENAI`.
+**Architectural note (post-Phase-4 pivot):** Coworker mode is single-channel — every interactive primitive is a function-tool call dispatched server-side via `call_driver_tool`. Real desktop actions (`cua_click`, `cua_type_text`, …) never travel through a renderer action proxy; `frontend/actions/executor.js` rejects non-`done` coworker Action JSON before dispatch. That makes the original §6.1 (extending `Action` with `pid`/`window_id`/`element_index`) **dead weight** and we are skipping it. The model addresses targets via tool-call arguments parsed by `coworker_tools.COWORKER_DRIVER_TOOLS_OPENAI`.
 
 6.1 ~~`Action` field extension~~ — **SKIPPED.** Single-channel design means `pid`/`window_id`/`element_index` belong on tool-call args, not the Action model. No pydantic root validator needed.
 
@@ -406,9 +405,9 @@ Unlike remote mode (which has TWO output channels — function-calls for control
    - `frontend/services/captureForStep.js` reads `store.state.coworkerTarget` to decide which capture path to use.
 
 6.6 Action-set audit (unchanged from prior decisions, restated for QA):
-- Supported in v1 (coworker tool surface): `cua_click` family, `cua_scroll`, `cua_type_text`/`cua_type_text_chars`/`cua_set_value`, `cua_press_key`/`cua_hotkey`, `cua_screenshot`, `cua_get_window_state`, `cua_launch_app`, `cua_list_apps`/`cua_list_windows`, `cua_move_cursor`, `cua_drag`, plus diagnostics. Plain Action types still supported through the renderer in coworker mode: `screenshot`, `wait`, `done`.
-- Renderer Action types that are coworker-deferred no-ops in `cua-driver-commands/actionProxy.js`: `triple_click`, `navigate_and_triple_click`, `mouse_move`, `relative_mouse_move`, `relative_drag`, `drag`, `get_mouse_position`.
-- `horizontal_scroll`: **deferred / no-op in coworker** to resolve the SPEC §2 vs §6.1 disagreement. The model uses `cua_scroll` with `direction ∈ left|right` instead. Existing renderer mapping in `cua-driver-commands/actionProxy.js` is left in place but is unreachable on the single-channel path; will be cleaned up in Phase 7 if it bit-rots.
+- Supported in v1 (coworker tool surface): `cua_click` family, `cua_scroll`, `cua_type_text`/`cua_type_text_chars`/`cua_set_value`, `cua_press_key`/`cua_hotkey`, `cua_screenshot`, `cua_get_window_state`, `cua_launch_app`, `cua_list_apps`/`cua_list_windows`, `cua_move_cursor`, `cua_drag`, plus diagnostics.
+- Plain Action types are not used for coworker interaction. `frontend/actions/executor.js` allows only `done` in coworker mode and rejects all other Action JSON so stale remote actions cannot bypass the backend `cua_*` workflow.
+- The obsolete renderer coworker `ACTION_MAP` in `frontend/cua-driver-commands/actionProxy.js` was removed after the single-channel pivot; `frontend/cua-driver-commands/index.js` remains for IPC handlers used by capture, permission checks, and operator-facing calls.
 
 ### Phase 7 — Permissions + End-to-End Smoke
 **Outcome:** Real workflows run successfully on a clean macOS install.
