@@ -500,9 +500,13 @@ AGENT_TOOLS_OPENAI = [
             "name": "raise_app",
             "description": (
                 "Resolve/prepare a named macOS app. Remote mode activates it. "
-                "Coworker mode uses emu-cua-driver `launch_app` and returns "
-                "`{pid, bundle_id, name, windows}` without foregrounding. Use "
-                "the returned pid/window_id for `cua_*` tools."
+                "In coworker mode, prefer list_running_apps/cua_list_windows "
+                "for existing targets before using this. Coworker mode uses "
+                "emu-cua-driver `launch_app` and returns `{pid, bundle_id, "
+                "name, windows}`, but some apps may self-activate during "
+                "LaunchServices launch/open and briefly or fully come "
+                "frontmost. Use only when launch/prepare is necessary, then "
+                "use the returned pid/window_id for `cua_*` tools."
             ),
             "parameters": {
                 "type": "object",

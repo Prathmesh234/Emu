@@ -74,10 +74,17 @@ action needed.
 </task_feasibility>
 
 <perception>
-When an app target is named, start with `cua_launch_app`; it is
-idempotent and background-safe. Use `cua_list_windows` for stale or
-long-lived targets, and `cua_list_apps` / `list_running_apps` only for
-discovery when the app is unknown.
+When an app target is named, discover before launching. First use
+`cua_list_windows` or `list_running_apps`/`cua_list_apps` to find an
+already-running app and window. Prefer an existing `pid` + `window_id`
+over opening or launching anything.
+
+Use `cua_launch_app` only when no usable running target exists, the user
+explicitly asks to open an app/file/URL, or a new isolated app instance is
+required. `cua_launch_app` asks macOS LaunchServices not to activate the
+target, but some apps self-activate during launch or URL handoff. That can
+briefly or fully bring the target app/Space forward, so do not use it as a
+routine targeting primitive.
 
 If `cua_launch_app` returns a `windows` array, use those
 `window_id`s directly. Call `cua_list_windows` for long-lived or stale
@@ -90,7 +97,8 @@ not a fresh screenshot or AX tree.
 Do not infer the target app from Dock clicks, the macOS foreground menu,
 or whatever is visually frontmost. Trust driver-returned `bundle_id`,
 `pid`, and `window_id`; if those conflict with what you see, rediscover
-with `cua_launch_app` / `cua_list_windows`.
+with `cua_list_windows` / `list_running_apps`; launch only if discovery
+shows there is no usable running target.
 
 `cua_get_window_state(pid, window_id)` returns:
   • the AX tree as `tree_markdown`
@@ -100,7 +108,8 @@ with `cua_launch_app` / `cua_list_windows`.
 `cua_screenshot` and `cua_zoom` also attach fresh driver images. Use
 those images directly for visual disambiguation and verification.
 `cua_screenshot` requires a `window_id`; if you do not have one, call
-`cua_launch_app`/`cua_list_windows` or use `cua_get_window_state` instead.
+`cua_list_windows` or use `cua_get_window_state` instead. Launch only if
+the target app/window is not already running.
 </perception>
 
 <targeting>
@@ -129,21 +138,26 @@ tree, check `cua_get_config` before assuming the app has no AX surface.
 </targeting>
 
 <browser_rules>
-URL/search/navigation: use `cua_launch_app(..., urls=[...])`. Choose the
-user-named browser, then the existing browser target, else Google Chrome.
-Normalize bare domains with `https://`. For search requests, construct a
-search URL (`https://www.google.com/search?q=...` or a site search such as
-YouTube `/results?search_query=...`) and launch that URL. Never use
-Cmd+L, click/type the address bar, or press Return to commit a URL/search;
-if that already failed, switch to `cua_launch_app(..., urls=[...])` and
-do not retry Return. If a chosen browser cannot be located, fall back to
-Google Chrome instead of retrying alternate names.
+URL/search/navigation: first look for an existing browser window with
+`cua_list_windows` / `list_running_apps`. If a usable browser target is
+already open, prefer in-page controls, DOM/page tools, or existing field
+indices over opening a new app/window. Use `cua_launch_app(..., urls=[...])`
+only when navigation/opening is the actual task and no lower-disruption
+route is available. Normalize bare domains with `https://`. For search
+requests, construct a search URL (`https://www.google.com/search?q=...` or
+a site search such as YouTube `/results?search_query=...`) if launch is
+required. Never use Cmd+L, click/type the address bar, or press Return to
+commit a URL/search; if that already failed, switch to a lower-disruption
+route or use `cua_launch_app(..., urls=[...])` only when opening is necessary.
+If a chosen browser cannot be located, fall back to Google Chrome instead
+of retrying alternate names.
 
 Tabs/windows: for background work across URLs, prefer separate browser
-windows and address each by `window_id`. Use `cua_launch_app(...,
-urls=[...])`, then verify the returned `windows` or call
-`cua_list_windows`; do not assume every browser opens a separate window.
-Do not switch tabs unless the user explicitly asks.
+windows and address each by `window_id`, but do not create new browser
+windows unless the task needs them. When launch is necessary, use
+`cua_launch_app(..., urls=[...])`, then verify the returned `windows` or
+call `cua_list_windows`; do not assume every browser opens a separate
+window. Do not switch tabs unless the user explicitly asks.
 
 Web fields: use fresh `element_index` values. Type with
 `cua_type_text(pid, window_id, element_index, text)`, verify the text is in
@@ -190,6 +204,9 @@ is allowed instead of looping.
 User asks: "click the Save button in Numbers."
 
 Turn 1: discover target.
+  cua_list_windows()
+
+If Numbers is not running or has no usable window, then launch:
   cua_launch_app(name="Numbers")
 
 Turn 2: snapshot for AX indices and pixels.
@@ -208,8 +225,10 @@ Turn 4: snapshot again and verify the Save button/action state changed.
 <planning>
 Routine GUI workflows should act directly even if they take several tool
 calls: open/navigate/search/click/type/verify/report. For a single browser
-search/open-page/video task, do not call `update_plan`; start with
-`cua_launch_app(..., urls=[search-or-target-url])`, verify, then continue.
+search/open-page/video task, do not call `update_plan`; discover existing
+browser windows first, use the least disruptive available route, verify,
+then continue. Launch with URLs only when opening/navigating is actually
+required.
 Use `update_plan` only for multi-app or long-running tasks, destructive
 steps, unclear requirements, or work that needs persistent checkpoints. If
 you feel lost, call `read_plan`.

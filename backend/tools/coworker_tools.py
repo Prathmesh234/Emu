@@ -47,7 +47,8 @@ _WID_REQUIRED = {
     "type": "integer",
     "description": (
         "CGWindowID for the target window. Must belong to `pid`; it can "
-        "come from cua_launch_app or cua_list_windows."
+        "come from cua_list_windows or, when launch was necessary, "
+        "cua_launch_app."
     ),
 }
 _ELEMENT_INDEX = {
@@ -107,8 +108,8 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Enumerate running regular macOS apps. Returns name, pid, "
             "bundle_id, and front_window_id for each. Use for broad "
             "discovery (what is running/frontmost/installed). When the user "
-            "names a target app, prefer cua_launch_app because it is "
-            "idempotent and returns windows."
+            "names a target app, use this or cua_list_windows first; prefer "
+            "an existing pid/window over launching."
         ),
         {},
     ),
@@ -116,7 +117,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     # ── Discovery ─────────────────────────────────────────────────────────
     _fn(
         "cua_list_apps",
-        "Driver-namespaced app discovery. Returns running regular apps with pid, name, bundle_id, front_window_id. Use for broad discovery; prefer cua_launch_app for a named target app.",
+        "Driver-namespaced app discovery. Returns running regular apps with pid, name, bundle_id, front_window_id. Use for broad discovery and named-target lookup before launching.",
         {},
     ),
     _fn(
@@ -140,12 +141,16 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     _fn(
         "cua_launch_app",
         (
-            "Hidden background launch — never raises a window, never steals "
-            "the foreground. At least one of bundle_id / name must be given; "
-            "bundle_id wins when both are. Returns pid, bundle_id, name, plus "
-            "a `windows` array (same shape as cua_list_windows) so the caller "
-            "can skip a cua_list_windows round-trip in the common case. NOT "
-            "a generic launcher — strictly background-launch."
+            "Launch/open a macOS app through the coworker driver. Prefer "
+            "cua_list_windows or list_running_apps first and use an existing "
+            "pid/window when available. Use this only when no usable running "
+            "target exists, the task explicitly requires opening an app/file/URL, "
+            "or a new isolated app instance is required. The driver asks macOS "
+            "not to activate the target, but some apps self-activate during "
+            "LaunchServices launch or URL handoff, which can briefly or fully "
+            "bring the target app/Space forward. At least one of bundle_id / "
+            "name must be given; bundle_id wins. Returns pid, bundle_id, name, "
+            "plus a `windows` array shaped like cua_list_windows."
         ),
         {
             "bundle_id": {"type": "string", "description": "App bundle id (e.g. com.apple.calculator). Preferred."},
@@ -153,7 +158,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "urls": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional file:// or http(s):// URLs handed to the app. Preferred for browser navigation and search: normalize bare domains with https://, or build a search URL such as https://www.google.com/search?q=... / YouTube /results?search_query=..., and pass it here instead of Cmd+L, typing the address bar, or pressing Return. For Finder, a folder URL opens a backgrounded Finder window rooted there.",
+                "description": "Optional file:// or http(s):// URLs handed to the app. Use only when opening/navigating is the task and an existing lower-disruption route is unavailable. For browser navigation/search, normalize bare domains with https:// or build a search URL such as https://www.google.com/search?q=... / YouTube /results?search_query=...; do not use Cmd+L, type the address bar, or press Return to commit a URL/search.",
             },
             "electron_debugging_port": {
                 "type": "integer",
@@ -165,7 +170,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             },
             "creates_new_application_instance": {
                 "type": "boolean",
-                "description": "Force a brand-new process even if the app is already running. Useful for isolated browser sessions when paired with --user-data-dir.",
+                "description": "Force a brand-new process even if the app is already running. Use only when the task requires isolation; it may create visible/disruptive app state. Useful for isolated browser sessions when paired with --user-data-dir.",
             },
             "additional_arguments": {
                 "type": "array",
@@ -181,7 +186,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         (
             "Capture via ScreenCaptureKit. Returns a base64 image content "
             "block for one target window. window_id is required; get it "
-            "from cua_launch_app or cua_list_windows. For AX + screenshot "
+            "from cua_list_windows or a necessary cua_launch_app call. For AX + screenshot "
             "together, prefer cua_get_window_state. Requires the Screen "
             "Recording TCC grant."
         ),
@@ -1019,8 +1024,9 @@ def _driver_result_guidance(name: str, text: str, ok: bool) -> str:
     if ok and name in {"cua_press_key", "cua_hotkey"} and "return" in lowered:
         guidance.append(
             "If this Return was meant to commit a browser address-bar URL "
-            "and the page did not navigate, do not retry Return; use "
-            "cua_launch_app(..., urls=[...]) with the requested URL(s)."
+            "and the page did not navigate, do not retry Return. Prefer an "
+            "existing lower-disruption route; use cua_launch_app(..., urls=[...]) "
+            "only when opening/navigating is necessary."
         )
 
     if "axstatictext" in lowered:

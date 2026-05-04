@@ -6,12 +6,12 @@ to the foreground. Mode-aware (PLAN §5.1):
 
   * remote / default: existing osascript ``activate`` path. Returns a
     plain status string. Foreground-stealing — fine for remote mode.
-  * coworker:        forwards to the emu-cua-driver ``launch_app`` tool
-    via the local daemon. Hidden background launch — NEVER
-    raises a window or steals focus. Returns the raw driver JSON
-    (``{pid, bundle_id, name, windows: […]}``) so the model can
-    immediately address windows by ``window_id`` per the perception
-    contract in ``backend/prompts/coworker_system_prompt.py``.
+    * coworker:        forwards to the emu-cua-driver ``launch_app`` tool
+        via the local daemon. This asks LaunchServices not to activate the
+        target, but apps can still self-activate during launch/open. Returns
+        the raw driver JSON (``{pid, bundle_id, name, windows: […]}``) so the
+        model can immediately address windows by ``window_id`` per the
+        perception contract in ``backend/prompts/coworker_system_prompt.py``.
 
 This is a function tool (called via the API's tool-calling channel),
 NOT a desktop action JSON.
@@ -75,9 +75,10 @@ def _raise_via_osascript(name: str) -> str:
 
 def _raise_via_driver(name: str, cancel_key: str | None = None) -> str:
     """
-    Coworker-mode path — hidden background launch via the driver's
-    ``launch_app`` daemon tool. Returns the driver's structured JSON on
-    success so ``_maybe_update_coworker_target`` can parse ``pid`` and
+    Coworker-mode path via the driver's ``launch_app`` daemon tool.
+    Prefer discovery before this path; launch/open can still self-activate
+    some apps. Returns the driver's structured JSON on success so
+    ``_maybe_update_coworker_target`` can parse ``pid`` and
     ``windows[0].window_id`` for the next perception turn.
 
     Many Apple system apps use a marketing prefix ("Apple Music", "Apple TV")
@@ -112,13 +113,14 @@ def handle_raise_app(
     agent_mode: str = "remote",
     cancel_key: str | None = None,
 ) -> str:
-    """Activate or hidden-launch a macOS application by name.
+    """Activate or prepare a macOS application by name.
 
     Behaviour depends on ``agent_mode`` (PLAN §5.1):
 
-      * ``"remote"`` — ``osascript activate`` (foreground-stealing).
-      * ``"coworker"`` — ``emu-cua-driver call launch_app`` (no foreground
-        change; returns ``{pid, bundle_id, name, windows: […]}`` JSON).
+            * ``"remote"`` — ``osascript activate`` (foreground-stealing).
+            * ``"coworker"`` — ``emu-cua-driver call launch_app``; may self-activate
+                during launch/open and returns ``{pid, bundle_id, name, windows: […]}``
+                JSON.
     """
     name = (app_name or "").strip()
     err = _validate_name(name)
