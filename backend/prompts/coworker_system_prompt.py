@@ -126,6 +126,9 @@ surface is canvas/video/custom-rendered.
 Pixel coordinate contract:
   • Pixel `x`/`y` are window-local pixels measured from the attached
     driver screenshot image, with `(0, 0)` at that image's top-left.
+  • Use the exact attached image dimensions reported by the tool. Valid
+    coordinates are within that image (`0 <= x < width`, `0 <= y < height`);
+    do not use the native/original screenshot size if it differs.
   • Pass the same `pid` and `window_id` that produced the screenshot.
     This anchors conversion to the exact window and avoids stale/frontmost
     window drift.
@@ -142,7 +145,8 @@ Pixel coordinate contract:
     before using pixels.
   • For small or dense targets, use the center of the visible affordance.
     If the target is hard to see, call `cua_zoom`; coordinates from the
-    zoom image must be sent with `from_zoom=true`.
+    zoom image must be measured in that exact zoom image size and sent
+    with `from_zoom=true`.
 
 Never mix `element_index` with `x`/`y`. Element indices are valid only
 for the most recent `cua_get_window_state` for the exact `(pid,

@@ -66,10 +66,12 @@ _X_WINDOW = {
     "description": (
         "X in window-local screenshot pixels — same space as the PNG "
         "cua_get_window_state/cua_screenshot attaches, top-left origin. "
-        "Do not use screen points, CSS pixels, normalized coordinates, or "
-        "manual Retina/backing-scale math; the driver handles image resize "
-        "and backing scale. Must be provided together with y. Pixel path "
-        "only; omit when using element_index."
+        "Use the attached image's exact delivered width; valid x is "
+        "0 <= x < width. Do not use screen points, CSS pixels, normalized "
+        "coordinates, original/native screenshot size, or manual Retina/"
+        "backing-scale math; the driver handles image resize and backing "
+        "scale. Must be provided together with y. Pixel path only; omit "
+        "when using element_index."
     ),
 }
 _Y_WINDOW = {
@@ -77,10 +79,12 @@ _Y_WINDOW = {
     "description": (
         "Y in window-local screenshot pixels — same space as the PNG "
         "cua_get_window_state/cua_screenshot attaches, top-left origin. "
-        "Do not use screen points, CSS pixels, normalized coordinates, or "
-        "manual Retina/backing-scale math; the driver handles image resize "
-        "and backing scale. Must be provided together with x. Pixel path "
-        "only; omit when using element_index."
+        "Use the attached image's exact delivered height; valid y is "
+        "0 <= y < height. Do not use screen points, CSS pixels, normalized "
+        "coordinates, original/native screenshot size, or manual Retina/"
+        "backing-scale math; the driver handles image resize and backing "
+        "scale. Must be provided together with x. Pixel path only; omit "
+        "when using element_index."
     ),
 }
 _MODIFIER_ARRAY = {
@@ -192,8 +196,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Capture via ScreenCaptureKit. Returns a base64 image content "
             "block for one target window. Pixel coordinates measured from "
             "the attached image are window-local screenshot pixels with a "
-            "top-left origin; do not normalize or Retina-scale them before "
-            "passing to click/drag tools. window_id is required; get it "
+            "top-left origin; use that image's exact delivered width/height "
+            "as the coordinate bounds and do not normalize or Retina-scale "
+            "them before passing to click/drag tools. window_id is required; get it "
             "from cua_list_windows or a necessary cua_launch_app call. For AX + screenshot "
             "together, prefer cua_get_window_state. Requires the Screen "
             "Recording TCC grant."
@@ -212,9 +217,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "tagged with [element_index N] plus a screenshot of window_id. "
             "Prefer element_index for actions. If you must use pixels, read "
             "x/y directly from the attached screenshot image and pass the "
-            "same pid + window_id; never use global screen coordinates, CSS "
-            "pixels, normalized [0,1] coordinates, or manual scale-factor "
-            "conversion. "
+            "same pid + window_id; use the attached image's exact delivered "
+            "width/height as the coordinate bounds. Never use global screen "
+            "coordinates, CSS pixels, normalized [0,1] coordinates, original "
+            "screenshot dimensions, or manual scale-factor conversion. "
             "Mints a fresh index map and invalidates the previous one for "
             "this (pid, window_id). INVARIANT: call this once per turn per "
             "(pid, window_id) before any element-indexed action against that "
@@ -285,7 +291,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             },
             "from_zoom": {
                 "type": "boolean",
-                "description": "When true, x/y are coords in the last cua_zoom image; the driver maps them back to window coords.",
+                "description": "When true, x/y are coords in the exact delivered size of the last cua_zoom image; the driver maps them back to window coords.",
             },
         },
         ["pid"],
@@ -565,7 +571,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             },
             "from_zoom": {
                 "type": "boolean",
-                "description": "When true, all four coords are pixel coords in the last cua_zoom image; the driver maps them back.",
+                "description": "When true, all four coords are pixel coords in the exact delivered size of the last cua_zoom image; the driver maps them back.",
             },
         },
         ["pid", "from_x", "from_y", "to_x", "to_y"],
@@ -603,8 +609,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "screenshot at native resolution. Coordinates x1/y1/x2/y2 are "
             "in the same resized-image pixel space returned by get_window_state. "
             "Use for small text/icons before pixel fallback. If clicking a "
-            "point seen in the zoom image, pass those zoom-image pixels with "
-            "from_zoom=true; the driver maps them back to the original window."
+            "point seen in the zoom image, measure pixels in that exact "
+            "delivered zoom image size and pass them with from_zoom=true; "
+            "the driver maps them back to the original window."
         ),
         {
             "pid": _PID,
