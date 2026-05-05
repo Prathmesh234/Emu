@@ -712,7 +712,7 @@ async def agent_step(req: AgentRequest):
                 except json.JSONDecodeError:
                     args = {}
 
-                tool_ok, tool_err = context_manager.action_validator.validate_tool_call(
+                tool_ok, tool_err = context_manager.coworker_validator.validate_tool_call(
                     session_id,
                     tc.name,
                     args,
@@ -771,7 +771,7 @@ async def agent_step(req: AgentRequest):
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 if screenshot_for_context:
                     screenshots_for_context.append(screenshot_for_context)
-                context_manager.action_validator.record_tool_result(
+                context_manager.coworker_validator.record_tool_result(
                     session_id,
                     tc.name,
                     args,
@@ -900,7 +900,7 @@ async def agent_step(req: AgentRequest):
             })
             continue
 
-        is_valid, error_msg = context_manager.action_validator.validate(
+        is_valid, error_msg = context_manager.remote_validator.validate(
             session_id, action_payload
         )
 
@@ -919,7 +919,7 @@ async def agent_step(req: AgentRequest):
 
         # ── 4b. Catch bogus "done" from truncated action parse ───────────────────
         if response.done and response.action and response.action.type == ActionType.DONE:
-            done_ok, done_err = context_manager.action_validator.validate_done_response(
+            done_ok, done_err = context_manager.remote_validator.validate_done_response(
                 response.final_message
             )
             if not done_ok:
@@ -937,7 +937,7 @@ async def agent_step(req: AgentRequest):
                 continue
 
             if req.agent_mode == "coworker":
-                verify_ok, verify_err = context_manager.action_validator.validate_coworker_done_response(
+                verify_ok, verify_err = context_manager.coworker_validator.validate_done_response(
                     session_id,
                     response.final_message,
                 )

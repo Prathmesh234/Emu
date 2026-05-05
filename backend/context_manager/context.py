@@ -19,7 +19,8 @@ from models import AgentRequest, PreviousMessage, MessageRole, ScreenAnnotation,
 from prompts import build_system_prompt, build_coworker_system_prompt
 from prompts.plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
-from context_manager.action_validator import ActionValidator
+from context_manager.coworker_validator import CoworkerActionValidator
+from context_manager.remote_validator import RemoteActionValidator
 
 # OmniParser toggle
 USE_OMNI_PARSER = (
@@ -180,7 +181,8 @@ class ContextManager:
         # Per-session active (pid, window_id) tracked for coworker-mode
         # per-turn AX perception injection (see PLAN §4.6).
         self._coworker_target: dict[str, tuple[int, int]] = {}
-        self.action_validator = ActionValidator()
+        self.remote_validator = RemoteActionValidator()
+        self.coworker_validator = CoworkerActionValidator()
 
     def _build_system_prompt(self, session_id: str, mode: str) -> str:
         from workspace import is_hermes_setup_needed
@@ -553,7 +555,8 @@ class ContextManager:
         self._agent_mode.pop(session_id, None)
         self._active_model.pop(session_id, None)
         self._coworker_target.pop(session_id, None)
-        self.action_validator.clear(session_id)
+        self.remote_validator.clear(session_id)
+        self.coworker_validator.clear(session_id)
 
     def preload_from_conversation(self, session_id: str, old_messages: list[dict]) -> None:
         """

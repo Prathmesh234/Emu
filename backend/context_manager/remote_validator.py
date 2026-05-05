@@ -1,9 +1,9 @@
 """
-context_manager/action_validator.py
+context_manager/remote_validator.py
 
-Runtime action validation — catches invalid/looping actions before they reach
-the frontend.  Fully decoupled from ContextManager; just takes a session_id
-and an action dict, returns (is_valid, error_message).
+Runtime validation for remote-mode desktop actions before they reach the
+frontend. Fully decoupled from ContextManager; just takes a session_id and an
+action dict, returns (is_valid, error_message).
 """
 
 import re
@@ -22,42 +22,42 @@ _ACTION_PATTERN = re.compile(
     r'(?:^|["\s:,])(' + "|".join(re.escape(a) for a in _DESKTOP_ACTION_TYPES) + r')(?:["\s:,}]|$)'
 )
 
-# Actions that require coordinates
+# Actions that require coordinates.
 _COORD_ACTIONS = {"mouse_move", "drag", "navigate_and_click", "navigate_and_right_click", "navigate_and_triple_click"}
-# Click actions (used in Rule 6 for absolute coordinate detection)
+# Click actions (used in Rule 6 for absolute coordinate detection).
 _CLICK_ACTIONS = {"left_click", "right_click", "double_click", "triple_click"}
 
-# Max wait duration (30 seconds)
+# Max wait duration (30 seconds).
 MAX_WAIT_MS = 30_000
 
 
-class ActionValidator:
+class RemoteActionValidator:
     """
-    Stateful per-session validator.  Tracks recent action history and
-    rejects patterns that indicate the model is stuck in a loop.
+    Stateful per-session validator. Tracks recent action history and rejects
+    patterns that indicate the model is stuck in a loop.
 
     Rules:
-      1. Consecutive mouse_moves without an interaction → reject.
-      2. Micro-movement: trying to move to the same coordinates (±0.01)
-         the cursor was last sent to — signals the cursor didn't move.
-      3. Same action type 5+ consecutive times (more than 4×) → force
+      1. Consecutive mouse_moves without an interaction -> reject.
+      2. Micro-movement: trying to move to the same coordinates (+/-0.01)
+         the cursor was last sent to signals the cursor did not move.
+      3. Same action type 5+ consecutive times (more than 4x) -> force
          strategy change. Excludes screenshot and scroll.
       4. Scroll amount must be >= 5.
-      5. Unknown/plain-text action → reject with explicit JSON format hint.
-      6. Absolute coordinate detection: x or y > 1.5 → model forgot to
-         normalize (raw pixels instead of [0,1] ratios).
+      5. Unknown/plain-text action -> reject with explicit JSON format hint.
+      6. Absolute coordinate detection: x or y > 1.5 means the model forgot
+         to normalize raw pixels into [0, 1] ratios.
       7. Required fields: type_text needs text, key_press needs key,
          scroll needs direction, mouse_move/drag need coordinates,
          drag needs end_coordinates, shell_exec needs command.
-      8. Negative / zero-zero coordinates → likely a parsing default.
+      8. Negative / zero-zero coordinates -> likely a parsing default.
       9. Wait duration capped at 30s.
      10. Coordinate values must be numbers (reject arrays/strings/nulls).
     """
 
-    # Positions within this fraction of screen size are treated as "same spot"
+    # Positions within this fraction of screen size are treated as "same spot".
     COORD_EPSILON = 0.01
 
-    # Actions that are legitimately repeated many times — don't throttle.
+    # Actions that are legitimately repeated many times; don't throttle.
     # - screenshot: may be spammed while waiting for UI to settle
     # - scroll: large pages may genuinely need many scrolls
     # - shell_exec: legacy action name kept here for older sessions; it is now
@@ -66,58 +66,14 @@ class ActionValidator:
     #   coworker mode where all real progress happens via function tools.
     _NO_THROTTLE = {"screenshot", "scroll", "shell_exec", "done"}
 
-    # Max consecutive repetitions of the same action type before we force a
+    # Max consecutive repetitions of the same action type before forcing a
     # strategy change. 4 repeats allowed; the 5th is rejected.
     MAX_CONSECUTIVE_REPEATS = 4
-    _COWORKER_INTERACTIVE_TOOLS = {
-        "cua_click",
-        "cua_right_click",
-        "cua_double_click",
-        "cua_press_key",
-        "cua_hotkey",
-        "cua_type_text",
-        "cua_type_text_chars",
-        "cua_set_value",
-        "cua_scroll",
-        "cua_drag",
-    }
-
-    _COWORKER_PERCEPTION_TOOLS = {
-        "cua_get_window_state",
-        "cua_screenshot",
-        "cua_zoom",
-        "cua_list_windows",
-        "cua_list_apps",
-        "list_running_apps",
-        "raise_app",
-        "cua_launch_app",
-    }
-
-    _BLOCKED_DONE_WORDS = (
-        "can't",
-        "cannot",
-        "couldn't",
-        "unable",
-        "failed",
-        "blocked",
-        "limitation",
-        "not possible",
-        "not safely",
-        "need you",
-        "please",
-    )
-
-    # Click tools that get hard-blocked after repeated identical failures.
-    _CLICK_TOOLS = {"cua_click", "cua_right_click", "cua_double_click"}
-    MAX_CONSECUTIVE_CLICK_FAILURES = 3
 
     def __init__(self):
         self._history: dict[str, list[str]] = {}
-        # Last mouse_move target per session (updated only on valid moves)
+        # Last mouse_move target per session (updated only on valid moves).
         self._last_move_coords: dict[str, tuple[float, float]] = {}
-        self._coworker_pending_verification: dict[str, str] = {}
-        # (tool_key, fail_count) — tracks consecutive click failures per session
-        self._click_failures: dict[str, tuple[str, int]] = {}
 
     def validate(
         self,
@@ -132,12 +88,12 @@ class ActionValidator:
         history = self._history.setdefault(session_id, [])
         action_type = action.get("type", "")
 
-        # Extract coordinates if present
+        # Extract coordinates if present.
         coords = action.get("coordinates") or {}
         cx = coords.get("x", 0) if isinstance(coords, dict) else 0
         cy = coords.get("y", 0) if isinstance(coords, dict) else 0
 
-        # ── Rule 7: Required fields per action type ──────────────────────────
+        # Rule 7: Required fields per action type.
         if action_type == "type_text":
             text = action.get("text")
             if not text:
@@ -168,7 +124,7 @@ class ActionValidator:
                     f"{action_type} requires 'coordinates' with 'x' and 'y' fields (normalized 0-1). "
                     f'Example: {{"action": {{"type": "{action_type}", "coordinates": {{"x": 0.5, "y": 0.5}}}}, "done": false}}'
                 )
-            # Rule 10: coordinate values must be scalar numbers
+            # Rule 10: coordinate values must be scalar numbers.
             xv = coords.get("x")
             yv = coords.get("y")
             if not isinstance(xv, (int, float)) or isinstance(xv, bool) \
@@ -197,7 +153,7 @@ class ActionValidator:
                 "It runs sandboxed inside the .emu directory."
             )
 
-        # ── Rule 8: Negative / zero-zero coordinates ─────────────────────────
+        # Rule 8: Negative / zero-zero coordinates.
         if action_type in _COORD_ACTIONS and coords:
             if cx < 0 or cy < 0:
                 return False, (
@@ -216,7 +172,7 @@ class ActionValidator:
                     "target coordinates."
                 )
 
-        # ── Rule 6: Absolute coordinate detection ────────────────────────────
+        # Rule 6: Absolute coordinate detection.
         if action_type in (_COORD_ACTIONS | _CLICK_ACTIONS) and coords and (cx > 1.5 or cy > 1.5):
             return False, (
                 f"Coordinates ({cx:.1f}, {cy:.1f}) look like absolute pixels, not "
@@ -226,32 +182,31 @@ class ActionValidator:
                 f"Example: pixel 960 on a 1920-wide screen → 0.5."
             )
 
-
-        # ── Rule 2: Micro-movement — same coordinates as last move ────────────
+        # Rule 2: Micro-movement; same coordinates as last move.
         if action_type == "mouse_move":
             prev = self._last_move_coords.get(session_id)
             if prev:
                 lx, ly = prev
                 if abs(cx - lx) < self.COORD_EPSILON and abs(cy - ly) < self.COORD_EPSILON:
                     return False, (
-                        f"Cursor is already at ({lx:.3f}, {ly:.3f}) — "
+                        f"Cursor is already at ({lx:.3f}, {ly:.3f}); "
                         f"moving there again is a no-op. Pick a different "
                         f"target or use navigate_and_click to click on an element."
                     )
 
-        # ── Rule 11: navigate_and_click at same coordinates as last click ─────
-        # Intentionally removed — clicking the same spot twice is legitimate
+        # Rule 11: navigate_and_click at same coordinates as last click.
+        # Intentionally removed; clicking the same spot twice is legitimate
         # (e.g., cursor placement then selection, waiting for a slow UI,
         # re-trying after a transient failure). The validator was producing
         # false-positive rejection loops.
 
-        # ── Rule 4: Minimum scroll amount ─────────────────────────────────────
+        # Rule 4: Minimum scroll amount.
         if action_type == "scroll":
             amount = action.get("amount", 0)
             if amount and amount < 5:
                 return False, "Minimum scroll amount is 5. Use amount >= 5."
 
-        # ── Rule 9: Wait duration cap ─────────────────────────────────────────
+        # Rule 9: Wait duration cap.
         if action_type == "wait":
             ms = action.get("ms", 1000)
             if ms and ms > MAX_WAIT_MS:
@@ -260,7 +215,7 @@ class ActionValidator:
                     f"Use a shorter wait or take a screenshot to check if the app is ready."
                 )
 
-        # ── Rule 5: Reject unknown / plain-text actions ───────────────────────
+        # Rule 5: Reject unknown / plain-text actions.
         if action_type == "unknown":
             return False, (
                 "Your response was not a valid JSON action. "
@@ -279,8 +234,8 @@ class ActionValidator:
                 "screenshot, wait, done."
             )
 
-        # ── Rule 3: Throttle consecutive repeats of same action type ──────────
-        # (excludes screenshot, scroll, shell_exec — see _NO_THROTTLE)
+        # Rule 3: Throttle consecutive repeats of same action type.
+        # Excludes screenshot, scroll, shell_exec; see _NO_THROTTLE.
         if action_type and action_type not in self._NO_THROTTLE:
             tail = history[-self.MAX_CONSECUTIVE_REPEATS:]
             if (
@@ -295,7 +250,7 @@ class ActionValidator:
                     f"filesystem/text task."
                 )
 
-        # ── Record action ─────────────────────────────────────────────────────
+        # Record action.
         if action_type == "mouse_move":
             self._last_move_coords[session_id] = (cx, cy)
         history.append(action_type)
@@ -304,100 +259,10 @@ class ActionValidator:
 
         return True, ""
 
-    def clear(self, session_id: str):
+    def clear(self, session_id: str) -> None:
         """Reset all state for a session."""
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
-        self._coworker_pending_verification.pop(session_id, None)
-        self._click_failures.pop(session_id, None)
-
-    def validate_tool_call(
-        self,
-        session_id: str,
-        name: str,
-        args: dict | None,
-        agent_mode: str = "remote",
-    ) -> tuple[bool, str]:
-        """Validate backend function-tool calls before execution."""
-        if agent_mode != "coworker" and (
-            name == "list_running_apps" or name.startswith("cua_")
-        ):
-            return False, (
-                f"`{name}` is only available in coworker mode. The current "
-                "mode is remote, so do not call emu-cua-driver tools. Use "
-                "remote desktop action JSON such as screenshot, "
-                "navigate_and_click, scroll, type_text, key_press, wait, or "
-                "done."
-            )
-
-        if agent_mode == "coworker" and name in self._CLICK_TOOLS:
-            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
-            current_key, count = self._click_failures.get(session_id, ("", 0))
-            if current_key == key and count >= self.MAX_CONSECUTIVE_CLICK_FAILURES:
-                return False, (
-                    f"`{name}` has failed {count} times in a row on the same target "
-                    f"(element_index={(args or {}).get('element_index')}, "
-                    f"x={(args or {}).get('x')}, y={(args or {}).get('y')}). "
-                    f"Do NOT retry this click. Change strategy: pick a different "
-                    f"element from the AX tree, use a keyboard shortcut, or call "
-                    f"`cua_get_window_state` to reassess the UI."
-                )
-
-        return True, ""
-
-    def record_tool_result(
-        self,
-        session_id: str,
-        name: str,
-        args: dict | None,
-        result: str,
-        agent_mode: str = "remote",
-    ) -> None:
-        """Update coworker tool history after a function tool returns."""
-        if agent_mode != "coworker":
-            return
-
-        ok = result.startswith(f"[{name}]")
-
-        if name in self._COWORKER_PERCEPTION_TOOLS:
-            if ok:
-                self._coworker_pending_verification.pop(session_id, None)
-            return
-
-        if name not in self._COWORKER_INTERACTIVE_TOOLS:
-            return
-
-        if name in self._CLICK_TOOLS:
-            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
-            current_key, count = self._click_failures.get(session_id, ("", 0))
-            if not ok:
-                self._click_failures[session_id] = (key, count + 1 if current_key == key else 1)
-            else:
-                self._click_failures[session_id] = ("", 0)
-
-        if ok:
-            self._coworker_pending_verification[session_id] = name
-
-    def validate_coworker_done_response(self, session_id: str, final_message: str | None) -> tuple[bool, str]:
-        """
-        Prevent success-shaped final answers immediately after an unverified
-        coworker interaction. Honest blocked/limitation messages are allowed.
-        """
-        pending = self._coworker_pending_verification.get(session_id)
-        if not pending:
-            return True, ""
-
-        text = (final_message or "").lower()
-        if any(word in text for word in self._BLOCKED_DONE_WORDS):
-            return True, ""
-
-        return False, (
-            f"The last coworker interaction (`{pending}`) has not been verified "
-            "by a successful cua_get_window_state/cua_screenshot/list_windows "
-            "call. Do not claim success from a posted click/key alone. Verify "
-            "the UI state first; if it did not change, switch strategy or report "
-            "the limitation."
-        )
 
     @staticmethod
     def validate_done_response(final_message: str | None) -> tuple[bool, str]:
@@ -414,8 +279,8 @@ class ActionValidator:
 
         text = final_message.strip()
 
-        # Short fragments that look like JSON keys/values from an action dict
-        # e.g. '":"left_click"},"done":false,...'
+        # Short fragments that look like JSON keys/values from an action dict,
+        # e.g. '":"left_click"},"done":false,...'.
         if _ACTION_PATTERN.search(text):
             # Extra heuristic: legit final_messages are natural-language
             # summaries. If > 30% of the content is JSON-like punctuation,

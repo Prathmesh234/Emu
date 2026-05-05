@@ -119,7 +119,7 @@ def safe_build_action(raw_action: dict, provider_tag: str = "provider") -> "Acti
     Build an Action from a raw dict, falling back to ActionType.UNKNOWN if
     pydantic validation fails (e.g. malformed coordinates, wrong field type).
 
-    The UNKNOWN action then flows through ActionValidator Rule 5, which tells
+    The UNKNOWN action then flows through RemoteActionValidator Rule 5, which tells
     the model the correct JSON format — instead of crashing the request with a
     500 or silently succeeding as done.
     """
