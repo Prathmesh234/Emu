@@ -38,7 +38,23 @@ let _historyPanelOpen = false;
 let _viewingPastSession = false;
 let _pastSessionId = null;
 let _permissionsCard = null;
+let _permissionsInitialCheckDone = false;
 const DEFAULT_COWORKER_MISSING_PERMISSIONS = ['accessibility', 'screen'];
+const PERMISSIONS_CARD_SUPPRESSED_KEY = 'emu-coworker-permissions-card-suppressed';
+
+function isPermissionsCardSuppressed() {
+    try {
+        return localStorage.getItem(PERMISSIONS_CARD_SUPPRESSED_KEY) === '1';
+    } catch (_) {
+        return false;
+    }
+}
+
+function suppressPermissionsCard() {
+    try {
+        localStorage.setItem(PERMISSIONS_CARD_SUPPRESSED_KEY, '1');
+    } catch (_) { /* ignore storage failures */ }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -333,10 +349,17 @@ function missingPermissionsFromDriverFailure(resultOrError) {
         : [];
 }
 
-function showPermissionsCard(missing) {
+function showPermissionsCard(missing, { fromInitialCheck = false } = {}) {
+    if (isPermissionsCardSuppressed()) return;
+
     missing = normalizeMissingPermissions(missing);
     if (missing.length === 0) {
         if (_permissionsCard) _permissionsCard.update([]);
+        suppressPermissionsCard();
+        return;
+    }
+
+    if (_permissionsInitialCheckDone && !_permissionsCard && !fromInitialCheck) {
         return;
     }
 
@@ -350,6 +373,7 @@ function showPermissionsCard(missing) {
         onAllow: (kind) => invokeIpc('permissions:open', kind),
         onRecheck: () => invokeIpc('emu-cua:recheck-permissions'),
         onDismiss: () => {
+            suppressPermissionsCard();
             _permissionsCard = null;
         },
     });
@@ -357,26 +381,37 @@ function showPermissionsCard(missing) {
 }
 
 async function checkCoworkerPermissionsOnMount() {
+    if (isPermissionsCardSuppressed()) {
+        _permissionsInitialCheckDone = true;
+        return;
+    }
+
     try {
         const result = await invokeIpc('emu-cua:recheck-permissions');
         const missing = missingPermissionsFromDriverFailure(result);
         if (_permissionsCard) {
             _permissionsCard.update(missing);
         } else if (missing.length) {
-            showPermissionsCard(missing);
+            showPermissionsCard(missing, { fromInitialCheck: true });
+        } else {
+            suppressPermissionsCard();
         }
     } catch (err) {
         const missing = missingPermissionsFromDriverFailure(err);
         if (missing.length) {
-            showPermissionsCard(missing);
+            showPermissionsCard(missing, { fromInitialCheck: true });
         } else {
             console.warn('[permissions] coworker permission check failed:', err?.message || err);
+            suppressPermissionsCard();
         }
+    } finally {
+        _permissionsInitialCheckDone = true;
     }
 }
 
 function subscribePermissionsRequired() {
     const handler = (payload) => {
+        if (_permissionsInitialCheckDone || isPermissionsCardSuppressed()) return;
         showPermissionsCard(payload?.missing || []);
     };
 

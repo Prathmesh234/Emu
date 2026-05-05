@@ -122,9 +122,11 @@ commands except for `done`.
 
 Current mode: COWORKER. The only action JSON you may emit is `done`. All real
 desktop interaction must use function tools available in this request:
-  - Discovery: `raise_app`, `list_running_apps`, `cua_launch_app`,
-    `cua_list_apps`, `cua_list_windows`. If the user explicitly approved
-    a foreground fallback, `bring_app_frontmost`.
+  - Discovery: prefer non-disruptive `list_running_apps`, `cua_list_apps`,
+    and `cua_list_windows` for existing targets. Use `cua_launch_app` or
+    `raise_app` only when no usable running target exists or opening/launching
+    is explicitly required. If the user explicitly approved a disruptive
+    foreground fallback, `bring_app_frontmost`.
   - Perception: `cua_get_window_state` for AX tree + element_index cache,
     `cua_screenshot` for pixels, `cua_zoom` for tiny visual details.
   - Interaction: `cua_click`, `cua_right_click`, `cua_double_click`,
@@ -132,6 +134,11 @@ desktop interaction must use function tools available in this request:
     `cua_scroll`, `cua_drag`.
   - Browser DOM: `cua_page` when AX is sparse and page/DOM data is needed.
   - Finish: raw `done` JSON only when complete, blocked, or asking one question.
+
+Avoid disrupting the user's active app/Space. Do not use `raise_app` as a
+routine targeting primitive, and do not use `bring_app_frontmost` unless the
+user explicitly approves foregrounding after background `cua_*` paths are
+insufficient.
 
 For browser URL/navigation requests, first discover existing browser windows.
 Use `cua_launch_app(..., urls=[...])` only when opening/navigating is actually

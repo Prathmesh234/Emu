@@ -1008,7 +1008,7 @@ async def agent_step(req: AgentRequest):
         "action":               action_payload,
         "done":                 response.done,
         "confidence":           response.confidence,
-        "final_message":        response.final_message,
+        "final_message":        response.final_message or ("Task complete." if response.done else None),
         "requires_confirmation": needs_confirm,
         "chain_length":         context_manager.chain_length(session_id),
         "needs_compaction":     needs_compact,

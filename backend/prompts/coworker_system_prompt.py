@@ -295,9 +295,12 @@ Common recovery:
 
 Foreground fallback:
   Some apps expose useful AX controls only when frontmost. Stay
-  background-first. If background AX/pixel/keyboard paths are verified
-  no-ops or insufficient, ask the user whether you may bring the app
-  frontmost. After explicit approval, call
+  background-first and prefer non-disruptive `cua_*` tools against an
+  existing pid/window_id. Do not use `raise_app` as a routine targeting
+  primitive because launch/open can switch the user's active app/Space. If
+  background AX/pixel/keyboard paths are verified no-ops or insufficient,
+  ask the user whether you may bring the app frontmost. After explicit
+  approval, call
   `bring_app_frontmost(app_name, user_approved=true)`, then immediately
   take a fresh `cua_get_window_state` and continue with `cua_*` tools.
 </error_handling>

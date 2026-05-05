@@ -154,6 +154,20 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
 
     # ── Tool calls? Return them directly — main.py will execute and re-call ──
     if message and message.tool_calls:
+        if len(message.tool_calls) == 1 and message.tool_calls[0].function.name == "done":
+            try:
+                args = json.loads(message.tool_calls[0].function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            return AgentResponse(
+                action=Action(type="done"),
+                done=True,
+                final_message=args.get("final_message") or "Task complete.",
+                reasoning_content=reasoning,
+                inference_time_ms=elapsed_ms,
+                model_name=MODEL_NAME,
+            )
+
         tool_calls = [
             ToolCallInfo(
                 id=tc.id,
@@ -179,9 +193,12 @@ def _parse_response(resp, elapsed_ms: int) -> AgentResponse:
     if isinstance(raw_action, str):
         raw_action = {"type": raw_action}
 
+    action = safe_build_action(raw_action, "openrouter")
+    is_done_action = action.type.value == "done"
+
     return AgentResponse(
-        action=safe_build_action(raw_action, "openrouter"),
-        done=data.get("done", False),
+        action=action,
+        done=bool(data.get("done", is_done_action)) or is_done_action,
         final_message=data.get("final_message"),
         confidence=data.get("confidence", 1.0),
         reasoning_content=reasoning,

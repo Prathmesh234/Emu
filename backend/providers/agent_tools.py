@@ -500,13 +500,16 @@ AGENT_TOOLS_OPENAI = [
             "name": "raise_app",
             "description": (
                 "Resolve/prepare a named macOS app. Remote mode activates it. "
-                "In coworker mode, prefer list_running_apps/cua_list_windows "
-                "for existing targets before using this. Coworker mode uses "
+                "In coworker mode, first use non-disruptive "
+                "list_running_apps/cua_list_windows/cua_list_apps for existing "
+                "targets. Use raise_app only when no usable running target "
+                "exists or opening/launching is explicitly part of the task. "
+                "Coworker mode uses "
                 "emu-cua-driver `launch_app` and returns `{pid, bundle_id, "
                 "name, windows}`, but some apps may self-activate during "
                 "LaunchServices launch/open and briefly or fully come "
-                "frontmost. Use only when launch/prepare is necessary, then "
-                "use the returned pid/window_id for `cua_*` tools."
+                "frontmost. After using it, use the returned pid/window_id "
+                "for `cua_*` tools."
             ),
             "parameters": {
                 "type": "object",
@@ -528,8 +531,10 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "bring_app_frontmost",
             "description": (
-                "User-approved foreground fallback. Requires explicit user "
-                "approval; after it succeeds, take a fresh "
+                "Disruptive foreground fallback. Prefer non-disruptive "
+                "cua_* background tools first. Requires explicit user "
+                "approval because it can switch the user's active app/Space; "
+                "after it succeeds, take a fresh "
                 "`cua_get_window_state` and continue with `cua_*` tools."
             ),
             "parameters": {
