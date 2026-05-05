@@ -39,8 +39,9 @@ _WID_OPTIONAL = {
     "type": "integer",
     "description": (
         "CGWindowID for the window whose cua_get_window_state produced "
-        "the element_index. REQUIRED when element_index is used; ignored "
-        "in the pixel (x/y) path."
+        "the element_index or screenshot pixels. REQUIRED when element_index "
+        "is used. Strongly recommended for pixel x/y so the driver anchors "
+        "the click to the exact window that produced the screenshot."
     ),
 }
 _WID_REQUIRED = {
@@ -64,18 +65,22 @@ _X_WINDOW = {
     "type": "number",
     "description": (
         "X in window-local screenshot pixels — same space as the PNG "
-        "cua_get_window_state returns. Top-left origin of the target's "
-        "window. Must be provided together with y. Pixel path only; omit "
-        "when using element_index."
+        "cua_get_window_state/cua_screenshot attaches, top-left origin. "
+        "Do not use screen points, CSS pixels, normalized coordinates, or "
+        "manual Retina/backing-scale math; the driver handles image resize "
+        "and backing scale. Must be provided together with y. Pixel path "
+        "only; omit when using element_index."
     ),
 }
 _Y_WINDOW = {
     "type": "number",
     "description": (
         "Y in window-local screenshot pixels — same space as the PNG "
-        "cua_get_window_state returns. Top-left origin of the target's "
-        "window. Must be provided together with x. Pixel path only; omit "
-        "when using element_index."
+        "cua_get_window_state/cua_screenshot attaches, top-left origin. "
+        "Do not use screen points, CSS pixels, normalized coordinates, or "
+        "manual Retina/backing-scale math; the driver handles image resize "
+        "and backing scale. Must be provided together with x. Pixel path "
+        "only; omit when using element_index."
     ),
 }
 _MODIFIER_ARRAY = {
@@ -185,7 +190,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         "cua_screenshot",
         (
             "Capture via ScreenCaptureKit. Returns a base64 image content "
-            "block for one target window. window_id is required; get it "
+            "block for one target window. Pixel coordinates measured from "
+            "the attached image are window-local screenshot pixels with a "
+            "top-left origin; do not normalize or Retina-scale them before "
+            "passing to click/drag tools. window_id is required; get it "
             "from cua_list_windows or a necessary cua_launch_app call. For AX + screenshot "
             "together, prefer cua_get_window_state. Requires the Screen "
             "Recording TCC grant."
@@ -202,6 +210,11 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         (
             "Walk the target window's accessibility tree and return Markdown "
             "tagged with [element_index N] plus a screenshot of window_id. "
+            "Prefer element_index for actions. If you must use pixels, read "
+            "x/y directly from the attached screenshot image and pass the "
+            "same pid + window_id; never use global screen coordinates, CSS "
+            "pixels, normalized [0,1] coordinates, or manual scale-factor "
+            "conversion. "
             "Mints a fresh index map and invalidates the previous one for "
             "this (pid, window_id). INVARIANT: call this once per turn per "
             "(pid, window_id) before any element-indexed action against that "
@@ -240,7 +253,11 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "one must be supplied: (a) element_index + window_id (preferred; "
             "pure AX RPC, works on backgrounded windows, no cursor move); "
             "(b) x + y in window-local screenshot pixels (top-left origin "
-            "of the cua_get_window_state PNG; CGEvent path). NO `button` "
+            "of the attached cua_get_window_state/cua_screenshot image; "
+            "CGEvent path). Include the same window_id used for the screenshot "
+            "when using pixels. Do not manually divide/multiply for Retina, "
+            "screenshot_scale_factor, original size, or display scale; the "
+            "driver maps attached-image pixels to native screen points. NO `button` "
             "param — for right-click use cua_right_click. On the element "
             "path, `action` selects the AX action; on the pixel path, "
             "`count` enables double/triple click and `modifier` holds keys. "
@@ -281,7 +298,8 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "context menu (no cursor move). "
             "Pixel path synthesizes a right-mouse-down/up pair (Chromium "
             "web content has a known coercion-to-left-click caveat). "
-            "Same XOR addressing as cua_click. NO `count` (single only). "
+            "Same XOR addressing and same window-local screenshot-pixel "
+            "coordinate rules as cua_click. NO `count` (single only). "
             "`modifier` is pixel-path only. Do not right-click AXStaticText "
             "or retry AXShowMenu after it fails; use pixel fallback or another "
             "control."
@@ -303,7 +321,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "one must be supplied: (a) element_index + window_id from the last "
             "cua_get_window_state; performs AXOpen when advertised, otherwise "
             "falls back to a stamped pixel double-click at the element center; "
-            "(b) x + y in window-local screenshot pixels. Prefer this for "
+            "(b) x + y in window-local screenshot pixels from the attached "
+            "image; include window_id when using pixels and do not manually "
+            "scale. Prefer this for "
             "open-on-double-click intents instead of cua_click(count=2). If "
             "a double-click on an AXStaticText/static label verifies as no-op, "
             "do not repeat with alternate AX actions; pick a real control, "
@@ -500,7 +520,10 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
         (
             "Press-drag-release gesture from (from_x, from_y) to "
             "(to_x, to_y) in window-local screenshot pixels — same space "
-            "as the cua_get_window_state PNG. Pixel-only by design "
+            "as the cua_get_window_state/cua_screenshot attached image. "
+            "Include window_id whenever the pixels came from a specific "
+            "snapshot. Do not use screen/CSS/normalized coordinates or manual "
+            "scale-factor conversion. Pixel-only by design "
             "(macOS AX has no semantic drag action). window_id is "
             "optional — when omitted the driver picks the frontmost "
             "window of pid. Frontmost target uses cghidEventTap (real "
@@ -579,7 +602,9 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Zoom into a rectangular region of the last get_window_state "
             "screenshot at native resolution. Coordinates x1/y1/x2/y2 are "
             "in the same resized-image pixel space returned by get_window_state. "
-            "Use for small text/icons before pixel fallback."
+            "Use for small text/icons before pixel fallback. If clicking a "
+            "point seen in the zoom image, pass those zoom-image pixels with "
+            "from_zoom=true; the driver maps them back to the original window."
         ),
         {
             "pid": _PID,
@@ -1074,6 +1099,23 @@ def format_driver_result_for_model(name: str, result: dict) -> str:
             stripped.pop("screenshot_mime_type", None)
             stripped["_screenshot_attached"] = bool(b64)
             stripped["_screenshot_bytes"] = len(b64)
+            if bool(b64):
+                if name == "cua_zoom":
+                    stripped["_coordinate_space"] = (
+                        "The next attached image is a zoom crop. Coordinates read "
+                        "from it are zoom-image pixels; use them only with "
+                        "from_zoom=true so the driver maps them back to the "
+                        "original window. Do not manually scale."
+                    )
+                else:
+                    stripped["_coordinate_space"] = (
+                        "The next attached image is the coordinate source for "
+                        "pixel fallback. Use window-local pixels measured from "
+                        "that image's top-left corner, pass the same pid and "
+                        "window_id, and do not use screen/global/CSS/normalized "
+                        "coordinates or apply screenshot_scale_factor/original-size "
+                        "conversion; the driver handles resize and backing scale."
+                    )
             try:
                 out = json.dumps(stripped, ensure_ascii=False, indent=2)
             except (TypeError, ValueError):

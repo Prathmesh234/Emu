@@ -123,6 +123,27 @@ surface is canvas/video/custom-rendered.
     ceremony — it's a normal fallback, not a last resort. Don't burn
     turns retrying AX when the control isn't there.
 
+Pixel coordinate contract:
+  • Pixel `x`/`y` are window-local pixels measured from the attached
+    driver screenshot image, with `(0, 0)` at that image's top-left.
+  • Pass the same `pid` and `window_id` that produced the screenshot.
+    This anchors conversion to the exact window and avoids stale/frontmost
+    window drift.
+  • Never use global screen coordinates, OS cursor coordinates, CSS/DOM
+    coordinates, AX point coordinates, normalized `[0, 1]` coordinates, or
+    remote-mode coordinate assumptions.
+  • Do not multiply or divide by Retina/backing scale, display scale,
+    `screenshot_scale_factor`, `screenshot_original_width`, or
+    `screenshot_original_height`. The driver maps attached-image pixels
+    back through resize/native pixels and then through the window's backing
+    scale internally.
+  • After a scroll, resize, window move, menu/sheet open, navigation, or
+    content change, take a fresh `cua_get_window_state`/`cua_screenshot`
+    before using pixels.
+  • For small or dense targets, use the center of the visible affordance.
+    If the target is hard to see, call `cua_zoom`; coordinates from the
+    zoom image must be sent with `from_zoom=true`.
+
 Never mix `element_index` with `x`/`y`. Element indices are valid only
 for the most recent `cua_get_window_state` for the exact `(pid,
 window_id)`. Snapshot again after menus/sheets open, navigation changes,
