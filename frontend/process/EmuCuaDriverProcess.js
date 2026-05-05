@@ -281,8 +281,8 @@ async function _configureAgentCursor(bin) {
     }],
     ['set_agent_cursor_style', {
       gradient_colors: ['#FFFFFF', '#FFFFFF'],
-      bloom_color: '#003B8E',
-      shape_size: 11,
+      bloom_color: '#EDE7D8',
+      shape_size: 8,
     }],
   ];
 

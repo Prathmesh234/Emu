@@ -107,11 +107,17 @@ class ActionValidator:
         "please",
     )
 
+    # Click tools that get hard-blocked after repeated identical failures.
+    _CLICK_TOOLS = {"cua_click", "cua_right_click", "cua_double_click"}
+    MAX_CONSECUTIVE_CLICK_FAILURES = 3
+
     def __init__(self):
         self._history: dict[str, list[str]] = {}
         # Last mouse_move target per session (updated only on valid moves)
         self._last_move_coords: dict[str, tuple[float, float]] = {}
         self._coworker_pending_verification: dict[str, str] = {}
+        # (tool_key, fail_count) — tracks consecutive click failures per session
+        self._click_failures: dict[str, tuple[str, int]] = {}
 
     def validate(
         self,
@@ -303,6 +309,7 @@ class ActionValidator:
         self._history.pop(session_id, None)
         self._last_move_coords.pop(session_id, None)
         self._coworker_pending_verification.pop(session_id, None)
+        self._click_failures.pop(session_id, None)
 
     def validate_tool_call(
         self,
@@ -322,6 +329,20 @@ class ActionValidator:
                 "navigate_and_click, scroll, type_text, key_press, wait, or "
                 "done."
             )
+
+        if agent_mode == "coworker" and name in self._CLICK_TOOLS:
+            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
+            current_key, count = self._click_failures.get(session_id, ("", 0))
+            if current_key == key and count >= self.MAX_CONSECUTIVE_CLICK_FAILURES:
+                return False, (
+                    f"`{name}` has failed {count} times in a row on the same target "
+                    f"(element_index={(args or {}).get('element_index')}, "
+                    f"x={(args or {}).get('x')}, y={(args or {}).get('y')}). "
+                    f"Do NOT retry this click. Change strategy: pick a different "
+                    f"element from the AX tree, use a keyboard shortcut, or call "
+                    f"`cua_get_window_state` to reassess the UI."
+                )
+
         return True, ""
 
     def record_tool_result(
@@ -345,6 +366,14 @@ class ActionValidator:
 
         if name not in self._COWORKER_INTERACTIVE_TOOLS:
             return
+
+        if name in self._CLICK_TOOLS:
+            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
+            current_key, count = self._click_failures.get(session_id, ("", 0))
+            if not ok:
+                self._click_failures[session_id] = (key, count + 1 if current_key == key else 1)
+            else:
+                self._click_failures[session_id] = ("", 0)
 
         if ok:
             self._coworker_pending_verification[session_id] = name
