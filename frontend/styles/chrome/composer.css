@@ -5,14 +5,13 @@
  * Design source: Emu-handoff.zip → project/frames/chrome.jsx > Composer
  *
  * Replaces the old rounded-border ChatInput with a minimal token-driven
- * composer. Top border only. Two rows: optional hint + input + verb button.
+ * composer. Two rows: optional hint + input surface with inline controls.
  *
  * States: idle | working | done | confirm | disabled
  */
 
 .composer {
   padding: 14px 40px 22px;
-  border-top: 1px solid var(--ink-14);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -50,13 +49,58 @@
 
 .composer-row {
   display: flex;
-  align-items: center;
-  gap: 18px;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 112px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--ink-14);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--ink-08);
+}
+
+.composer-model-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  width: min(220px, 46vw);
+  height: 28px;
+  padding: 0 16px 0 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.composer-model-picker .window-model-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  right: auto;
+  left: 0;
+  transform: none;
+  z-index: 100;
+}
+
+.composer-model-picker .window-model-label,
+.composer-model-picker .window-model-selected-meta {
+  display: none;
+}
+
+.composer-model-picker .window-model-selected {
+  color: var(--ink-55);
+  font-size: var(--size-base);
+  font-weight: 400;
+}
+
+.composer-model-picker::after {
+  right: 3px;
 }
 
 /* Typed text uses Inter Tight to match the rest of the app. */
 .composer-input {
-  flex: 1;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 42px;
   font-family: var(--font-sans);
   font-size: var(--size-md);   /* 17px */
   font-style: normal;
@@ -71,6 +115,22 @@
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 160px;
+}
+
+.composer-controls {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-controls-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 56px);
+  display: flex;
+  align-items: center;
 }
 
 .composer-input::placeholder {
@@ -134,4 +194,22 @@
   color: var(--ink-55);
   background: var(--paper);
   pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .composer {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .composer-row {
+    min-height: 104px;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .composer-model-picker {
+    width: min(160px, 52vw);
+    padding-right: 16px;
+  }
 }

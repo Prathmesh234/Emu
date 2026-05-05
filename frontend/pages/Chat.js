@@ -79,12 +79,12 @@ function syncGeneratingUI(generating) {
     // status pill ("working" + pulsing dot). No need for a redundant hint
     // above the composer — leave it clean.
     chatInput.setMode(generating ? 'stop' : 'send');
+    if (chatInput.setModelDisabled) chatInput.setModelDisabled(generating);
     chatInput.setTooltip('');
     // Update the window header status pill and lock mode during generation.
     if (winHeader) {
         winHeader.setStatus(generating ? 'working' : 'ready', generating);
         winHeader.setModeDisabled(generating);
-        if (winHeader.setModelDisabled) winHeader.setModelDisabled(generating);
     }
     // Disable the dangerous mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);
@@ -296,6 +296,11 @@ function isDriverBinaryMissing(text) {
 }
 
 function shouldShowPermissionsForDriverFailure(resultOrError) {
+    const explicit = normalizeMissingPermissions(
+        resultOrError?.missing || resultOrError?.permissions?.missing || []
+    );
+    if (explicit.length) return true;
+
     const text = typeof resultOrError === 'string'
         ? resultOrError
         : [
@@ -305,8 +310,7 @@ function shouldShowPermissionsForDriverFailure(resultOrError) {
         ].filter(Boolean).join('\n');
     if (isDriverBinaryMissing(text)) return false;
     if (resultOrError?.permissionsRequired) return true;
-    if (resultOrError?.success === false || resultOrError?.granted === false) return true;
-    return /permission|accessibility|screen recording|screen capture|not authorized|not authorised|emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text);
+    return /permission|accessibility|screen recording|screen capture|not authorized|not authorised|unauthori[sz]ed|requires/i.test(text);
 }
 
 function missingPermissionsFromDriverFailure(resultOrError) {
@@ -331,7 +335,10 @@ function missingPermissionsFromDriverFailure(resultOrError) {
 
 function showPermissionsCard(missing) {
     missing = normalizeMissingPermissions(missing);
-    if (missing.length === 0) return;
+    if (missing.length === 0) {
+        if (_permissionsCard) _permissionsCard.update([]);
+        return;
+    }
 
     if (_permissionsCard) {
         _permissionsCard.update(missing);

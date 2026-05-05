@@ -58,6 +58,21 @@ Either way, you MUST call update_plan before taking any desktop actions. The use
 """
 
 
+def _active_model_block(provider: str, model: str) -> str:
+    provider = (provider or "unknown").strip() or "unknown"
+    model = (model or "unknown").strip() or "unknown"
+    return f"""\
+
+<active_model>
+Provider: {provider}
+Model: {model}
+
+If the user asks what model you are, which model is running, or whether the
+model changed, answer from this active_model block. It supersedes any earlier
+conversation text about the active model.
+</active_model>"""
+
+
 def _mode_transition_block(previous_mode: str, current_mode: str) -> str:
     if previous_mode == current_mode:
         return ""
@@ -154,6 +169,7 @@ class ContextManager:
         self._step_offset: dict[str, int] = {}
         self._plan_injected: dict[str, bool] = {}
         self._agent_mode: dict[str, str] = {}
+        self._active_model: dict[str, tuple[str, str]] = {}
         # Per-session active (pid, window_id) tracked for coworker-mode
         # per-turn AX perception injection (see PLAN §4.6).
         self._coworker_target: dict[str, tuple[int, int]] = {}
@@ -262,6 +278,10 @@ class ContextManager:
                 self.clear_coworker_target(session_id)
             self._replace_system_prompt(session_id, mode, previous_mode)
             print(f"[agent_mode] session={session_id} {previous_mode} → {mode}; refreshed system prompt")
+
+    def set_active_model(self, session_id: str, provider: str, model: str) -> None:
+        """Record the selected inference provider/model for prompt metadata."""
+        self._active_model[session_id] = (provider or "", model or "")
 
     def set_coworker_target(self, session_id: str, pid: int, window_id: int) -> None:
         """Record the active (pid, window_id) for coworker-mode per-turn perception."""
@@ -467,6 +487,21 @@ class ContextManager:
                 )
             ] + trimmed[-keep_tail:]
 
+        active_model = self._active_model.get(session_id)
+        if active_model:
+            provider, model = active_model
+            model_block = _active_model_block(provider, model)
+            for idx, message in enumerate(trimmed):
+                if message.role == MessageRole.system:
+                    trimmed[idx] = PreviousMessage(
+                        role=MessageRole.system,
+                        content=message.content.rstrip() + model_block,
+                        timestamp=message.timestamp,
+                    )
+                    break
+            else:
+                trimmed.insert(0, PreviousMessage(role=MessageRole.system, content=model_block.strip()))
+
         return AgentRequest(
             session_id=session_id,
             user_message=user_message,
@@ -482,6 +517,7 @@ class ContextManager:
         self._step_offset.pop(session_id, None)
         self._plan_injected.pop(session_id, None)
         self._agent_mode.pop(session_id, None)
+        self._active_model.pop(session_id, None)
         self._coworker_target.pop(session_id, None)
         self.action_validator.clear(session_id)
 

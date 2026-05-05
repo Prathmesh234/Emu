@@ -368,6 +368,11 @@ def _provider_current_model(provider: str) -> str:
     return cfg.get("default_model", "")
 
 
+def _current_provider_model() -> tuple[str, str]:
+    provider = os.environ.get("EMU_PROVIDER", _provider_name).strip().lower()
+    return provider, _provider_current_model(provider)
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -525,6 +530,8 @@ async def agent_step(req: AgentRequest):
     has_screenshot = bool(req.base64_screenshot)
     has_text = bool(req.user_message.strip())
     context_manager.set_agent_mode(session_id, req.agent_mode)
+    active_provider, active_model = _current_provider_model()
+    context_manager.set_active_model(session_id, active_provider, active_model)
 
     # Register this concrete /agent/step invocation before any await points.
     # Stop requests target the active step id, so a later user message can
@@ -558,7 +565,11 @@ async def agent_step(req: AgentRequest):
     # ── Log ──────────────────────────────────────────────────────────────────
     history = context_manager._history.get(session_id, [])
     print(f"\n{'=' * 60}")
-    print(f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}  agent_mode={req.agent_mode}  chain={len(history)}")
+    print(
+        f"[agent/step] session={session_id}  mode={'screenshot' if has_screenshot else 'text'}"
+        f"  agent_mode={req.agent_mode}  provider={active_provider}  model={active_model}"
+        f"  chain={len(history)}"
+    )
     if has_text:
         print(f"  message: {req.user_message[:120]}")
     print(f"{'=' * 60}\n")

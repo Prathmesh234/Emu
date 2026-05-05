@@ -12,9 +12,12 @@
 //   .textarea       — the <textarea> (same interface as ChatInput)
 //   .sendBtn        — the action button (same interface as ChatInput)
 //   .setMode(mode)  — 'send' | 'stop'
+//   .setModelDisabled(disabled)
 //   .setTooltip(t)  — repurposed as hint text in the new design
 //
 // No backend changes. All onSend/onStop callbacks are identical.
+
+const { createModelPicker } = require('./ModelPicker');
 
 function Composer(onSend, onStop) {
     const container = document.createElement('div');
@@ -36,9 +39,12 @@ function Composer(onSend, onStop) {
     hintRow.appendChild(hintText);
     container.appendChild(hintRow);
 
-    // ── Input row ─────────────────────────────────────────────────────────
+    // ── Input surface ─────────────────────────────────────────────────────
     const row = document.createElement('div');
     row.className = 'composer-row';
+
+    const modelPicker = createModelPicker();
+    modelPicker.element.classList.add('composer-model-picker');
 
     const textarea = document.createElement('textarea');
     textarea.className = 'composer-input';
@@ -82,8 +88,18 @@ function Composer(onSend, onStop) {
         }
     });
 
+    const controls = document.createElement('div');
+    controls.className = 'composer-controls';
+
+    const controlsLeft = document.createElement('div');
+    controlsLeft.className = 'composer-controls-left';
+
+    controlsLeft.appendChild(modelPicker.element);
+    controls.appendChild(controlsLeft);
+    controls.appendChild(sendBtn);
+
     row.appendChild(textarea);
-    row.appendChild(sendBtn);
+    row.appendChild(controls);
     container.appendChild(row);
 
     // ── State machine ─────────────────────────────────────────────────────
@@ -125,6 +141,8 @@ function Composer(onSend, onStop) {
         textarea,
         sendBtn,
         setMode,
+        setModelDisabled: modelPicker.setDisabled,
+        refreshModelPicker: modelPicker.refresh,
         setTooltip,
     };
 }

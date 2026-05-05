@@ -45,7 +45,10 @@ function missingPermissionsFromError(message) {
   const missing = [];
   if (/accessibility/i.test(text)) missing.push('accessibility');
   if (/screen recording|screen/i.test(text)) missing.push('screen');
-  return missing.length ? missing : DEFAULT_DRIVER_MISSING_PERMISSIONS;
+  if (missing.length) return missing;
+  return /permission|not authorized|not authorised|unauthori[sz]ed|requires/i.test(text)
+    ? DEFAULT_DRIVER_MISSING_PERMISSIONS
+    : [];
 }
 
 function isDriverBinaryMissing(message) {
@@ -55,11 +58,7 @@ function isDriverBinaryMissing(message) {
 function shouldPromptForDriverPermissions(message) {
   const text = String(message || '');
   if (isDriverBinaryMissing(text)) return false;
-  return (
-    !text ||
-    /permission|accessibility|screen recording|screen capture|not authorized|not authorised/i.test(text) ||
-    /emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text)
-  );
+  return /permission|accessibility|screen recording|screen capture|not authorized|not authorised|unauthori[sz]ed|requires/i.test(text);
 }
 
 function emitPermissionsRequired(rawMissing) {
@@ -222,7 +221,8 @@ app.whenReady().then(() => {
       } else {
         console.warn(`[emu-cua-driver] startup deferred: ${result?.error || 'unknown'}`);
         if (result?.permissionsRequired || shouldPromptForDriverPermissions(result?.error)) {
-          emitPermissionsRequired(missingPermissionsFromError(result?.error));
+          const missing = normalizeMissingPermissions(result?.missing || result?.permissions?.missing || []);
+          emitPermissionsRequired(missing.length ? missing : missingPermissionsFromError(result?.error));
         }
       }
     })

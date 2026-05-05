@@ -403,14 +403,10 @@ function _isDriverBinaryMissing(message) {
   return /binary not found|build\/install|install it from/i.test(String(message || ''));
 }
 
-function _looksLikePermissionOrDaemonAccessFailure(message) {
+function _looksLikePermissionFailure(message) {
   const text = String(message || '');
   if (_isDriverBinaryMissing(text)) return false;
-  return (
-    !text ||
-    /permission|accessibility|screen recording|screen capture|not authorized|not authorised/i.test(text) ||
-    /emu-cua-driver|cua-driver|driver daemon|daemon unavailable|daemon closed|socket/i.test(text)
-  );
+  return /permission|accessibility|screen recording|screen capture|not authorized|not authorised|unauthori[sz]ed|requires/i.test(text);
 }
 
 function _startupError(err) {
@@ -419,7 +415,7 @@ function _startupError(err) {
     success: false,
     running: false,
     error: message,
-    permissionsRequired: _looksLikePermissionOrDaemonAccessFailure(message),
+    permissionsRequired: _looksLikePermissionFailure(message),
   };
 }
 
