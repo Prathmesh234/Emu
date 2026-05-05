@@ -361,7 +361,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
             "amount": {
                 "type": "integer",
-                "minimum": 1,
+                "minimum": 20,
                 "maximum": 50,
                 "description": "Number of keystroke repetitions. Default 3.",
             },
