@@ -100,10 +100,17 @@ or whatever is visually frontmost. Trust driver-returned `bundle_id`,
 with `cua_list_windows` / `list_running_apps`; launch only if discovery
 shows there is no usable running target.
 
-`cua_get_window_state(pid, window_id)` returns:
+`cua_get_window_state(pid, window_id)` normally returns:
   • the AX tree as `tree_markdown`
   • fresh `[element_index N]` values for that `(pid, window_id)`
   • an attached driver screenshot image for visual targeting
+
+When the target window is on another macOS Space, `cua_get_window_state`
+stays background-safe by skipping the AX walk and behaving like vision
+mode for that call. Treat the attached screenshot, browser JavaScript
+result, and pixel coordinates as usable, but do not expect fresh
+`tree_markdown` or `[element_index N]` values from that response. Do not
+reuse stale element indices from an earlier on-Space snapshot.
 
 `cua_screenshot` and `cua_zoom` also attach fresh driver images. Use
 those images directly for visual disambiguation and verification.
@@ -149,9 +156,10 @@ Pixel coordinate contract:
     with `from_zoom=true`.
 
 Never mix `element_index` with `x`/`y`. Element indices are valid only
-for the most recent `cua_get_window_state` for the exact `(pid,
-window_id)`. Snapshot again after menus/sheets open, navigation changes,
-content scrolls, or several turns pass.
+for the most recent `cua_get_window_state` response that included an AX
+tree for the exact `(pid, window_id)`. Vision-only/off-Space responses do
+not refresh element indices. Snapshot again after menus/sheets open,
+navigation changes, content scrolls, or several turns pass.
 
 If finding the right AX element is hard, switch to pure vision:
 `cua_set_config(key="capture_mode", value="vision")`, snapshot, then
@@ -159,7 +167,11 @@ use screenshot pixel `x` + `y`. Switch back to `som` when you need AX
 indices again.
 
 Default capture mode is `som`. If a snapshot unexpectedly lacks an AX
-tree, check `cua_get_config` before assuming the app has no AX surface.
+tree, first read the tool text: an off-Space warning means the driver
+intentionally skipped AX to avoid switching the user's Space. In that
+case use screenshot pixels, browser JavaScript/`cua_page`, or ask for
+foreground fallback if element-indexed AX is required. Otherwise check
+`cua_get_config` before assuming the app has no AX surface.
 </targeting>
 
 <browser_rules>
@@ -288,6 +300,10 @@ Common recovery:
     `cua_get_window_state(pid, window_id)`; do not retry `cua_screenshot({{}})`.
   • Sparse AX tree: retry `cua_get_window_state` once; for browsers use
     `<browser_rules>`, otherwise switch to pixels or another path.
+  • Off-Space/vision-only snapshot: use the attached screenshot pixels,
+    browser JavaScript/`cua_page`, or ask for approved foreground fallback
+    if fresh element indices are required. Do not retry just to force AX;
+    that can switch the user's Space.
   • Timeout/frozen UI: snapshot or list windows; do not repeat the same
     timed-out call immediately.
   • Browser DOM/JS timeout: fall back to AX/screenshot inspection; do not
@@ -309,7 +325,8 @@ Foreground fallback:
 Pick one diagnostic at a time:
   • `cua_check_permissions` — TCC state
   • `cua_get_config` — capture mode and driver config
-  • `cua_get_window_state` — AX tree, indices, attached screenshot
+  • `cua_get_window_state` — AX tree + indices + screenshot, or vision-only
+    screenshot when the target window is on another Space
   • `cua_screenshot` / `cua_zoom` — pixels only
   • `cua_list_windows` / `cua_list_apps` — stale target check
   • cursor tools — cosmetic overlay only, not targeting
