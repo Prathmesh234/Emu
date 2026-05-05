@@ -235,9 +235,9 @@ function createModelPicker() {
     async function selectModel(nextModel) {
         if (!nextModel || !currentProvider || nextModel === currentModel) return;
         refreshToken++;
-        const previousModel = currentModel;
-        currentModel = nextModel;
-        renderOptions(currentOptions, currentModel);
+        // Pessimistic update — keep displaying the previous model until the
+        // backend confirms the switch, so the picker label can never claim a
+        // model that isn't actually running yet.
         setBusy(true, 'saving');
         try {
             const result = await saveProviderSettings({
@@ -252,7 +252,6 @@ function createModelPicker() {
             }));
             setBusy(false);
         } catch (err) {
-            currentModel = previousModel;
             renderOptions(currentOptions, currentModel);
             wrap.title = err.message || 'Could not save model';
             setBusy(false, 'error');
