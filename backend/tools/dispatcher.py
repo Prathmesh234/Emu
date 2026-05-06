@@ -97,11 +97,10 @@ def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
     """
     Normalize mutually-exclusive coworker driver addressing modes.
 
-    Some providers emit optional numeric fields as zero even when the model
-    chose the element-index path. Preserve that zero-default cleanup, but do
-    not silently discard non-zero pixel coordinates when an element target is
-    also present: that executes a different click than the model requested and
-    can produce invisible retries against the same stale AX element.
+    Some providers emit optional/default fields even when the model chose the
+    other click path. Preserve zero-default cleanup for AX intent, and treat
+    `element_index: 0` plus real x/y as pixel intent because element zero is
+    almost always provider pollution/root element, not a deliberate AX target.
     """
     normalized = dict(args)
 
@@ -146,9 +145,15 @@ def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
             and normalized.get("window_id") is not None
         )
         if has_element_target and has_xy:
-            if normalized.get("x") == 0 and normalized.get("y") == 0:
+            element_index = normalized.get("element_index")
+            x = normalized.get("x")
+            y = normalized.get("y")
+            if x == 0 and y == 0:
                 for key in ("x", "y", "modifier", "count", "from_zoom"):
                     normalized.pop(key, None)
+            elif element_index == 0:
+                normalized.pop("element_index", None)
+                normalized.pop("action", None)
             else:
                 normalized["_emu_validation_error"] = (
                     "Invalid mixed click target: provide either "

@@ -55,11 +55,27 @@ class CoworkerActionValidator:
         self._coworker_pending_verification: dict[str, str] = {}
         # (tool_key, fail_count) tracks consecutive click failures per session.
         self._click_failures: dict[str, tuple[str, int]] = {}
+        # (rejection_key, count) tracks repeated pre-dispatch validation loops.
+        self._tool_rejections: dict[str, tuple[str, int]] = {}
 
     def clear(self, session_id: str) -> None:
         """Reset all state for a session."""
         self._coworker_pending_verification.pop(session_id, None)
         self._click_failures.pop(session_id, None)
+        self._tool_rejections.pop(session_id, None)
+
+    def _remember_rejection(self, session_id: str, key: str, message: str) -> tuple[bool, str]:
+        current_key, count = self._tool_rejections.get(session_id, ("", 0))
+        next_count = count + 1 if current_key == key else 1
+        self._tool_rejections[session_id] = (key, next_count)
+        if next_count >= 3:
+            return False, (
+                f"{message} This exact invalid tool call has been rejected "
+                f"{next_count} times in a row. Stop retrying it: take a fresh "
+                "`cua_get_window_state`/`cua_screenshot`, choose one addressing "
+                "mode, or report the blocker."
+            )
+        return False, message
 
     def _click_key(self, name: str, args: dict | None) -> str:
         """Return the executable click target, ignoring ignored provider defaults."""
@@ -99,6 +115,13 @@ class CoworkerActionValidator:
         if is_zero_default:
             return True, ""
 
+        try:
+            is_element_zero = int(args.get("element_index")) == 0
+        except (TypeError, ValueError):
+            is_element_zero = False
+        if is_element_zero:
+            return True, ""
+
         return False, (
             f"`{name}` has an invalid mixed target: provide either "
             "`element_index` + `window_id` OR pixel `x` + `y`, not both. "
@@ -128,7 +151,8 @@ class CoworkerActionValidator:
         if agent_mode == "coworker" and name in self._CLICK_TOOLS:
             target_ok, target_err = self._validate_click_target(name, args)
             if not target_ok:
-                return False, target_err
+                key = self._click_key(name, args)
+                return self._remember_rejection(session_id, f"reject:{key}", target_err)
 
             key = self._click_key(name, args)
             current_key, count = self._click_failures.get(session_id, ("", 0))
@@ -161,6 +185,7 @@ class CoworkerActionValidator:
         if name in self._COWORKER_PERCEPTION_TOOLS:
             if ok:
                 self._coworker_pending_verification.pop(session_id, None)
+                self._tool_rejections.pop(session_id, None)
             return
 
         if name not in self._COWORKER_INTERACTIVE_TOOLS:
@@ -173,6 +198,7 @@ class CoworkerActionValidator:
                 self._click_failures[session_id] = (key, count + 1 if current_key == key else 1)
             else:
                 self._click_failures[session_id] = ("", 0)
+                self._tool_rejections.pop(session_id, None)
 
         if ok:
             self._coworker_pending_verification[session_id] = name

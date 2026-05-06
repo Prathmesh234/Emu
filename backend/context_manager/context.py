@@ -21,6 +21,7 @@ from prompts.plan_prompt import PLAN_DIRECTIVE, PLAN_REMINDER
 from workspace import build_workspace_context, get_device_details, is_bootstrap_needed, read_bootstrap
 from context_manager.coworker_validator import CoworkerActionValidator
 from context_manager.remote_validator import RemoteActionValidator
+from utilities.tool_history import repair_orphan_tool_calls
 
 # OmniParser toggle
 USE_OMNI_PARSER = (
@@ -420,6 +421,12 @@ class ContextManager:
             )
         )
 
+    def _repair_orphan_tool_calls(self, session_id: str) -> None:
+        repaired, inserted = repair_orphan_tool_calls(self._get(session_id))
+        if inserted:
+            self._history[session_id] = repaired
+            print(f"[tool-history] Repaired {inserted} orphan tool call(s) for session {session_id}")
+
     # Placeholder that replaces old screenshots
     SCREENSHOT_PLACEHOLDER = "[A screenshot was taken here and reviewed by you]"
 
@@ -445,6 +452,7 @@ class ContextManager:
         - Plan auto-injected every PLAN_INJECT_INTERVAL turns
         - Middle-trimmed if chain exceeds MAX_CHAIN_LENGTH
         """
+        self._repair_orphan_tool_calls(session_id)
         history = self._get(session_id)
 
         step_index = (
@@ -466,8 +474,13 @@ class ContextManager:
             and "plan" in (m.content or "").lower()
             for m in history[-6:]
         )
+        _recent_tool_rejection = any(
+            m.role == MessageRole.tool
+            and (m.content or "").startswith("[TOOL REJECTED]")
+            for m in history[-6:]
+        )
 
-        if self._should_inject_plan(session_id) and not _recently_read_plan:
+        if self._should_inject_plan(session_id) and not _recently_read_plan and not _recent_tool_rejection:
             from workspace import read_session_plan
             plan = read_session_plan(session_id)
             if plan:
@@ -482,7 +495,7 @@ class ContextManager:
                 print(f"[plan-inject] Auto-injected plan.md at step {step_index}")
 
         # Lightweight plan reminder (offset from full plan injection)
-        elif self._should_inject_plan_reminder(session_id) and not _recently_read_plan:
+        elif self._should_inject_plan_reminder(session_id) and not _recently_read_plan and not _recent_tool_rejection:
             history.append(
                 PreviousMessage(role=MessageRole.user, content=PLAN_REMINDER)
             )

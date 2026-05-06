@@ -696,8 +696,10 @@ async def agent_step(req: AgentRequest):
             context_manager.add_tool_call_turn(session_id, raw_tool_calls)
             screenshots_for_context = []
 
-            # Execute each tool and add results
-            for tc in response.tool_calls:
+            # Execute each tool and add results. Once the assistant tool-call
+            # turn is recorded, every tool_call_id must get exactly one tool
+            # result or OpenAI/Azure-compatible providers reject future turns.
+            for tool_index, tc in enumerate(response.tool_calls):
                 # ── Stop checkpoint inside the tool batch ──────────────
                 # Multi-tool batches can take a few seconds (clicks +
                 # snapshots). Check on every iteration so the user
@@ -705,6 +707,13 @@ async def agent_step(req: AgentRequest):
                 # clicking stop.
                 if _is_stopped():
                     print(f"[agent/step] Stop signal received mid-batch — aborting (tool={tc.name})")
+                    for pending_tc in response.tool_calls[tool_index:]:
+                        context_manager.add_tool_result_turn(
+                            session_id,
+                            pending_tc.id,
+                            pending_tc.name,
+                            "[TOOL CANCELLED] User stopped execution before this tool ran.",
+                        )
                     return {"session_id": session_id, "status": "stopped", "done": False}
 
                 try:
@@ -752,21 +761,20 @@ async def agent_step(req: AgentRequest):
                 )
                 print(f"[tool:start] {tc.name}({json.dumps(args, ensure_ascii=False)[:120]})")
 
-                raw_result = await execute_agent_tool(
-                    session_id, tc.name, args, manager, context_manager, compact_model,
-                    agent_mode=req.agent_mode,
-                    cancel_key=cancel_key,
-                )
+                try:
+                    raw_result = await execute_agent_tool(
+                        session_id, tc.name, args, manager, context_manager, compact_model,
+                        agent_mode=req.agent_mode,
+                        cancel_key=cancel_key,
+                    )
+                except Exception as tool_exc:
+                    raw_result = f"[TOOL ERROR] {type(tool_exc).__name__}: {tool_exc}"
                 screenshot_for_context = None
                 if isinstance(raw_result, dict):
                     result = str(raw_result.get("text") or "")
                     screenshot_for_context = raw_result.get("screenshot")
                 else:
                     result = str(raw_result)
-
-                if _is_stopped():
-                    print(f"[agent/step] Stop signal received after tool returned — aborting (tool={tc.name})")
-                    return {"session_id": session_id, "status": "stopped", "done": False}
 
                 context_manager.add_tool_result_turn(session_id, tc.id, tc.name, result)
                 if screenshot_for_context:
@@ -785,6 +793,17 @@ async def agent_step(req: AgentRequest):
                     manager,
                     metadata={"tool_name": tc.name, "args": json.dumps(args, ensure_ascii=False)[:500], "result": result[:500]},
                 )
+
+                if _is_stopped():
+                    print(f"[agent/step] Stop signal received after tool returned — aborting (tool={tc.name})")
+                    for pending_tc in response.tool_calls[tool_index + 1:]:
+                        context_manager.add_tool_result_turn(
+                            session_id,
+                            pending_tc.id,
+                            pending_tc.name,
+                            "[TOOL CANCELLED] User stopped execution before this tool ran.",
+                        )
+                    return {"session_id": session_id, "status": "stopped", "done": False}
 
                 # If update_plan was called, capture the plan content for review
                 if plan_review_enabled and tc.name == "update_plan":
