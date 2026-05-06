@@ -737,8 +737,8 @@ async def agent_step(req: AgentRequest):
                         manager,
                         metadata={
                             "tool_name": tc.name,
-                            "args": json.dumps(args, ensure_ascii=False)[:500],
-                            "result": result[:500],
+                            "args": json.dumps(args, ensure_ascii=False),
+                            "result": result,
                             "status": "rejected",
                         },
                     )
@@ -755,7 +755,7 @@ async def agent_step(req: AgentRequest):
                     f"[tool:start] {tc.name}({json.dumps(args, ensure_ascii=False)[:500]})",
                     metadata={
                         "tool_name": tc.name,
-                        "args": json.dumps(args, ensure_ascii=False)[:500],
+                        "args": json.dumps(args, ensure_ascii=False),
                         "status": "started",
                     },
                 )
@@ -791,7 +791,7 @@ async def agent_step(req: AgentRequest):
                     session_id,
                     f"[tool] {tc.name}({json.dumps(args, ensure_ascii=False)[:200]}) → {result[:300]}",
                     manager,
-                    metadata={"tool_name": tc.name, "args": json.dumps(args, ensure_ascii=False)[:500], "result": result[:500]},
+                    metadata={"tool_name": tc.name, "args": json.dumps(args, ensure_ascii=False), "result": result},
                 )
 
                 if _is_stopped():
@@ -1008,7 +1008,7 @@ async def agent_step(req: AgentRequest):
             metadata={
                 "action_type": action_type,
                 "confidence": response.confidence,
-                "reasoning": (response.reasoning_content or "")[:500],
+                "reasoning": response.reasoning_content or "",
                 "action": action_payload,
             },
         )

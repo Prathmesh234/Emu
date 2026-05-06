@@ -23,8 +23,8 @@ _REDACT_PATTERNS = [
     (re.compile(r'(data:image/[^;]+;base64,).{100,}'), r'\1[BASE64_TRUNCATED]'),
 ]
 
-# ── Role tag regex: extract [user], [assistant], [tool] prefix from entry ────
-_ROLE_RE = re.compile(r'^\[(\w+)\]\s*(.*)$', re.DOTALL)
+# ── Role tag regex: extract [user], [assistant], [tool], [tool:start] tags ────
+_ROLE_RE = re.compile(r'^\[([A-Za-z_]+)(?::[A-Za-z_]+)?\]\s*(.*)$', re.DOTALL)
 
 
 def _redact(text: str) -> str:

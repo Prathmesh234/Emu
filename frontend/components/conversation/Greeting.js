@@ -4,7 +4,7 @@
 // Design source: Emu-handoff.zip → project/frames/frames-a.jsx > F_Idle
 //
 // Layout:
-//   "Good afternoon, Prathmesh."          (large serif, italic first name)
+//   "Good afternoon, Pratt."              (large serif, italic display name)
 //   <contextual subtitle>                  (what the user was recently on)
 //
 // The subtitle starts with a neutral fallback ("Tell me what to do…"),
@@ -74,6 +74,10 @@ function _timeGreeting() {
 }
 
 function _firstName() {
+    const env = _readEnv();
+    const name = (env.NAME || '').trim();
+    if (name) return name;
+
     try {
         const full = execSync('id -F', { timeout: 500, stdio: ['pipe', 'pipe', 'ignore'] })
             .toString().trim();

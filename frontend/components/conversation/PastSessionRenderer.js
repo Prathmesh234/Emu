@@ -11,10 +11,9 @@
 //                   — page-level helper that creates user/assistant turn DOM
 //                     and returns the mount point (used for the user-message path)
 //
-// Behavior matches the original implementation exactly: groups consecutive
-// non-user messages into assistant "turns", renders skill / file / step /
-// done cards as appropriate, and marks all step cards as resolved (no
-// blinking caret, no pending badge).
+// Past-session replay mirrors the live session UI: user messages are shown
+// fully, while actions/tools are displayed as the same compact trace lines
+// users see while the agent is running.
 
 const { TurnEmu } = require('./TurnEmu');
 const { StepCard, FileCard, SkillCard } = require('../index');
@@ -40,6 +39,72 @@ function renderPastSession(chatWrapper, messages, addMessage) {
     function flushAssistantBubble() {
         currentAssistantBubble = null;
         currentStepContainer = null;
+    }
+
+    function shouldRenderToolMessage(meta, content) {
+        const status = meta.status || '';
+        if (status === 'started' || status === 'rejected') return true;
+        if ((content || '').includes('[TOOL REJECTED]')) return true;
+        if ((content || '').startsWith('[tool:start]')) return true;
+        if ((content || '').startsWith('[tool]')) return false;
+        // Older logs may not have status metadata; render those rather than
+        // hiding potentially important trace entries.
+        return !status;
+    }
+
+    function appendPlainMessage(container, content) {
+        if (!content || !content.trim()) return;
+        const textEl = document.createElement('div');
+        textEl.className = 'turn-text';
+        textEl.textContent = content;
+        container.appendChild(textEl);
+    }
+
+    function renderToolTrace(meta, content) {
+        if (!shouldRenderToolMessage(meta, content)) return;
+
+        const container = ensureAssistantBubble();
+        stepNum++;
+
+        const toolName = meta.tool_name || toolNameFromContent(content) || '';
+        const rejected = meta.status === 'rejected' || content.includes('[TOOL REJECTED]');
+
+        if (toolName === 'use_skill' && !rejected) {
+            let skillName = 'Unknown';
+            try {
+                const parsed = JSON.parse(meta.args || '{}');
+                skillName = parsed.skill_name || 'Unknown';
+            } catch (_) {}
+            const skillCard = SkillCard(skillName);
+            container.appendChild(skillCard.element);
+            return;
+        }
+
+        if (toolName === 'write_session_file' && !rejected) {
+            let filename = 'file';
+            try {
+                const parsed = JSON.parse(meta.args || '{}');
+                filename = parsed.filename || 'file';
+            } catch (_) {}
+            const fileCard = FileCard(filename, 'created', null);
+            container.appendChild(fileCard.element);
+            return;
+        }
+
+        const toolWrap = document.createElement('div');
+        toolWrap.className = rejected ? 'trace resolved trace-error' : 'trace resolved';
+        toolWrap.textContent = formatToolTrace(toolName || 'tool', meta.args || argsFromContent(content) || '{}', { ok: !rejected });
+        container.appendChild(toolWrap);
+    }
+
+    function toolNameFromContent(content) {
+        const match = String(content || '').match(/^\[tool(?::start)?\]\s+([^(]+)\(/);
+        return match ? match[1].trim() : '';
+    }
+
+    function argsFromContent(content) {
+        const match = String(content || '').match(/^\[tool(?::start)?\]\s+[^(]+\((.*)\)(?:\s+→.*)?$/s);
+        return match ? match[1] : '';
     }
 
     messages.forEach(msg => {
@@ -75,42 +140,19 @@ function renderPastSession(chatWrapper, messages, addMessage) {
         }
 
         if (role === 'tool') {
-            const container = ensureAssistantBubble();
-            stepNum++;
+            renderToolTrace(meta, content);
+            return;
+        }
 
-            const toolName = meta.tool_name || '';
+        if (content.startsWith('[tool:start]')) {
+            renderToolTrace({ ...meta, status: meta.status || 'started' }, content);
+            return;
+        }
 
-            // Render skill cards for use_skill
-            if (toolName === 'use_skill') {
-                let skillName = 'Unknown';
-                try {
-                    const parsed = JSON.parse(meta.args || '{}');
-                    skillName = parsed.skill_name || 'Unknown';
-                } catch (_) {}
-                const skillCard = SkillCard(skillName);
-                container.appendChild(skillCard.element);
-                return;
+        if (content.startsWith('[tool]')) {
+            if (content.includes('[TOOL REJECTED]')) {
+                renderToolTrace({ ...meta, status: meta.status || 'rejected' }, content);
             }
-
-            // Render file cards for write_session_file
-            if (toolName === 'write_session_file') {
-                let filename = 'file';
-                try {
-                    const parsed = JSON.parse(meta.args || '{}');
-                    filename = parsed.filename || 'file';
-                } catch (_) {}
-                const fileCard = FileCard(filename, 'created', null);
-                container.appendChild(fileCard.element);
-                return;
-            }
-
-            // Generic tool trace (replaces the old white step-card DOM).
-            // Renders as a single resolved trace line — no bordered card,
-            // no completion badge. Matches the Finished-frame aesthetic.
-            const toolWrap = document.createElement('div');
-            toolWrap.className = 'trace resolved';
-            toolWrap.textContent = formatToolTrace(toolName || 'tool', meta.args || '{}');
-            container.appendChild(toolWrap);
             return;
         }
 
@@ -139,6 +181,10 @@ function renderPastSession(chatWrapper, messages, addMessage) {
 
             container.appendChild(stepCard.element);
             return;
+        }
+
+        if (content) {
+            appendPlainMessage(ensureAssistantBubble(), content);
         }
     });
 }

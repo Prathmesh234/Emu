@@ -422,10 +422,13 @@ class ContextManager:
         )
 
     def _repair_orphan_tool_calls(self, session_id: str) -> None:
-        repaired, inserted = repair_orphan_tool_calls(self._get(session_id))
-        if inserted:
+        repaired, inserted, converted = repair_orphan_tool_calls(self._get(session_id))
+        if inserted or converted:
             self._history[session_id] = repaired
-            print(f"[tool-history] Repaired {inserted} orphan tool call(s) for session {session_id}")
+            print(
+                f"[tool-history] Repaired {inserted} orphan tool call(s), "
+                f"converted {converted} orphan tool result(s) for session {session_id}"
+            )
 
     # Placeholder that replaces old screenshots
     SCREENSHOT_PLACEHOLDER = "[A screenshot was taken here and reviewed by you]"
@@ -535,6 +538,13 @@ class ContextManager:
                     ),
                 )
             ] + trimmed[-keep_tail:]
+
+        trimmed, inserted, converted = repair_orphan_tool_calls(trimmed)
+        if inserted or converted:
+            print(
+                f"[tool-history] Sanitized provider request for {session_id}: "
+                f"inserted={inserted}, converted={converted}"
+            )
 
         active_model = self._active_model.get(session_id)
         if active_model:
