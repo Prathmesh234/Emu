@@ -150,16 +150,19 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
     _fn(
         "cua_launch_app",
         (
-            "Launch/open a macOS app through the coworker driver. Prefer "
-            "cua_list_windows or list_running_apps first and use an existing "
-            "pid/window when available. Use this only when no usable running "
-            "target exists, the task explicitly requires opening an app/file/URL, "
-            "or a new isolated app instance is required. The driver asks macOS "
-            "not to activate the target, but some apps self-activate during "
-            "LaunchServices launch or URL handoff, which can briefly or fully "
-            "bring the target app/Space forward. At least one of bundle_id / "
-            "name must be given; bundle_id wins. Returns pid, bundle_id, name, "
-            "plus a `windows` array shaped like cua_list_windows."
+            "Background-launch/open a macOS app through the coworker driver. "
+            "Use this for hidden/background launches, isolated instances, URL "
+            "handoff, or when the user explicitly requests background-only or "
+            "hidden operation. Do NOT use this as the default for app work: in "
+            "coworker mode, any task involving a native app should make that "
+            "app visible/frontmost with raise_app or bring_app_frontmost("
+            "app_name, user_approved=true), even if the user did not say "
+            "open/show. For "
+            "background work, prefer cua_list_windows or list_running_apps first "
+            "and use an existing pid/window when available. At least one of "
+            "bundle_id / name must be given; bundle_id wins. Returns pid, "
+            "bundle_id, name, plus a "
+            "`windows` array shaped like cua_list_windows."
         ),
         {
             "bundle_id": {"type": "string", "description": "App bundle id (e.g. com.apple.calculator). Preferred."},
@@ -360,23 +363,25 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "Scroll the target. Posts synthesized arrow-key (line) or "
             "PageUp/PageDown (page) keystrokes via the auth-signed pid "
             "path. Page-sized scrolls use `by=\"page\"`; cua_page is for "
-            "browser DOM primitives, not scrolling. element_index + window_id "
-            "pre-focuses the element; skip them when focus is already "
-            "established."
+            "browser DOM primitives, not scrolling. STRICT: before the first "
+            "scroll in a window/pane, focus the exact scroll target with "
+            "cua_click or pass element_index + window_id so keys land in that "
+            "pane. Do not scroll from a screenshot alone. For web/email pages "
+            "prefer by=\"page\" with amount 1-3."
         ),
         {
             "pid": _PID,
             "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
             "amount": {
                 "type": "integer",
-                "minimum": 20,
+                "minimum": 1,
                 "maximum": 50,
-                "description": "Number of keystroke repetitions. Default 3.",
+                "description": "Number of scroll units. Default 3. For web/email page scrolls use 1-3 with by='page'; avoid large line-scroll counts.",
             },
             "by": {
                 "type": "string",
                 "enum": ["line", "page"],
-                "description": "line = arrow-key per repetition; page = PageUp/PageDown per repetition. Default 'line'.",
+                "description": "line = arrow-key per repetition; page = PageUp/PageDown per repetition. Default 'line', but prefer 'page' for browser/email content panes.",
             },
             "element_index": _ELEMENT_INDEX,
             "window_id": _WID_OPTIONAL,

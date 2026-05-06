@@ -98,9 +98,10 @@ def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
     Normalize mutually-exclusive coworker driver addressing modes.
 
     Some providers emit optional numeric fields as zero even when the model
-    chose the element-index path. The Swift driver correctly rejects mixed
-    `element_index` + `(x, y)` input, so strip pixel-only defaults when an
-    element target is present before crossing the driver boundary.
+    chose the element-index path. Preserve that zero-default cleanup, but do
+    not silently discard non-zero pixel coordinates when an element target is
+    also present: that executes a different click than the model requested and
+    can produce invisible retries against the same stale AX element.
     """
     normalized = dict(args)
 
@@ -139,15 +140,28 @@ def _normalize_coworker_driver_args(name: str, args: dict) -> dict:
                 normalized.pop(key, None)
 
     if name in {"cua_click", "cua_right_click", "cua_double_click"}:
+        has_xy = normalized.get("x") is not None and normalized.get("y") is not None
         has_element_target = (
             normalized.get("element_index") is not None
             and normalized.get("window_id") is not None
         )
-        if has_element_target:
-            for key in ("x", "y", "modifier", "count", "from_zoom"):
+        if has_element_target and has_xy:
+            if normalized.get("x") == 0 and normalized.get("y") == 0:
+                for key in ("x", "y", "modifier", "count", "from_zoom"):
+                    normalized.pop(key, None)
+            else:
+                normalized["_emu_validation_error"] = (
+                    "Invalid mixed click target: provide either "
+                    "element_index + window_id OR x + y, not both. For a pixel "
+                    "click, omit element_index and action. For an AX click, omit "
+                    "x, y, modifier, count, and from_zoom."
+                )
+        elif has_element_target:
+            for key in ("modifier", "count", "from_zoom"):
                 normalized.pop(key, None)
-        elif normalized.get("x") is not None and normalized.get("y") is not None:
+        elif has_xy:
             normalized.pop("element_index", None)
+            normalized.pop("action", None)
 
     elif name == "cua_get_window_state":
         _drop_empty("query", "javascript", "screenshot_out_file")
@@ -327,8 +341,10 @@ async def execute_agent_tool(
         result = await asyncio.to_thread(
             handle_raise_app, app_name, agent_mode, cancel_key
         )
-        # In coworker mode the driver returns structured JSON — mine it for
-        # (pid, window_id) so the next perception turn has a target.
+        # Older coworker raise_app implementations returned driver JSON; keep
+        # best-effort parsing for compatibility. Visible-by-default raise_app
+        # now returns a plain activation status, so the model should list
+        # windows/snapshot after raising before interacting.
         if agent_mode == "coworker" and not result.startswith("ERROR"):
             try:
                 parsed = json.loads(result)
@@ -372,6 +388,9 @@ async def execute_agent_tool(
                 "Use remote desktop action JSON instead."
             )
         args = _normalize_coworker_driver_args(name, args)
+        validation_error = args.pop("_emu_validation_error", None)
+        if validation_error:
+            return f"[TOOL REJECTED] {validation_error}"
         driver_tool = "list_apps" if name == "list_running_apps" else name[len("cua_"):]
         result = await asyncio.to_thread(
             call_driver_tool, driver_tool, args, cancel_key

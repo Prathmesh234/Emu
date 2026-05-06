@@ -499,17 +499,15 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "raise_app",
             "description": (
-                "Resolve/prepare a named macOS app. Remote mode activates it. "
-                "In coworker mode, first use non-disruptive "
-                "list_running_apps/cua_list_windows/cua_list_apps for existing "
-                "targets. Use raise_app only when no usable running target "
-                "exists or opening/launching is explicitly part of the task. "
-                "Coworker mode uses "
-                "emu-cua-driver `launch_app` and returns `{pid, bundle_id, "
-                "name, windows}`, but some apps may self-activate during "
-                "LaunchServices launch/open and briefly or fully come "
-                "frontmost. After using it, use the returned pid/window_id "
-                "for `cua_*` tools."
+                "Make a named macOS app visible/frontmost. In coworker mode, "
+                "ANY task that involves working in or on a native app should "
+                "keep that app visible/frontmost for the user by default, even "
+                "if the user did not say 'open', 'show', or 'bring it up'. "
+                "Only choose background/hidden operation when the user "
+                "explicitly asks for it. After raising, inspect with "
+                "cua_list_windows/cua_get_window_state before interacting. "
+                "Use cua_launch_app only for background launch, isolated "
+                "instances, or URL/file handoff."
             ),
             "parameters": {
                 "type": "object",
@@ -531,11 +529,15 @@ AGENT_TOOLS_OPENAI = [
         "function": {
             "name": "bring_app_frontmost",
             "description": (
-                "Disruptive foreground fallback. Prefer non-disruptive "
-                "cua_* background tools first. Requires explicit user "
-                "approval because it can switch the user's active app/Space; "
-                "after it succeeds, take a fresh "
-                "`cua_get_window_state` and continue with `cua_*` tools."
+                "Make a named macOS app visible/frontmost via macOS app "
+                "activation. In coworker mode, app work is visible-by-default: "
+                "if a task involves an app, make that app visible/frontmost "
+                "unless the user explicitly requested background-only or hidden "
+                "operation. This implied approval applies even when the user "
+                "does not say 'open', 'show', or 'bring frontmost'. After it "
+                "succeeds, take a fresh "
+                "`cua_list_windows`/`cua_get_window_state` and continue with "
+                "`cua_*` tools."
             ),
             "parameters": {
                 "type": "object",
@@ -546,7 +548,7 @@ AGENT_TOOLS_OPENAI = [
                     },
                     "user_approved": {
                         "type": "boolean",
-                        "description": "Must be true only after the user explicitly approved foregrounding.",
+                        "description": "Set true for app work by default in coworker mode unless the user explicitly asked for background-only/hidden operation.",
                     },
                 },
                 "required": ["app_name", "user_approved"],

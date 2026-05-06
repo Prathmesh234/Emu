@@ -184,7 +184,9 @@ When the target window is **minimized** (genie'd into the Dock):
 ```
 snap = get_window_state({pid, window_id})
 # Find the AXWebArea — typically one per tab.
-scroll({pid, window_id, direction: "down", amount: 3, by: "page", element_index: <web_area>})
+# First focus the exact page/email pane you intend to scroll.
+click({pid, window_id, element_index: <web_area>})
+scroll({pid, window_id, direction: "down", amount: 1, by: "page", element_index: <web_area>})
 ```
 
 Under the hood: `scroll` synthesizes PageUp / PageDown / arrow-key
@@ -204,6 +206,8 @@ horizontal-page shortcut.
 `element_index` is focused (`AXFocused=true`) before the
 keystrokes fire — useful for directing the scroll into a specific
 element. Without it, keys land wherever the pid's current focus is.
+For browser/email pages, do not start with large line-scroll amounts;
+use `by: "page"` and a small amount after focusing the exact pane.
 
 ## Jump to page bottom / top
 

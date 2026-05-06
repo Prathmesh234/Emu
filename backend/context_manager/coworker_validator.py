@@ -61,6 +61,51 @@ class CoworkerActionValidator:
         self._coworker_pending_verification.pop(session_id, None)
         self._click_failures.pop(session_id, None)
 
+    def _click_key(self, name: str, args: dict | None) -> str:
+        """Return the executable click target, ignoring ignored provider defaults."""
+        args = args or {}
+        window_id = args.get("window_id")
+        element_index = args.get("element_index")
+        if element_index is not None and window_id is not None:
+            return f"{name}:element:{window_id}:{element_index}"
+
+        x = args.get("x")
+        y = args.get("y")
+        if x is not None and y is not None:
+            try:
+                x = round(float(x), 1)
+                y = round(float(y), 1)
+            except (TypeError, ValueError):
+                pass
+            return f"{name}:pixel:{window_id}:{x}:{y}"
+
+        return f"{name}:invalid"
+
+    def _validate_click_target(self, name: str, args: dict | None) -> tuple[bool, str]:
+        """Reject ambiguous click targeting before it can execute the wrong path."""
+        args = args or {}
+        has_element_target = (
+            args.get("element_index") is not None
+            and args.get("window_id") is not None
+        )
+        has_xy = args.get("x") is not None and args.get("y") is not None
+        if not has_element_target or not has_xy:
+            return True, ""
+
+        try:
+            is_zero_default = float(args.get("x")) == 0 and float(args.get("y")) == 0
+        except (TypeError, ValueError):
+            is_zero_default = False
+        if is_zero_default:
+            return True, ""
+
+        return False, (
+            f"`{name}` has an invalid mixed target: provide either "
+            "`element_index` + `window_id` OR pixel `x` + `y`, not both. "
+            "For a pixel click, omit `element_index` and `action`; for an AX "
+            "click, omit `x`, `y`, `modifier`, `count`, and `from_zoom`."
+        )
+
     def validate_tool_call(
         self,
         session_id: str,
@@ -81,7 +126,11 @@ class CoworkerActionValidator:
             )
 
         if agent_mode == "coworker" and name in self._CLICK_TOOLS:
-            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
+            target_ok, target_err = self._validate_click_target(name, args)
+            if not target_ok:
+                return False, target_err
+
+            key = self._click_key(name, args)
             current_key, count = self._click_failures.get(session_id, ("", 0))
             if current_key == key and count >= self.MAX_CONSECUTIVE_CLICK_FAILURES:
                 return False, (
@@ -118,7 +167,7 @@ class CoworkerActionValidator:
             return
 
         if name in self._CLICK_TOOLS:
-            key = f"{name}:{(args or {}).get('element_index')}:{(args or {}).get('x')}:{(args or {}).get('y')}"
+            key = self._click_key(name, args)
             current_key, count = self._click_failures.get(session_id, ("", 0))
             if not ok:
                 self._click_failures[session_id] = (key, count + 1 if current_key == key else 1)
