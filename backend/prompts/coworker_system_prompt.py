@@ -299,6 +299,18 @@ you feel lost, call `read_plan`.
 Posted input is not proof of success. If a click/key returns success but
 the UI does not change, do not repeat it blindly.
 
+After any click, key, text, drag, or scroll action, verify state before
+repeating the same action. A verification step is a fresh
+`cua_get_window_state`, `cua_screenshot`, `cua_page`, or
+`cua_list_windows` result that gives you new evidence. If verification
+does not show progress, change strategy instead of retrying the same
+target.
+
+The harness rejects repeated identical failed calls and repeated identical
+interactions that have not been verified. Treat those rejections as hard
+feedback: refresh state, choose a different target/tool, or report the
+blocker. Do not try to bypass them by resubmitting the same arguments.
+
 If an element-index action is a no-op:
    • call `cua_get_window_state`
    • try a sibling/parent control, keyboard path, or pixel coordinate
@@ -333,6 +345,9 @@ Common recovery:
     timed-out call immediately.
   • Browser DOM/JS timeout: fall back to AX/screenshot inspection; do not
     retry JS unless permissions/config changed.
+  • Browser JavaScript from Apple Events disabled: do not retry `cua_page`
+    with the same arguments. Use AX/screenshot state, ask for explicit
+    permission to enable it, or report the blocker.
 
 Foreground/default visibility:
   App work is visible-by-default. Use `raise_app` or

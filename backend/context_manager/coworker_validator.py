@@ -5,6 +5,12 @@ Runtime validation for coworker-mode function-tool calls and completion
 verification. Remote desktop action validation lives in remote_validator.py.
 """
 
+import hashlib
+import json
+
+
+_DROP = object()
+
 
 class CoworkerActionValidator:
     """Stateful per-session validator for coworker tool calls/results."""
@@ -33,6 +39,19 @@ class CoworkerActionValidator:
         "cua_launch_app",
     }
 
+    _COWORKER_STATE_REFRESH_TOOLS = _COWORKER_PERCEPTION_TOOLS | {
+        "cua_page",
+        "cua_get_config",
+        "cua_set_config",
+    }
+
+    _FAILURE_BUDGET_TOOLS = _COWORKER_INTERACTIVE_TOOLS | {
+        "cua_page",
+        "cua_get_window_state",
+        "cua_screenshot",
+        "cua_zoom",
+    }
+
     _BLOCKED_DONE_WORDS = (
         "can't",
         "cannot",
@@ -47,21 +66,31 @@ class CoworkerActionValidator:
         "please",
     )
 
-    # Click tools that get hard-blocked after repeated identical failures.
     _CLICK_TOOLS = {"cua_click", "cua_right_click", "cua_double_click"}
-    MAX_CONSECUTIVE_CLICK_FAILURES = 3
+    MAX_CONSECUTIVE_TOOL_FAILURES = 2
+    DEFAULT_UNVERIFIED_REPEAT_LIMIT = 2
+    _UNVERIFIED_REPEAT_LIMITS = {
+        "cua_click": 1,
+        "cua_right_click": 1,
+        "cua_double_click": 1,
+        "cua_scroll": 3,
+    }
 
     def __init__(self):
         self._coworker_pending_verification: dict[str, str] = {}
-        # (tool_key, fail_count) tracks consecutive click failures per session.
-        self._click_failures: dict[str, tuple[str, int]] = {}
+        # (tool_key, fail_count, summary) tracks consecutive identical failures.
+        self._tool_failures: dict[str, tuple[str, int, str]] = {}
+        # (tool_key, count) tracks repeated successful interactions that have
+        # not been followed by a state refresh/perception tool yet.
+        self._unverified_interactions: dict[str, tuple[str, int]] = {}
         # (rejection_key, count) tracks repeated pre-dispatch validation loops.
         self._tool_rejections: dict[str, tuple[str, int]] = {}
 
     def clear(self, session_id: str) -> None:
         """Reset all state for a session."""
         self._coworker_pending_verification.pop(session_id, None)
-        self._click_failures.pop(session_id, None)
+        self._tool_failures.pop(session_id, None)
+        self._unverified_interactions.pop(session_id, None)
         self._tool_rejections.pop(session_id, None)
 
     def _remember_rejection(self, session_id: str, key: str, message: str) -> tuple[bool, str]:
@@ -80,10 +109,11 @@ class CoworkerActionValidator:
     def _click_key(self, name: str, args: dict | None) -> str:
         """Return the executable click target, ignoring ignored provider defaults."""
         args = args or {}
+        pid = args.get("pid")
         window_id = args.get("window_id")
         element_index = args.get("element_index")
         if element_index is not None and window_id is not None:
-            return f"{name}:element:{window_id}:{element_index}"
+            return f"{name}:element:{pid}:{window_id}:{element_index}"
 
         x = args.get("x")
         y = args.get("y")
@@ -93,9 +123,81 @@ class CoworkerActionValidator:
                 y = round(float(y), 1)
             except (TypeError, ValueError):
                 pass
-            return f"{name}:pixel:{window_id}:{x}:{y}"
+            return f"{name}:pixel:{pid}:{window_id}:{x}:{y}"
 
-        return f"{name}:invalid"
+        return f"{name}:invalid:{pid}:{window_id}"
+
+    def _tool_key(self, name: str, args: dict | None) -> str:
+        """Return a stable, compact key for repeated-call detection."""
+        if name in self._CLICK_TOOLS:
+            return self._click_key(name, args)
+
+        normalized = self._normalize_value(args or {})
+        if normalized is _DROP:
+            normalized = {}
+        try:
+            raw = json.dumps(
+                normalized,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError):
+            raw = repr(normalized)
+        if len(raw) > 500:
+            digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+            raw = raw[:240] + f"...#{digest}"
+        return f"{name}:{raw}"
+
+    def _normalize_value(self, value):
+        """Normalize provider-filled optionals so equivalent calls share keys."""
+        if value is None or value == "" or value == []:
+            return _DROP
+        if isinstance(value, bool) or isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return round(value, 2)
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            items = []
+            for item in value:
+                normalized = self._normalize_value(item)
+                if normalized is not _DROP:
+                    items.append(normalized)
+            return items if items else _DROP
+        if isinstance(value, dict):
+            items = {}
+            for key in sorted(value):
+                normalized = self._normalize_value(value[key])
+                if normalized is not _DROP:
+                    items[str(key)] = normalized
+            return items if items else _DROP
+        return repr(value)
+
+    def _failure_summary(self, result: str) -> str:
+        """Bucket common failures without overfitting to one app or website."""
+        text = " ".join(str(result or "").split())
+        lowered = text.lower()
+        if "allow javascript from apple events" in lowered:
+            return "JavaScript from Apple Events is disabled"
+        if "timed out" in lowered or "timeout" in lowered:
+            return "tool timed out"
+        if "permission" in lowered or "not authorized" in lowered or "not authorised" in lowered:
+            return "permission or authorization failure"
+        if "daemon unavailable" in lowered or "connection refused" in lowered or "socket" in lowered:
+            return "driver daemon unavailable"
+        if "ax action" in lowered and "failed" in lowered:
+            return "AX action failed"
+        if "missing required" in lowered:
+            return "missing required argument"
+        return text[:180] or "tool returned an error"
+
+    def _unverified_repeat_limit(self, name: str) -> int:
+        return self._UNVERIFIED_REPEAT_LIMITS.get(
+            name,
+            self.DEFAULT_UNVERIFIED_REPEAT_LIMIT,
+        )
 
     def _validate_click_target(self, name: str, args: dict | None) -> tuple[bool, str]:
         """Reject ambiguous click targeting before it can execute the wrong path."""
@@ -154,16 +256,39 @@ class CoworkerActionValidator:
                 key = self._click_key(name, args)
                 return self._remember_rejection(session_id, f"reject:{key}", target_err)
 
+        if agent_mode == "coworker" and name in self._FAILURE_BUDGET_TOOLS:
+            key = self._tool_key(name, args)
+            current_key, count, summary = self._tool_failures.get(session_id, ("", 0, ""))
+            if current_key == key and count >= self.MAX_CONSECUTIVE_TOOL_FAILURES:
+                return self._remember_rejection(
+                    session_id,
+                    f"failed:{key}",
+                    (
+                        f"`{name}` has already failed {count} times in a row "
+                        f"with the same arguments ({summary}). Do not retry the "
+                        "same call. Change one thing first: refresh state, choose "
+                        "a different target, use a different tool, or report the blocker."
+                    ),
+                )
+
+        if agent_mode == "coworker" and name in self._COWORKER_INTERACTIVE_TOOLS:
             key = self._click_key(name, args)
-            current_key, count = self._click_failures.get(session_id, ("", 0))
-            if current_key == key and count >= self.MAX_CONSECUTIVE_CLICK_FAILURES:
-                return False, (
-                    f"`{name}` has failed {count} times in a row on the same target "
-                    f"(element_index={(args or {}).get('element_index')}, "
-                    f"x={(args or {}).get('x')}, y={(args or {}).get('y')}). "
-                    f"Do NOT retry this click. Change strategy: pick a different "
-                    f"element from the AX tree, use a keyboard shortcut, or call "
-                    f"`cua_get_window_state` to reassess the UI."
+            if name not in self._CLICK_TOOLS:
+                key = self._tool_key(name, args)
+            current_key, count = self._unverified_interactions.get(session_id, ("", 0))
+            limit = self._unverified_repeat_limit(name)
+            if current_key == key and count >= limit:
+                return self._remember_rejection(
+                    session_id,
+                    f"unverified:{key}",
+                    (
+                        f"`{name}` already ran {count} time(s) with the same "
+                        "arguments without a successful state refresh afterward. "
+                        "Do not keep posting the same input. Verify with "
+                        "`cua_get_window_state`, `cua_screenshot`, `cua_page`, "
+                        "or `cua_list_windows`, then either choose a new strategy "
+                        "or report the blocker."
+                    ),
                 )
 
         return True, ""
@@ -182,26 +307,37 @@ class CoworkerActionValidator:
 
         ok = result.startswith(f"[{name}]")
 
-        if name in self._COWORKER_PERCEPTION_TOOLS:
+        if name in self._FAILURE_BUDGET_TOOLS:
+            key = self._tool_key(name, args)
+            if ok:
+                self._tool_failures[session_id] = ("", 0, "")
+            else:
+                current_key, count, _ = self._tool_failures.get(session_id, ("", 0, ""))
+                self._tool_failures[session_id] = (
+                    key,
+                    count + 1 if current_key == key else 1,
+                    self._failure_summary(result),
+                )
+
+        if name in self._COWORKER_STATE_REFRESH_TOOLS:
             if ok:
                 self._coworker_pending_verification.pop(session_id, None)
+                self._unverified_interactions.pop(session_id, None)
                 self._tool_rejections.pop(session_id, None)
             return
 
         if name not in self._COWORKER_INTERACTIVE_TOOLS:
             return
 
-        if name in self._CLICK_TOOLS:
-            key = self._click_key(name, args)
-            current_key, count = self._click_failures.get(session_id, ("", 0))
-            if not ok:
-                self._click_failures[session_id] = (key, count + 1 if current_key == key else 1)
-            else:
-                self._click_failures[session_id] = ("", 0)
-                self._tool_rejections.pop(session_id, None)
-
         if ok:
+            key = self._tool_key(name, args)
+            current_key, count = self._unverified_interactions.get(session_id, ("", 0))
+            self._unverified_interactions[session_id] = (
+                key,
+                count + 1 if current_key == key else 1,
+            )
             self._coworker_pending_verification[session_id] = name
+            self._tool_rejections.pop(session_id, None)
 
     def validate_done_response(self, session_id: str, final_message: str | None) -> tuple[bool, str]:
         """
