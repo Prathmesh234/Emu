@@ -1202,8 +1202,7 @@ async def sessions_history():
             first_user = next((m for m in messages if m.get("role") == "user" and m.get("content", "").strip() and m["content"] != "<screenshot>"), None)
             if not first_user:
                 continue
-            # Use directory mtime as a rough "last active" timestamp
-            mtime = session_dir.stat().st_mtime
+            mtime = conv_path.stat().st_mtime
             results.append({
                 "session_id": session_dir.name,
                 "preview": first_user["content"][:80],
@@ -1239,11 +1238,10 @@ async def session_messages(session_id: str):
 @app.post("/agent/session/continue")
 async def continue_session(req: ContinueSessionRequest):
     """
-    Create a new session pre-seeded with history from a previous one, then
-    delete the old session directory.
+    Rehydrate backend context for an existing session so the next user message
+    continues it under the same visible session id.
     """
     import re
-    import shutil
 
     old_id = req.previous_session_id
     if not re.match(r'^[a-zA-Z0-9_-]+$', old_id):
@@ -1263,19 +1261,12 @@ async def continue_session(req: ContinueSessionRequest):
     except (json.JSONDecodeError, KeyError):
         return JSONResponse(status_code=400, content={"detail": "Could not read session"})
 
-    new_id = str(uuid.uuid4())
-    ensure_session_dir(new_id)
-    context_manager.set_agent_mode(new_id, req.agent_mode)
-    context_manager.preload_from_conversation(new_id, old_messages)
+    context_manager.clear_session(old_id)
+    context_manager.set_agent_mode(old_id, req.agent_mode)
+    context_manager.preload_from_conversation(old_id, old_messages)
 
-    try:
-        shutil.rmtree(old_dir)
-        print(f"[session] deleted {old_id} after continuation")
-    except Exception as e:
-        print(f"[session] warning: could not delete {old_id}: {e}")
-
-    print(f"[session] continued {old_id} → {new_id}")
-    return {"session_id": new_id}
+    print(f"[session] continued {old_id}")
+    return {"session_id": old_id}
 
 
 @app.websocket("/ws/{session_id}")

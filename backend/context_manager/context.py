@@ -583,9 +583,9 @@ class ContextManager:
 
     def preload_from_conversation(self, session_id: str, old_messages: list[dict]) -> None:
         """
-        Seed a new session's context with user/assistant turns from a previous
-        session's conversation.json, then append a continuation directive so
-        the model knows to re-plan before acting.
+        Seed a session's in-memory context with user/assistant turns from its
+        conversation.json, then append a continuation directive so the model
+        knows to re-plan before acting.
         """
         history = self._get(session_id)  # bootstraps system prompt
 

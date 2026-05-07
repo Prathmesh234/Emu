@@ -443,9 +443,17 @@ function selectChat(id) {
 function newChat() {
     const id = store.createChat();
     _viewingPastSession = false;
+    _pastSessionId = null;
+    resetLiveTurnState();
     enableInput();
     selectChat(id);
     if (historyPanel) historyPanel.setActive(null);
+}
+
+function resetLiveTurnState() {
+    store.state.currentAssistantEl = null;
+    store.state.stepContainer = null;
+    store.state.stepCount = 0;
 }
 
 // ── History panel ────────────────────────────────────────────────────────
@@ -486,6 +494,11 @@ async function loadPastSession(sessionId, prefetchedMessages = null) {
 
         _viewingPastSession = true;
         _pastSessionId = sessionId || null;
+        if (sessionId) {
+            store.hydrateSessionChat(sessionId, messages);
+            if (historyPanel) historyPanel.setActive(sessionId);
+        }
+        resetLiveTurnState();
         // Keep the composer visually identical to a fresh session — typing
         // and clicking send in a past session transparently continues it
         // (see sendMessage).
@@ -508,21 +521,22 @@ async function continuePastSession(oldSessionId) {
     try {
         closeHistoryPanel();
 
-        // Fetch messages before the old session is deleted
         const messages = await api.fetchSessionMessages(oldSessionId);
 
-        // Create new session pre-seeded with old context; old session dir is deleted server-side
-        const newSessionId = await api.continueSession(oldSessionId, store.state.agentMode);
+        const sessionId = await api.continueSession(oldSessionId, store.state.agentMode);
 
-        // Show old messages as read-only context display
         if (messages && messages.length > 0) {
-            await loadPastSession(null, messages);
+            await loadPastSession(sessionId, messages);
+        } else {
+            store.hydrateSessionChat(sessionId, []);
+            resetLiveTurnState();
         }
 
-        // Switch to active mode wired to the new session
         _viewingPastSession = false;
-        store.setSession(newSessionId);
-        initWebSocket(newSessionId);
+        _pastSessionId = null;
+        store.setSession(sessionId);
+        initWebSocket(sessionId);
+        if (historyPanel) historyPanel.setActive(sessionId);
         enableInput();
         refreshHistory();
         return true;

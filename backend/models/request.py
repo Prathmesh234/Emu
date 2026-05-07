@@ -172,7 +172,7 @@ class CompactRequest(BaseModel):
 
 
 class ContinueSessionRequest(BaseModel):
-    """User wants to continue a previous session in a new session."""
+    """User wants to continue a previous session."""
     previous_session_id: str
     agent_mode: Literal["coworker", "remote"] = "coworker"
 

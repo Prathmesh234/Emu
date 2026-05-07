@@ -125,9 +125,11 @@ function HistoryPanel({ onNewChat, onSelectSession, onContinueSession, onToggle 
             list.appendChild(groupEl);
 
             items.forEach(session => {
-                const item = document.createElement('button');
+                const item = document.createElement('div');
                 item.className = 'history-item' + (session.session_id === _activeId ? ' active' : '');
                 item.dataset.sessionId = session.session_id;
+                item.setAttribute('role', 'button');
+                item.tabIndex = 0;
 
                 // Pulsing dot for active session
                 if (session.session_id === _activeId) {
@@ -151,11 +153,17 @@ function HistoryPanel({ onNewChat, onSelectSession, onContinueSession, onToggle 
                 });
                 item.appendChild(continueBtn);
 
-                item.addEventListener('click', () => {
+                const selectSession = () => {
                     setActive(session.session_id);
                     if (onSelectSession) onSelectSession(session.session_id);
-                });
+                };
 
+                item.addEventListener('click', selectSession);
+                item.addEventListener('keydown', (e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    selectSession();
+                });
                 list.appendChild(item);
             });
         }

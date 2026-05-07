@@ -60,6 +60,42 @@ function createChat() {
     return id;
 }
 
+function sessionChatId(sessionId) {
+    return `session:${sessionId}`;
+}
+
+function messagesFromSessionLog(messages) {
+    return (messages || [])
+        .filter(msg => {
+            const content = msg && msg.content;
+            return content && content !== '<screenshot>' && (msg.role === 'user' || msg.role === 'assistant');
+        })
+        .map(msg => ({ role: msg.role, content: msg.content }));
+}
+
+function sessionPreview(messages) {
+    const firstUser = (messages || []).find(msg => (
+        msg && msg.role === 'user' && msg.content && msg.content !== '<screenshot>' && msg.content.trim()
+    ));
+    const text = firstUser ? firstUser.content.trim() : 'Previous session';
+    return text.slice(0, 30) + (text.length > 30 ? '...' : '');
+}
+
+function hydrateSessionChat(sessionId, messages) {
+    const id = sessionChatId(sessionId);
+    let chat = getChat(id);
+
+    if (!chat) {
+        chat = { id, sessionId, preview: sessionPreview(messages), messages: [] };
+        state.chats.unshift(chat);
+    }
+
+    chat.messages = messagesFromSessionLog(messages);
+    state.currentChatId = id;
+    state.currentChat = chat;
+    return id;
+}
+
 function setCurrentChat(id) {
     state.currentChatId = id;
     state.currentChat = getChat(id);
@@ -137,6 +173,7 @@ module.exports = {
     getCurrentChat,
     getLastUserMessage,
     createChat,
+    hydrateSessionChat,
     setCurrentChat,
     setGenerating,
     setStopped,
