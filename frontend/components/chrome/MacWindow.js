@@ -4,8 +4,8 @@
 // Design source: Emu-handoff.zip → project/frames/chrome.jsx > MacWindow
 //
 // This component owns the top chrome bar only (traffic light dots, window
-// title, danger toggle, theme toggle, window controls). It does NOT own the
-// inner "Emu" header — that's WindowHeader.js.
+// title, auto-mode toggle, theme toggle, window controls). It does NOT own
+// the inner "Emu" header — that's WindowHeader.js.
 //
 // Drop-in replacement for the old Header.js from Chat.js's perspective:
 // exposes setExpandVisible(), setToggleDisabled(), setCompact() so Chat.js
@@ -40,32 +40,33 @@ function MacWindow({ onMaximize, onMinimize, onClose, onNewTask, onToggleSidebar
     title.textContent = 'Emu';
     chrome.appendChild(title);
 
-    // Actions: new-task, danger toggle, theme toggle
+    // Actions: new-task, auto-mode toggle, theme toggle
     const actions = document.createElement('div');
     actions.className = 'mac-actions';
 
     // Sessions sidebar toggle — moved to WindowHeader (left of "Emu")
     // so it sits beside the inner title, per design. No-op here.
 
-    // Danger mode toggle (compact slider)
-    const dangerWrap = document.createElement('label');
-    dangerWrap.className = 'mac-danger-wrap' + (store.state.dangerousMode ? ' active' : '');
-    dangerWrap.title = 'Auto-approve shell commands (dangerous mode)';
+    // Auto mode toggle (compact slider) — when on, plans and shell commands
+    // are auto-approved without per-step user confirmation.
+    const autoWrap = document.createElement('label');
+    autoWrap.className = 'mac-auto-wrap' + (store.state.autoMode ? ' active' : '');
+    autoWrap.title = 'Auto mode — auto-approve plans and shell commands';
 
-    const dangerInput = document.createElement('input');
-    dangerInput.type = 'checkbox';
-    dangerInput.checked = store.state.dangerousMode;
-    dangerInput.addEventListener('change', () => {
-        store.setDangerousMode(dangerInput.checked);
-        dangerWrap.classList.toggle('active', dangerInput.checked);
+    const autoInput = document.createElement('input');
+    autoInput.type = 'checkbox';
+    autoInput.checked = store.state.autoMode;
+    autoInput.addEventListener('change', () => {
+        store.setAutoMode(autoInput.checked);
+        autoWrap.classList.toggle('active', autoInput.checked);
     });
 
-    const dangerSlider = document.createElement('span');
-    dangerSlider.className = 'mac-danger-slider';
+    const autoSlider = document.createElement('span');
+    autoSlider.className = 'mac-auto-slider';
 
-    dangerWrap.appendChild(dangerInput);
-    dangerWrap.appendChild(dangerSlider);
-    actions.appendChild(dangerWrap);
+    autoWrap.appendChild(autoInput);
+    autoWrap.appendChild(autoSlider);
+    actions.appendChild(autoWrap);
 
     // Theme toggle — moved into Settings, but keep in chrome too for one-click access
     const themeBtn = document.createElement('button');
@@ -110,8 +111,8 @@ function MacWindow({ onMaximize, onMinimize, onClose, onNewTask, onToggleSidebar
         setExpandVisible() { /* no-op since side-panel toggle left the chrome */ },
 
         setToggleDisabled(disabled) {
-            dangerInput.disabled = disabled;
-            dangerWrap.classList.toggle('disabled', disabled);
+            autoInput.disabled = disabled;
+            autoWrap.classList.toggle('disabled', disabled);
         },
 
         setCompact(compact) {

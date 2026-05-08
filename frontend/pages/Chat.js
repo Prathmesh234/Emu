@@ -102,7 +102,7 @@ function syncGeneratingUI(generating) {
         winHeader.setStatus(generating ? 'working' : 'ready', generating);
         winHeader.setModeDisabled(generating);
     }
-    // Disable the dangerous mode toggle mid-generation
+    // Disable the auto-mode toggle mid-generation
     if (header) header.setToggleDisabled(generating);
     // When generation ends, remove any lingering EmuRunner indicators so
     // they don't keep animating below a finished turn.
@@ -1057,7 +1057,7 @@ async function handleWsMessage(data) {
         case 'plan_review': {
             if (msgGenId !== _generationId) break;
             removeStatus();
-            if (!store.state.dangerousMode) {
+            if (!store.state.autoMode) {
                 // Plan review is a real pause: the backend has returned and
                 // is waiting for user approval/refinement, so the composer
                 // should not remain in Stop/working mode.
@@ -1076,8 +1076,8 @@ async function handleWsMessage(data) {
 
                 const planCard = PlanCard(data.content);
 
-                // In dangerous mode, auto-accept the plan without user confirmation
-                if (store.state.dangerousMode) {
+                // In auto mode, auto-accept the plan without user confirmation
+                if (store.state.autoMode) {
                     markGenerationActive('plan-auto-accepted');
                     planCard.acceptBtn.disabled = true;
                     planCard.refineBtn.disabled = true;

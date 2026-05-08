@@ -1,99 +1,35 @@
-# Emu Agent
+# Emu
 
-Emu is a desktop automation agent that combines screen understanding, LLM planning, and OS-level action execution.
+Emu is a desktop automation agent for macOS that combines screen understanding,
+LLM planning, and OS-level action execution. It runs locally on your machine,
+binds only to loopback, and stores all session artifacts under `~/.emu/`.
 
-## What is included now
+---
 
-- Desktop action loop with screenshot -> reason -> act -> verify behavior.
-- Provider auto-detection with broad model support.
-- Async Hermes Agent delegation for heavy terminal/code tasks.
-- macOS memory daemon (launchd) for background memory curation.
-- Coworker mode via bundled `emu-cua-driver` for background macOS app control.
-- Auth-token protected backend API (`X-Emu-Token`).
-- Session artifacts and memory stored under `.emu/`.
+## Architecture
 
-## New features called out
+| Component | Path | Role |
+|---|---|---|
+| Electron shell | `main.js`, `preload.js`, `frontend/` | UI, action dispatch, child-process supervision |
+| Backend agent | `backend/` | FastAPI server on `127.0.0.1:8000`, tool-calling loop, provider routing |
+| Memory daemon | `daemon/` | macOS LaunchAgent that curates long-term memory under `.emu/` on a 2-minute tick |
+| Coworker driver | `frontend/coworker-mode/emu-driver/` | Swift accessibility/screen helper bundled as `emu-cua-driver` |
 
-### 1. Memory daemon
+All cross-process communication is gated by a per-launch random token written
+to `.emu/.auth_token` (chmod 0600) and required as `X-Emu-Token` on every
+backend request and WebSocket connection.
 
-- Daemon runs out-of-process on macOS via launchd.
-- Tick interval is 2 minutes (see `daemon/launchd/com.emu.memory-daemon.plist.template`).
-- Command entrypoint is `daemon/launchd/run.sh`.
-- Installer CLI: `python3 -m daemon.install_macos <command>`.
+---
 
-Useful commands:
+## Quick start
 
-```bash
-python3 -m daemon.install_macos install
-python3 -m daemon.install_macos status
-python3 -m daemon.install_macos run-now
-python3 -m daemon.install_macos uninstall
-```
-
-### 2. Hermes Agent integration
-
-Backend includes async Hermes job tools:
-
-- `invoke_hermes`
-- `check_hermes`
-- `cancel_hermes`
-- `list_hermes_jobs`
-
-Implementation details:
-
-- Job registry and subprocess draining: `backend/tools/hermes_jobs.py`
-- Tool handlers: `backend/tools/hermes.py`
-- Results persisted to session `hermes/task_result_XX.md` files.
-
-### 3. Provider expansion
-
-Current detection chain includes:
-
-- Claude
-- OpenRouter
-- Azure OpenAI
-- OpenAI-compatible endpoints
-- OpenAI
-- Gemini
-- Bedrock
-- Fireworks
-- Together AI
-- Baseten
-- H Company
-- Modal fallback
-
-Reference: `backend/providers/registry.py`.
-
-### 4. Coworker mode
-
-Coworker mode is the default agent mode. Electron owns a long-lived
-`emu-cua-driver serve --no-relaunch` child process, while the backend calls
-`cua_*` tools to snapshot target windows and dispatch input without stealing the
-user's foreground app.
-
-Useful commands:
+Two terminals:
 
 ```bash
-npm run build:driver   # build frontend/coworker-mode/emu-driver
-npm run pack           # build driver, then create dist/mac-*/Emu.app
-npm run dist           # build driver, then run electron-builder release flow
-```
-
-If Accessibility or Screen Recording is missing, Emu shows an in-app permission
-card with `Allow` buttons that open the exact System Settings panes.
-
-## Launch commands
-
-For setup agents, use `install_emu_skill/INSTALL_EMU.MD` as the canonical
-installation runbook. The commands below are the normal local development path.
-
-Recommended startup uses two terminals.
-
-```bash
-# Terminal 1: backend
+# Terminal 1 — backend
 ./backend.sh
 
-# Terminal 2: frontend
+# Terminal 2 — frontend
 ./frontend.sh
 ```
 
@@ -102,76 +38,160 @@ Manual startup:
 ```bash
 # Backend
 cd backend
-uv venv
-uv sync
+uv venv && uv sync
 uv run uvicorn main:app --host 127.0.0.1 --port 8000
 
-# Frontend (new terminal)
-cd ..
+# Frontend (separate terminal)
 npm install
 npm start
 ```
 
-## Environment variables you will likely use
+For setup automation, see `install_emu_skill/INSTALL_EMU.MD`.
+
+---
+
+## Configuration
+
+Provider credentials are read from environment variables. Pick one:
 
 ```bash
-# Pick one provider key (or use EMU_PROVIDER override)
 ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
 OPENAI_API_KEY=
 GOOGLE_API_KEY=
 AZURE_OPENAI_ENDPOINT=
 AZURE_OPENAI_API_KEY=
-
-# Optional
-EMU_PROVIDER=
-OPENAI_BASE_URL=
-USE_OMNI_PARSER=1
-EMU_DEV=1
 ```
 
-Also review `backend/.env.example` for full provider and daemon options.
+Optional overrides:
 
-## Common issues and fixes
+```bash
+EMU_PROVIDER=          # force a specific provider
+OPENAI_BASE_URL=       # for openai-compatible endpoints (allowlisted hosts only)
+USE_OMNI_PARSER=1      # enable omni-parser screen understanding
+EMU_DEV=1              # development mode
+```
 
-### Backend 401 errors
+See `backend/.env.example` for the full list. **Do not commit `.env` files** —
+`.env`, `.env.*`, `*.pem`, `*.key`, and SSH material are gitignored and
+excluded from packaged builds.
 
-Symptom:
+For production use, prefer the macOS Keychain for provider keys (the daemon
+already supports this — see `daemon/llm_client.py`).
 
-- Frontend calls fail with unauthorized responses.
+---
 
-Cause:
+## Features
 
-- Missing or mismatched `X-Emu-Token` header.
+### Coworker mode (default)
 
-Fix:
+Emu drives target windows through the bundled `emu-cua-driver` Swift helper
+without stealing the user's foreground app. The backend calls `cua_*` tools
+that operate on a specific `pid` + `window_id`.
 
-- Ensure frontend is reading `.emu/.auth_token` created by backend startup.
-- Restart backend and frontend so both use the same token.
+`cua_page execute_javascript` requires per-call user confirmation
+(`user_has_confirmed_javascript=true`) before executing any JavaScript in a
+browser tab. This is enforced server-side regardless of the LLM's intent.
 
-### Frontend cannot connect
+### Memory daemon
 
-Symptom:
+Background memory curation runs out-of-process via launchd:
 
-- UI starts but no responses.
+```bash
+python3 -m daemon.install_macos install     # install
+python3 -m daemon.install_macos status      # verify
+python3 -m daemon.install_macos run-now     # one-shot tick
+python3 -m daemon.install_macos uninstall   # remove
+```
 
-Fix:
+The daemon runs as a per-user LaunchAgent (not a system LaunchDaemon) and
+operates only on files under `~/.emu/`. It exposes no IPC surface.
 
-- Confirm backend is running on `http://127.0.0.1:8000`.
-- Confirm no firewall or local proxy is intercepting loopback.
+### Hermes Agent delegation
+
+Long-running terminal/code tasks can be delegated to a locally-installed
+[Hermes Agent](https://github.com/NousResearch/hermes-agent):
+
+| Tool | Purpose |
+|---|---|
+| `invoke_hermes` | Spawn a background Hermes job, return job id |
+| `check_hermes` | Poll status / retrieve final output |
+| `cancel_hermes` | Terminate a running job |
+| `list_hermes_jobs` | Enumerate jobs in current session |
+
+The Hermes child process inherits a minimal env (PATH/HOME/LANG/TERM only) —
+provider API keys are never forwarded.
+
+### Provider support
+
+Auto-detected providers, in order:
+
+Anthropic, OpenRouter, Azure OpenAI, OpenAI-compatible, OpenAI, Gemini,
+Bedrock, Fireworks, Together AI, Baseten, H Company, Modal fallback.
+
+See `backend/providers/registry.py`.
+
+---
+
+## Build & package
+
+```bash
+npm run build:driver   # build the Swift emu-cua-driver
+npm run pack           # build driver + create dist/mac-*/Emu.app (unsigned)
+npm run dist           # build driver + run electron-builder release flow
+```
+
+The packaged app excludes `.env*`, `*.pem`, `*.key`, `.venv`, `__pycache__`,
+`training/`, `Tests/`, and editor/agent dotfiles.
+
+---
+
+## Security model
+
+- **Loopback only.** Backend binds `127.0.0.1:8000`. The TCP socket is
+  guarded by a per-launch random token (`.emu/.auth_token`, chmod 0600).
+- **Sandboxed shell.** `shell_exec` pins `cwd` and `HOME` to `~/.emu`,
+  rejects network tools, privilege escalation, destructive operations, and
+  interpreter `-c`/`-e`/`-f` invocations that would hide work from the
+  path-scope check.
+- **Browser JS gated.** `cua_page execute_javascript` requires explicit
+  per-call user confirmation; `enable_javascript_apple_events` requires
+  `user_has_confirmed_enabling`.
+- **Strict app-name allowlist.** `raise_app` validates against
+  `^[A-Za-z0-9 .\-+_/&()'!]+$` and rejects control characters and
+  Unicode quote variants.
+- **Navigation lockdown.** The Electron renderer denies any navigation
+  outside the bundled `file://` pages; external URLs are routed through
+  `shell.openExternal` after host allowlisting.
+- **Memory daemon is jailed** to `~/.emu/`. All writes go through
+  `daemon/policy.py` which uses path containment + filename pattern checks.
+- **Hermes env is scrubbed.** The Hermes child process never sees provider
+  API keys.
+
+See `MACOS_PERMISSIONS.md` for the macOS Accessibility / Screen Recording
+grant flow.
+
+---
+
+## Troubleshooting
+
+### Backend 401
+
+`X-Emu-Token` mismatch. Restart backend and frontend so both reload the
+same token from `.emu/.auth_token`.
+
+### Frontend can't connect
+
+Confirm the backend is running on `http://127.0.0.1:8000` and no local
+proxy is intercepting loopback.
 
 ### macOS actions fail silently
 
-Fix:
-
-- Grant Accessibility and Screen Recording permissions.
-- Restart app after granting permissions.
-- In coworker mode, use the permission card when it appears; for the packaged
-  `.dmg` flow, see `MACOS_PERMISSIONS.md`.
+Grant Accessibility and Screen Recording to Emu in System Settings → Privacy
+& Security, then restart the app. In coworker mode, use the in-app
+permission card. Packaged `.dmg` flow: see `MACOS_PERMISSIONS.md`.
 
 ### Modal deployment fails
-
-Fix:
 
 ```bash
 cd backend
@@ -180,38 +200,41 @@ uv run modal setup
 
 Then retry `./backend.sh`.
 
-### Hermes jobs stuck or slow
+### Hermes jobs stuck
 
-Fix:
-
-- Poll with `check_hermes`.
-- Cancel with `cancel_hermes` if no output for extended periods.
-- Review session result files and backend logs for stderr output.
+Poll with `check_hermes` and `cancel_hermes` if there has been no output for
+an extended period. Inspect `.emu/sessions/<id>/hermes/` for stderr output.
 
 ### Daemon not running
 
-Fix:
+```bash
+python3 -m daemon.install_macos status
+```
 
-- Check status with `python3 -m daemon.install_macos status`.
-- Reinstall launch agent if needed.
-- Ensure app is not running from a transient translocation or mounted image path.
+Reinstall if needed. Confirm the app is not running from a translocation or
+mounted-image path.
+
+---
 
 ## Repository map
 
-- `backend/`: FastAPI agent harness, providers, tools, prompts.
-- `frontend/`: Electron renderer UI, actions, services, store, styles.
-- `frontend/coworker-mode/emu-driver/`: nested `emu-cua-driver` Swift driver.
-- `frontend/coworker-driver/`: coworker mode operator docs and skill runbooks.
-- `daemon/`: memory daemon runtime, policy, state, launchd installer.
-- `backend.sh` / `frontend.sh`: one-command startup scripts.
+| Path | Contents |
+|---|---|
+| `main.js`, `preload.js` | Electron entrypoint and preload bridge |
+| `frontend/` | Renderer UI, actions, services, store, styles |
+| `frontend/coworker-mode/emu-driver/` | Swift `emu-cua-driver` source |
+| `frontend/coworker-driver/` | Coworker mode operator docs |
+| `backend/` | FastAPI agent harness, providers, tools, prompts |
+| `daemon/` | Memory daemon runtime, policy, state, launchd installer |
+| `backend.sh`, `frontend.sh` | One-command startup scripts |
 
 ## Additional docs
 
-- `install_emu_skill/INSTALL_EMU.MD`
-- `DOCUMENTATION.md`
-- `MACOS_PERMISSIONS.md`
-- `backend/BACKEND.MD`
-- `frontend/FRONTEND.md`
-- `daemon/DESIGN.md`
-- `frontend/coworker-mode/PLAN.md`
-- `frontend/coworker-driver/README.md`
+- `install_emu_skill/INSTALL_EMU.MD` — automated install runbook
+- `DOCUMENTATION.md` — extended documentation
+- `MACOS_PERMISSIONS.md` — Accessibility & Screen Recording grant flow
+- `backend/BACKEND.MD` — backend architecture
+- `frontend/FRONTEND.md` — frontend architecture
+- `daemon/DESIGN.md` — daemon design notes
+- `frontend/coworker-mode/PLAN.md` — coworker mode plan
+- `frontend/coworker-driver/README.md` — driver operator guide

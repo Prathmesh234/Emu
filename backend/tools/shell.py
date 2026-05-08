@@ -15,8 +15,10 @@ Guardrails:
      pipe-to-shell (| bash), eval/source.
   5. 30s timeout, 100 KB combined output cap.
 
-Defense-in-depth only: an interpreter call like `python3 -c "..."` can still
-embed arbitrary paths in strings. For true FS sandboxing use sandbox-exec.
+Defense-in-depth: interpreter '-c'/'-e'/'-f' invocations (python -c, node -e,
+osascript -e, etc.) are now rejected because they hide real work from the
+path-scope check. Agents that need to run a script must write it to a file
+under .emu and execute it by path. For true FS sandboxing use sandbox-exec.
 """
 
 from __future__ import annotations
@@ -53,6 +55,20 @@ _BLOCKED_PATTERNS = [
     re.compile(r"^\s*:\s*\(\s*\)\s*\{"),
 ]
 
+# Interpreter "exec a string" forms that bypass the path/blocklist guards
+# above by hiding the real work inside an argument string the validator can't
+# inspect. Block them outright; agents that need to run code should write a
+# script under .emu and execute it by file path so the path-scope check runs.
+_INTERPRETER_EXEC_RE = re.compile(
+    r"(?:^|[\s|;&(`])"                       # word boundary or shell separator
+    r"(?:/[^\s]+/)?"                         # optional absolute path prefix
+    r"(?:python3?|node|deno|bun|ruby|perl|php|lua|tclsh|"
+    r"osascript|swift|awk|sed|"
+    r"bash|sh|zsh|ksh|dash|fish)"
+    r"(?:[0-9.]*)"                           # optional version suffix (python3.12)
+    r"\s+(?:-[A-Za-z]*[ceEfRr])\b"           # -c / -e / -E / -f / -R / -r
+)
+
 _ALLOWED_BIN_PREFIXES = (
     "/bin/", "/sbin/", "/usr/bin/", "/usr/sbin/",
     "/usr/local/bin/", "/usr/local/sbin/",
@@ -67,7 +83,10 @@ def _reject(reason: str) -> str:
         f"  • cwd is pinned to .emu; only .emu paths are allowed.\n"
         f"  • Blocked: curl/wget/ssh/scp/nc, sudo/su, rm -rf, chmod/chown,\n"
         f"    kill/pkill/killall, launchctl/systemctl, mount/umount,\n"
-        f"    mkfs/dd, pipe-to-shell (| bash), eval/source.\n"
+        f"    mkfs/dd, pipe-to-shell (| bash), eval/source,\n"
+        f"    interpreter -c/-e/-f forms (python -c, node -e, osascript -e,\n"
+        f"    bash -c, awk -f, sed -f, …). Write a script under .emu and\n"
+        f"    run it by path instead.\n"
         f"  • 30s timeout, 100 KB output cap.\n"
         f"Rewrite to stay within these rules, or use another tool "
         f"(read_session_file, write_session_file, read_memory, etc.)."
@@ -108,6 +127,14 @@ def _violates_blocklist(command: str) -> tuple[bool, str]:
     for pat in _BLOCKED_PATTERNS:
         if pat.search(lowered):
             return True, f"command matches blocked pattern ({pat.pattern!r})"
+    if _INTERPRETER_EXEC_RE.search(lowered):
+        return True, (
+            "interpreter '-c' / '-e' / '-f' style invocations are blocked "
+            "(python -c, node -e, ruby -e, perl -e, osascript -e, awk -f, "
+            "sed -f, bash -c, etc.) — they hide the real command from the "
+            "path-scope check and can read files outside .emu. Write the "
+            "script to a file under .emu and execute it by path instead."
+        )
     for t in _tokens(command):
         base = os.path.basename(t).lower()
         if base in _BLOCKED_TOKENS:

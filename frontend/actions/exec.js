@@ -101,7 +101,7 @@ function register(ipcMain) {
     ipcMain.handle('shell:exec', async (_event, { command }) => {
         console.log(`[exec] shell:exec invoked: ${command.slice(0, 120)}`);
 
-        // Illegal command screening — catch dangerous patterns before they hit the shell
+        // Illegal command screening — catch unsafe patterns before they hit the shell
         const illegal = checkIllegalCommand(command);
         if (illegal.blocked) {
             const msg = `ILLEGAL COMMAND BLOCKED: ${illegal.reason}`;

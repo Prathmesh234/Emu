@@ -21,7 +21,7 @@ const state = {
     isSidePanel: false,
     sessionId: null,
     ws: null,
-    dangerousMode: true,
+    autoMode: true,
     darkMode: _savedDarkMode,
     agentMode: _savedAgentMode,
     // Active coworker target (PLAN §6.5). Populated from each /agent/step
@@ -117,8 +117,8 @@ function setSession(id) {
     state.sessionId = id;
 }
 
-function setDangerousMode(value) {
-    state.dangerousMode = value;
+function setAutoMode(value) {
+    state.autoMode = value;
 }
 
 function setDarkMode(value) {
@@ -179,7 +179,7 @@ module.exports = {
     setStopped,
     setSidePanel,
     setSession,
-    setDangerousMode,
+    setAutoMode,
     setDarkMode,
     setAgentMode,
     setCoworkerTarget,

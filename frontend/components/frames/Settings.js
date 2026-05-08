@@ -54,26 +54,26 @@ function Settings({ onClose }) {
     body.appendChild(_section('Behavior'));
     const group2 = _group();
 
-    const dangerRow = _row(
-        'Dangerous mode',
-        store.state.dangerousMode ? 'on' : 'off',
+    const autoRow = _row(
+        'Auto mode',
+        store.state.autoMode ? 'on' : 'off',
         { action: true },
     );
-    dangerRow.val.addEventListener('click', () => {
-        const next = !store.state.dangerousMode;
-        store.setDangerousMode(next);
-        dangerRow.val.textContent = next ? 'on' : 'off';
-        // Keep the chrome-bar danger slider visually in sync (mirrors the
+    autoRow.val.addEventListener('click', () => {
+        const next = !store.state.autoMode;
+        store.setAutoMode(next);
+        autoRow.val.textContent = next ? 'on' : 'off';
+        // Keep the chrome-bar auto-mode slider visually in sync (mirrors the
         // theme-toggle pattern below: settings is the single source of truth,
         // but the chrome bar shows the live value too).
-        const dangerWrap = document.querySelector('.mac-danger-wrap');
-        if (dangerWrap) {
-            dangerWrap.classList.toggle('active', next);
-            const input = dangerWrap.querySelector('input[type="checkbox"]');
+        const autoWrap = document.querySelector('.mac-auto-wrap');
+        if (autoWrap) {
+            autoWrap.classList.toggle('active', next);
+            const input = autoWrap.querySelector('input[type="checkbox"]');
             if (input) input.checked = next;
         }
     });
-    group2.appendChild(dangerRow.row);
+    group2.appendChild(autoRow.row);
     body.appendChild(group2);
 
     // Section: System checks

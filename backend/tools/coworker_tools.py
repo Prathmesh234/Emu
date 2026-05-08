@@ -612,6 +612,7 @@ COWORKER_DRIVER_TOOLS_OPENAI: list[dict] = [
             "attributes": {"type": "array", "items": {"type": "string"}, "description": "Attributes to include for query_dom matches."},
             "bundle_id": {"type": "string", "description": "Browser bundle id for enable_javascript_apple_events."},
             "user_has_confirmed_enabling": {"type": "boolean", "description": "Must be true only after explicit user permission for enable_javascript_apple_events."},
+            "user_has_confirmed_javascript": {"type": "boolean", "description": "Required for action=execute_javascript. Must be true only after the user has explicitly approved running the exact JS payload in the named tab — execute_javascript can read cookies/session tokens/DOM of any logged-in site, so blanket approval is never acceptable."},
         },
         ["pid", "window_id", "action"],
     ),
@@ -938,18 +939,50 @@ def call_driver_tool(
                 "attributes",
                 "bundle_id",
                 "user_has_confirmed_enabling",
+                "user_has_confirmed_javascript",
             ):
                 args.pop(key, None)
         elif action == "query_dom":
-            for key in ("javascript", "bundle_id", "user_has_confirmed_enabling"):
+            for key in (
+                "javascript",
+                "bundle_id",
+                "user_has_confirmed_enabling",
+                "user_has_confirmed_javascript",
+            ):
                 args.pop(key, None)
             if args.get("attributes") == []:
                 args.pop("attributes", None)
         elif action == "execute_javascript":
-            for key in ("css_selector", "attributes", "bundle_id", "user_has_confirmed_enabling"):
+            confirmed = bool(args.pop("user_has_confirmed_javascript", False))
+            if not confirmed:
+                return {
+                    "ok": False,
+                    "error": (
+                        "cua_page execute_javascript requires "
+                        "user_has_confirmed_javascript=true. The user must "
+                        "explicitly approve the exact JS payload first — "
+                        "execute_javascript can read cookies, session "
+                        "tokens, and DOM contents of any logged-in site in "
+                        "the target tab, so blanket pre-approval is not "
+                        "acceptable. Ask the user to confirm in chat, then "
+                        "re-issue the call with the flag set."
+                    ),
+                    "code": None,
+                }
+            for key in (
+                "css_selector",
+                "attributes",
+                "bundle_id",
+                "user_has_confirmed_enabling",
+            ):
                 args.pop(key, None)
         elif action == "enable_javascript_apple_events":
-            for key in ("javascript", "css_selector", "attributes"):
+            for key in (
+                "javascript",
+                "css_selector",
+                "attributes",
+                "user_has_confirmed_javascript",
+            ):
                 args.pop(key, None)
 
     try:

@@ -78,7 +78,7 @@
   pointer-events: none;
 }
 
-/* ── Window action buttons (theme, danger, expand) ──────────────────────── */
+/* ── Window action buttons (theme, auto-mode, expand) ───────────────────── */
 
 .mac-actions {
   display: flex;
@@ -106,16 +106,16 @@
 }
 .mac-action-btn:hover { background: var(--ink-08); color: var(--ink-55); }
 
-/* Danger mode toggle — compact pill in chrome bar */
-.mac-danger-wrap {
+/* Auto mode toggle — compact pill in chrome bar */
+.mac-auto-wrap {
   display: flex;
   align-items: center;
   gap: 3px;
   -webkit-app-region: no-drag;
   cursor: pointer;
 }
-.mac-danger-wrap input { display: none; }
-.mac-danger-slider {
+.mac-auto-wrap input { display: none; }
+.mac-auto-slider {
   width: 24px;
   height: 13px;
   border-radius: 7px;
@@ -123,7 +123,7 @@
   position: relative;
   transition: background 0.18s;
 }
-.mac-danger-slider::after {
+.mac-auto-slider::after {
   content: '';
   position: absolute;
   top: 2px;
@@ -134,9 +134,9 @@
   background: var(--paper);
   transition: transform 0.18s;
 }
-.mac-danger-wrap.active .mac-danger-slider { background: rgba(220, 38, 38, 0.7); }
-.mac-danger-wrap.active .mac-danger-slider::after { transform: translateX(11px); }
-.mac-danger-wrap.disabled { opacity: 0.35; pointer-events: none; }
+.mac-auto-wrap.active .mac-auto-slider { background: rgba(220, 38, 38, 0.7); }
+.mac-auto-wrap.active .mac-auto-slider::after { transform: translateX(11px); }
+.mac-auto-wrap.disabled { opacity: 0.35; pointer-events: none; }
 
 /* ── Content area below chrome ──────────────────────────────────────────── */
 

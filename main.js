@@ -86,6 +86,67 @@ function clearMissingPermissions() {
   lastMissingPermissions = [];
 }
 
+// ── Navigation lockdown ────────────────────────────────────────────────────
+// The renderer runs with nodeIntegration enabled (see createWindow), so any
+// successful off-origin navigation would inherit Node access and become host
+// RCE. We allow only the bundled file:// pages and route every other URL
+// through shell.openExternal after a strict scheme + host allowlist.
+
+const ALLOWED_LOCAL_FILES = new Set(
+  ['index.html', 'border.html'].map((f) =>
+    require('url').pathToFileURL(path.join(__dirname, 'frontend', f)).href,
+  ),
+);
+
+const EXTERNAL_URL_ALLOWLIST = [
+  /^https:\/\/([a-z0-9-]+\.)*anthropic\.com(\/|$)/i,
+  /^https:\/\/([a-z0-9-]+\.)*openai\.com(\/|$)/i,
+  /^https:\/\/([a-z0-9-]+\.)*openrouter\.ai(\/|$)/i,
+  /^https:\/\/([a-z0-9-]+\.)*baseten\.co(\/|$)/i,
+  /^https:\/\/([a-z0-9-]+\.)*github\.com(\/|$)/i,
+  /^https:\/\/([a-z0-9-]+\.)*apple\.com(\/|$)/i,
+  /^x-apple\.systempreferences:/i,
+];
+
+function isLocalFrontendUrl(url) {
+  if (!url) return false;
+  if (ALLOWED_LOCAL_FILES.has(url)) return true;
+  // about:blank is fine for one-off renderer-internal blank docs
+  return url === 'about:blank';
+}
+
+function isAllowedExternal(url) {
+  return EXTERNAL_URL_ALLOWLIST.some((re) => re.test(url));
+}
+
+function applyNavigationLockdown(win) {
+  if (!win || !win.webContents) return;
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isLocalFrontendUrl(url)) return;
+    event.preventDefault();
+    console.warn(`[security] blocked will-navigate → ${url}`);
+    if (isAllowedExternal(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+  });
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternal(url)) {
+      shell.openExternal(url).catch(() => {});
+    } else {
+      console.warn(`[security] blocked window.open → ${url}`);
+    }
+    return { action: 'deny' };
+  });
+
+  // Refuse permission requests we never need (camera/mic/geolocation/etc.)
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write']);
+    callback(allowed.has(permission));
+  });
+}
+
 // ── App lifecycle ──────────────────────────────────────────────────────────
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -116,6 +177,7 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'frontend', 'index.html'));
+  applyNavigationLockdown(mainWindow);
   mainWindow.webContents.on('did-finish-load', () => {
     if (lastMissingPermissions.length) {
       mainWindow.webContents.send('emu-cua:permissions-required', {
@@ -152,6 +214,7 @@ app.whenReady().then(() => {
       borderWindow.setAlwaysOnTop(true, 'screen-saver');
       borderWindow.setVisibleOnAllWorkspaces(true);
       borderWindow.loadFile(path.join(__dirname, 'frontend', 'border.html'));
+      applyNavigationLockdown(borderWindow);
     }
     return borderWindow;
   }

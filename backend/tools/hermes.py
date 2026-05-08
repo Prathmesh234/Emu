@@ -69,15 +69,34 @@ _HERMES_PATH_EXTRAS = [
     "/usr/local/bin",
 ]
 
+# Allowlist of env vars Hermes is allowed to inherit. Everything else —
+# notably every provider API key (ANTHROPIC_API_KEY, OPENAI_API_KEY,
+# OPENROUTER_API_KEY, BASETEN_API_KEY, AWS_*, GOOGLE_API_KEY, etc.) and
+# anything matching *_KEY / *_SECRET / *_TOKEN / *_PASSWORD — is dropped
+# before the subprocess starts. Hermes is a fully autonomous terminal agent;
+# leaking Emu's provider keys to it would let a prompt-injected Hermes run
+# bill Emu's accounts and pivot to whatever the keys grant.
+_HERMES_ENV_ALLOWLIST = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL",
+    "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ",
+    "TMPDIR", "PWD",
+    # Hermes' own config — explicit vars Hermes documents reading.
+    "HERMES_CONFIG", "HERMES_HOME", "HERMES_MODEL",
+})
+
+
+def _scrub_env(env: dict[str, str]) -> dict[str, str]:
+    """Return env restricted to the Hermes allowlist."""
+    return {k: v for k, v in env.items() if k in _HERMES_ENV_ALLOWLIST}
+
 
 def _augmented_env() -> dict[str, str]:
-    """Return os.environ with Hermes install dirs prepended to PATH."""
-    env = os.environ.copy()
-    existing = env.get("PATH", "")
+    """Return a minimal env (allowlist) with Hermes install dirs prepended to PATH."""
+    env = _scrub_env(os.environ)
+    existing = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     existing_parts = existing.split(os.pathsep) if existing else []
     extras = [p for p in _HERMES_PATH_EXTRAS if p and p not in existing_parts]
-    if extras:
-        env["PATH"] = os.pathsep.join(extras + existing_parts)
+    env["PATH"] = os.pathsep.join(extras + existing_parts) if extras else existing
     return env
 
 

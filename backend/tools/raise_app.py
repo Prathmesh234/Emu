@@ -16,10 +16,31 @@ NOT a desktop action JSON.
 from __future__ import annotations
 
 import platform
+import re
 import subprocess
 
 _TIMEOUT_S = 5
-_MAX_NAME_LEN = 200
+_MAX_NAME_LEN = 64
+
+# Strict allowlist for macOS application display names. Covers the realistic
+# character set ("Google Chrome", "Visual Studio Code", "1Password 7",
+# "Adobe Photoshop 2024", "Microsoft 365", "Logic Pro", etc.) while rejecting
+# anything that could break out of the AppleScript string we interpolate it
+# into (`tell application "<name>" to activate`).
+_NAME_RE = re.compile(r"^[A-Za-z0-9 .\-+_/&()'!]+$")
+
+# AppleScript treats every quote variant as a string delimiter; control chars
+# (including \n / \r / \t) terminate the current command so newline-separated
+# follow-up statements would execute. Reject all of these explicitly even
+# before the regex runs, to give a clearer error message.
+_FORBIDDEN_CHARS = (
+    '"', "\\", "`",
+    "\n", "\r", "\t", "\x00", "\x0b", "\x0c",
+    "“", "”",  # curly double quotes
+    "‘", "’",  # curly single quotes
+    "«", "»",  # guillemets
+    "ʺ", "ʼ",  # modifier letter quotes
+)
 
 
 def _validate_name(name: str) -> str | None:
@@ -28,8 +49,20 @@ def _validate_name(name: str) -> str | None:
         return "ERROR: raise_app requires a non-empty 'app_name'."
     if len(name) > _MAX_NAME_LEN:
         return f"ERROR: raise_app 'app_name' exceeds {_MAX_NAME_LEN} chars."
-    if '"' in name or "\\" in name:
-        return "ERROR: raise_app 'app_name' must not contain quotes or backslashes."
+    for ch in _FORBIDDEN_CHARS:
+        if ch in name:
+            return (
+                "ERROR: raise_app 'app_name' contains a forbidden character "
+                "(quotes, backslash, backtick, control character, or "
+                "non-ASCII quote variant)."
+            )
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in name):
+        return "ERROR: raise_app 'app_name' contains a control character."
+    if not _NAME_RE.match(name):
+        return (
+            "ERROR: raise_app 'app_name' must match "
+            "^[A-Za-z0-9 .\\-+_/&()'!]+$ (typical macOS app display names)."
+        )
     return None
 
 
