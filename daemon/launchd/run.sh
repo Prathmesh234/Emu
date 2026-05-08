@@ -16,13 +16,17 @@ set -u
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_DIR"
 
-# Pull provider keys + EMU_DAEMON_PROVIDER from backend/.env if present.
-if [ -f "$REPO_DIR/backend/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$REPO_DIR/backend/.env"
-    set +a
-fi
+# Pull provider keys + EMU_DAEMON_PROVIDER from env files. The daemon owns
+# its own .env so it can run extracted from this repo; we still source
+# backend/.env as a fallback for in-repo dev where keys live there.
+for env_file in "$REPO_DIR/daemon/.env" "$REPO_DIR/backend/.env"; do
+    if [ -f "$env_file" ]; then
+        set -a
+        # shellcheck disable=SC1091
+        source "$env_file"
+        set +a
+    fi
+done
 
 # Prefer the backend's uv-managed venv; fall back to system python3.
 PYTHON="$REPO_DIR/backend/.venv/bin/python"

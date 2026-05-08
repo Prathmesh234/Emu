@@ -189,25 +189,14 @@ UVICORN_ARGS="main:app ${_RELOAD_FLAG} --host 127.0.0.1 --port 8000"
 
 export EMU_DAEMON_PROVIDER="${EMU_DAEMON_PROVIDER:-$PROVIDER}"
 
-# ── Memory daemon install prompt (macOS only, first run) ────────────────────
-# Skips silently if:
-#   - not macOS
-#   - stdin isn't a TTY (CI / nohup)
-#   - plist already installed
-#   - user previously answered "never"
+# ── Memory daemon install (macOS only) ──────────────────────────────────────
+# Delegated to daemon/install.sh — the daemon owns its own bootstrap so it can
+# be extracted to a separate repo without further surgery here. install.sh is
+# a no-op on non-macOS hosts and honors EMU_DAEMON_AUTO_INSTALL.
 
-if [[ "$(uname)" == "Darwin" ]]; then
-    # Stdlib only — no need to spin up the backend venv.
-    # EMU_DAEMON_AUTO_INSTALL=1 (default) installs/repairs the launchd agent
-    # non-interactively. Set to 0 to fall back to the interactive y/N/never
-    # prompt (useful if you want the user to opt in explicitly).
-    if [[ "${EMU_DAEMON_AUTO_INSTALL:-1}" == "1" ]]; then
-        info "Installing/refreshing memory daemon (EMU_DAEMON_AUTO_INSTALL=1)..."
-        (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos install) || \
-            warn "Memory daemon install failed (continuing without it)"
-    else
-        (cd "$SCRIPT_DIR" && python3 -m daemon.install_macos prompt-install) || true
-    fi
+if [[ -x "$SCRIPT_DIR/daemon/install.sh" ]]; then
+    "$SCRIPT_DIR/daemon/install.sh" install || \
+        warn "Memory daemon install failed (continuing without it)"
 fi
 
 # ── Start the backend ───────────────────────────────────────────────────────
